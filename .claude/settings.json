@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__codegraph__*"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "codegraph.cmd prompt-hook"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "mattpocock-skills@mattpocock": true,
+    "clangd-lsp@claude-plugins-official": true,
+    "c4-architecture@claude-code-workflows": true,
+    "comprehensive-review@claude-code-workflows": true,
+    "systems-programming@claude-code-workflows": true
+  }
+}

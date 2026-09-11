@@ -1,0 +1,117 @@
+# Vase — clang-tidy 配置
+#
+# 用法：
+#   尚无编译数据库时：
+#     clang-tidy <file> -- -std=c++20 -Iinclude
+#   有 compile_commands.json 时（推荐）：
+#     clang-tidy -p build/ <file>
+#     run-clang-tidy -p build/ -fix
+#
+# 检查集取舍说明（列表本身见下方 Checks，此处不逐条内联注释
+# —— folded block scalar ">" 内部的 "#" 不是注释而是字面内容）：
+#   cert-err58-cpp            单独开启：静态初始化可能抛异常。插件以动态库形式加载，
+#                             DSO 静态初始化失败难以捕获，值得单独盯。
+#   -llvm-/google-/fuchsia-/altera-*  属于特定项目的编码风格，不适用。
+#   -hicpp-*                  与 cppcoreguidelines-*/bugprone-* 大量重叠，会重复报同一条。
+#   -modernize-use-trailing-return-type   主观偏好。
+#   -readability-magic-numbers / -cppcoreguidelines-avoid-magic-numbers   噪声大于收益。
+#                            这两项的禁用**已落实进下方 Checks**（原先只写在本说明里，列表漏了，
+#                            导致 M0 的 0x56415345U 探针常量被报出来）。若日后要改为强制，
+#                            正确做法是给常量起名（constexpr kCamelCase），而不是删这两条。
+#   -portability-avoid-pragma-once  本仓库头文件统一用 `#pragma once`（计划里的片段即如此），
+#                            而目标编译器矩阵（clang-cl / cl.exe / clang / Apple clang）全都支持它。
+#                            该检查针对的是矩阵之外的编译器，对本项目只产生噪声。
+#   -cppcoreguidelines-pro-bounds-*       裸指针运算/数组退化在底层代码中难以避免。
+#   -cppcoreguidelines-pro-type-vararg    C 风格变参有时不可避免。
+#   -readability-identifier-length / -readability-function-cognitive-complexity  主观。
+#   -bugprone-easily-swappable-parameters  误报较多。
+#   -misc-non-private-member-variables-in-classes  对聚合/简单 struct 误报。
+#   -misc-include-cleaner     无编译数据库时误报率高。
+#
+# 与下方 Checks 仍未对齐的三条（本 task 未擅自补齐，留待需求方定夺）：
+#   -cppcoreguidelines-pro-bounds-* / -cppcoreguidelines-pro-type-vararg / -misc-include-cleaner
+#   目前只写在本说明里，Checks 中并无对应禁用项，即事实上是**开启**的。
+#   现在不动它们的理由：三者当下都不触发门禁；且 -misc-include-cleaner 那条理由
+#   （「无编译数据库时误报率高」）**已随 Task 1 生成 compile_commands.json 而失效**——
+#   Task 4 实测它在有编译数据库时报出的是一条真问题（缺 #include <cstdint>），
+#   所以它该留还是该去，方向与另外两条相反，需需求方一并决定。
+---
+# 按类别分组：每组的启用通配在前，该组的禁用项紧随其后。
+# 顺序有意义——clang-tidy 中后出现的模式覆盖先出现的，禁用必须在同组的启用之后。
+Checks: >
+  -*,
+
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+
+  clang-analyzer-*,
+
+  concurrency-*,
+
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+
+  modernize-*,
+  -modernize-use-trailing-return-type,
+
+  performance-*,
+
+  portability-*,
+  -portability-avoid-pragma-once,
+
+  readability-*,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  -readability-magic-numbers,
+
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+
+  cert-err58-cpp,
+
+  -llvm-*,
+  -google-*,
+  -fuchsia-*,
+  -altera-*,
+  -hicpp-*,
+
+# 保持为空：作为提示而非阻断。接 CI 后再决定哪些检查升级为 error
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*'
+# 让 clang-tidy --fix 使用本仓库的 .clang-format
+FormatStyle: file
+
+CheckOptions:
+  readability-identifier-naming.NamespaceCase:                    lower_case
+  readability-identifier-naming.ClassCase:                        CamelCase
+  readability-identifier-naming.EnumCase:                         CamelCase
+  readability-identifier-naming.EnumConstantCase:                 CamelCase
+  readability-identifier-naming.EnumConstantPrefix:               k
+  readability-identifier-naming.StructCase:                       CamelCase
+  readability-identifier-naming.UnionCase:                        CamelCase
+  readability-identifier-naming.TypedefCase:                      CamelCase 
+  readability-identifier-naming.TemplateParameterCase:            CamelCase  # 兜底模板参数
+  readability-identifier-naming.TemplateTemplateParameterCase:    CamelCase  # 模板模板参数，如 template<template<class> class Container>
+  readability-identifier-naming.TypeTemplateParameterCase:        CamelCase  # 类型模板参数，如 template<typename T>
+  readability-identifier-naming.ValueTemplateParameterCase:       CamelCase  # 非类型模板参数，如 template <int N>
+  readability-identifier-naming.FunctionCase:                     CamelCase
+  readability-identifier-naming.MemberCase:                       CamelCase
+  readability-identifier-naming.ParameterCase:                    camelBack
+  readability-identifier-naming.VariableCase:                     camelBack
+  readability-identifier-naming.GlobalVariableCase:               CamelCase
+  readability-identifier-naming.GlobalVariablePrefix:             g
+  # 常量统一使用 kCamelCase
+  readability-identifier-naming.ConstexprVariableCase:            CamelCase
+  readability-identifier-naming.ConstexprVariablePrefix:          k
+  readability-identifier-naming.GlobalConstantCase:               CamelCase
+  readability-identifier-naming.GlobalConstantPrefix:             k
+  readability-identifier-naming.ClassConstantCase:                CamelCase
+  readability-identifier-naming.ClassConstantPrefix:              k
+  readability-identifier-naming.StaticConstantCase:               CamelCase
+  readability-identifier-naming.StaticConstantPrefix:             k
+  readability-identifier-naming.IgnoreMainLikeFunctions:          1
+  readability-redundant-member-init.IgnoreBaseInCopyConstructors: 1
+  # 别名检查必须与本体配置一致，否则两者给出的 fix-it 冲突，clang-tidy 会拒绝应用
+  modernize-use-default-member-init.UseAssignment:                1
+  cppcoreguidelines-use-default-member-init.UseAssignment:        1
+  readability-qualified-auto.AddConstToQualified:                 true

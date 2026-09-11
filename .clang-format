@@ -1,0 +1,27 @@
+# Vase — clang-format 配置
+#
+# 基线：LLVM style（https://llvm.org/docs/CodingStandards.html）
+# 标准：C++20
+# 缩进：4 空格，禁止 Tab
+#
+# 用法：
+#   clang-format -i <file>                    格式化单个文件
+#   clang-format --dry-run --Werror <file>    CI 中校验（不通过则非零退出）
+#   git-clang-format --extensions cpp,cc,h,hpp,ixx   只格式化当前改动
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++20
+
+# --- 缩进（LLVM 默认是 2 空格；这里 4 空格，也是偏离）---
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# --- 以下四把钥匙是本项目对 LLVM 默认的**有意偏离**（LLVM 的值写在行尾）；
+#     只有 NamespaceIndentation 是沿用默认，列出仅为便于日后调整 ---
+ColumnLimit: 120            # LLVM: 80
+AccessModifierOffset: -4    # public:/private: 的缩进；LLVM: -2，-4 可与 class 对齐
+PointerAlignment: Left     # Right → "int *p"；Left → "int* p"；LLVM: Right
+BreakBeforeBraces: Allman   # LLVM: Attach
+NamespaceIndentation: None  # LLVM: None（默认）

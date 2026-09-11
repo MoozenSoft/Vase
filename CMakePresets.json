@@ -1,0 +1,112 @@
+{
+  "version": 9,
+  "cmakeMinimumRequired": { "major": 4, "minor": 3, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "win-x64-clang",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-win/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/Cmake/Toolchains/windows-x64-clangcl.cmake",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "win-x64-clang-debug",
+      "inherits": "win-x64-clang",
+      "displayName": "Windows x64 / clang-cl / Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "win-x64-clang-release",
+      "inherits": "win-x64-clang",
+      "displayName": "Windows x64 / clang-cl / Release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "win-x64-msvc",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-win/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/Cmake/Toolchains/windows-x64-msvc.cmake",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "win-x64-msvc-debug",
+      "inherits": "win-x64-msvc",
+      "displayName": "Windows x64 / cl.exe / Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "win-x64-msvc-release",
+      "inherits": "win-x64-msvc",
+      "displayName": "Windows x64 / cl.exe / Release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "linux-x64-clang",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-linux/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/Cmake/Toolchains/linux-x64-clang-libcxx.cmake",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "linux-x64-clang-debug",
+      "inherits": "linux-x64-clang",
+      "displayName": "Linux x64 / clang / libc++ / Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "linux-x64-clang-release",
+      "inherits": "linux-x64-clang",
+      "displayName": "Linux x64 / clang / libc++ / Release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "win-x64-clang-debug", "configurePreset": "win-x64-clang-debug" },
+    { "name": "win-x64-clang-release", "configurePreset": "win-x64-clang-release" },
+    { "name": "win-x64-msvc-debug", "configurePreset": "win-x64-msvc-debug" },
+    { "name": "win-x64-msvc-release", "configurePreset": "win-x64-msvc-release" },
+    { "name": "linux-x64-clang-debug", "configurePreset": "linux-x64-clang-debug" },
+    { "name": "linux-x64-clang-release", "configurePreset": "linux-x64-clang-release" }
+  ],
+  "testPresets": [
+    {
+      "name": "win-x64-clang-debug",
+      "configurePreset": "win-x64-clang-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "win-x64-clang-release",
+      "configurePreset": "win-x64-clang-release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "win-x64-msvc-debug",
+      "configurePreset": "win-x64-msvc-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "win-x64-msvc-release",
+      "configurePreset": "win-x64-msvc-release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-x64-clang-debug",
+      "configurePreset": "linux-x64-clang-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-x64-clang-release",
+      "configurePreset": "linux-x64-clang-release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
