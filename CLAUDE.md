@@ -37,7 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 构建与测试
 
-**六个 preset，全部已实测可用**。M0 验收时按
+**六个 preset，全部已实测可用**（最近一次全量重测：2026-09-16，`cmake_minimum 4.3` + preset v9 降级后六条线从零 configure/build/ctest 全绿，`-N` 基数 2；本轮未重跑 tidy 与 format）。M0 验收时按
 [`docs/superpowers/specs/2026-09-14-vase-m0-m1-design.md`](docs/superpowers/specs/2026-09-14-vase-m0-m1-design.md)
 2.4 的判据跑过，但**覆盖面按判据不同**：
 
