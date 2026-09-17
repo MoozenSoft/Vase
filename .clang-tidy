@@ -21,20 +21,19 @@
 #   -portability-avoid-pragma-once  本仓库头文件统一用 `#pragma once`（计划里的片段即如此），
 #                            而目标编译器矩阵（clang-cl / cl.exe / clang / Apple clang）全都支持它。
 #                            该检查针对的是矩阵之外的编译器，对本项目只产生噪声。
-#   -cppcoreguidelines-pro-bounds-*       裸指针运算/数组退化在底层代码中难以避免。
-#   -cppcoreguidelines-pro-type-vararg    C 风格变参有时不可避免。
 #   -readability-identifier-length / -readability-function-cognitive-complexity  主观。
 #   -bugprone-easily-swappable-parameters  误报较多。
 #   -misc-non-private-member-variables-in-classes  对聚合/简单 struct 误报。
-#   -misc-include-cleaner     无编译数据库时误报率高。
 #
-# 与下方 Checks 仍未对齐的三条（本 task 未擅自补齐，留待需求方定夺）：
-#   -cppcoreguidelines-pro-bounds-* / -cppcoreguidelines-pro-type-vararg / -misc-include-cleaner
-#   目前只写在本说明里，Checks 中并无对应禁用项，即事实上是**开启**的。
-#   现在不动它们的理由：三者当下都不触发门禁；且 -misc-include-cleaner 那条理由
-#   （「无编译数据库时误报率高」）**已随 Task 1 生成 compile_commands.json 而失效**——
-#   Task 4 实测它在有编译数据库时报出的是一条真问题（缺 #include <cstdint>），
-#   所以它该留还是该去，方向与另外两条相反，需需求方一并决定。
+# 下面四条**事实上是开启的**（说明里提到过，但 Checks 中没有对应的禁用项）。
+# 2026-09-17 实测校正：旧文此处写「三者当下都不触发门禁」，与事实相反——
+# 它们对 M1 代码真会触发，计划内已改为逐点规避代码写法（清单见
+# docs/superpowers/plans/2026-09-16-vase-m1-pod-loop-hotswap.md 的「tidy 形态约束」）：
+#   cppcoreguidelines-pro-bounds-*     指针减法 / 数组退化 / 非常量下标的 operator[]
+#   cppcoreguidelines-pro-type-vararg  fprintf 一族
+#   cppcoreguidelines-macro-usage      能写成函数就别写宏（source_location 已可替代 __FILE__）
+#   misc-include-cleaner               仍未定夺：有编译数据库时报的是真问题
+#                                      （缺 #include <cstdint>），方向与上三条相反
 ---
 # 按类别分组：每组的启用通配在前，该组的禁用项紧随其后。
 # 顺序有意义——clang-tidy 中后出现的模式覆盖先出现的，禁用必须在同组的启用之后。
@@ -96,6 +95,14 @@ CheckOptions:
   readability-identifier-naming.ValueTemplateParameterCase:       CamelCase  # 非类型模板参数，如 template <int N>
   readability-identifier-naming.FunctionCase:                     CamelCase
   readability-identifier-naming.MemberCase:                       CamelCase
+  readability-identifier-naming.MemberPrefix:                     ''
+  readability-identifier-naming.MemberSuffix:                     ''
+  readability-identifier-naming.PublicMemberCase:                 CamelCase
+  readability-identifier-naming.PublicMemberPrefix:               ''
+  readability-identifier-naming.PublicMemberSuffix:               ''
+  readability-identifier-naming.PrivateMemberCase:                CamelCase
+  readability-identifier-naming.PrivateMemberPrefix:              ''
+  readability-identifier-naming.PrivateMemberSuffix:              ''
   readability-identifier-naming.ParameterCase:                    camelBack
   readability-identifier-naming.VariableCase:                     camelBack
   readability-identifier-naming.GlobalVariableCase:               CamelCase
