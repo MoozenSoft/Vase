@@ -17,30 +17,6 @@
 #include <string>
 #include <string_view>
 
-// —— 零开销条约登记（.claude/skills/cpp20-zero-overhead 第 8 组）——
-// 本文件（含它包含的 Context.h）引入的付费点全在「注册」上：每次 Provide / On 一次堆
-// 分配（外壳对象），不在任何稳态重复路径里（条约 4.2 的临界路径是每帧 / 每对外事件 /
-// 稳态每入口）。未做阶梯 1/2/3/4 的任何测量，故不主张任何性能结论；下面写的是
-// 「付了什么」与「为什么值」。
-//
-//   位置                       付了什么                为什么值                测量点          复核触发
-//   Context.h:Context::On      每条订阅 1 次堆分配     handler 类型编译期不可  未做阶梯测量    订阅进每帧或每
-//                              （std::function 外壳）  知，类型擦除必须落地                    事件
-//   Context.h:Context::        每次移交式注册 1 次     跨边界 delete 要留在    未做阶梯测量    移交式注册进
-//   Provide(unique_ptr)        堆分配（unique_ptr      插件镜像内，外壳是载体                  热路径
-//                              外壳）
-//   RegistryBus.h:             容器增长：超容时才重    注册项以十计，摊还成    未做阶梯测量    注册项进入四
-//   ServiceRegistry::Add /     分配（否则 0 次）；     本可忽略；EffectScope                   位数
-//   EventBus::Add /            EffectScope.cpp 的      的槽位增长与它同类
-//   EffectScope.cpp:           Slots.emplace_back 同形
-//   EffectScope::CreateRaw
-//   ScopePool.h:ScopePool::    首次按 chunk 向系统要   反复 play/stop 的稳态   未做阶梯测量    稳态循环里出
-//   Acquire                    内存；释放后再 Acquire  零分配（D10）在这里                     现新分配点
-//                              走空闲链，0 次分配      实现
-//
-// 表里最后两行是**别的文件**的点：skill 的完成判据是全仓每个付费点都有归属，而容器增长
-// 与池分配此前没有登记处，收到本块。
-
 namespace
 {
 

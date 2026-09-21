@@ -63,7 +63,9 @@
 - 〔**本条已被取代**（2026-09-18，M1 之后）：`VASE_MSVC_DLL_WARNINGS_BEGIN/END` 已从仓库删除，C4251 改由根 `CMakeLists.txt` 的全局 `/wd4251`（cl.exe 线）豁免，逐类把关让位于构建侧一次性豁免。下面的正文保留作 M1 当时的记录与本条当时的实测结论。现行口径见 CLAUDE.md 规矩 1、wiki 8.3 与 13.3（含「豁免出不了这棵树」这笔待还的债）。〕**导出类带 STL 成员时，用 `VASE_MSVC_DLL_WARNINGS_BEGIN` / `VASE_MSVC_DLL_WARNINGS_END`（`Export.h`，T1 落地）把类定义包起来**：MSVC 的 C4251 在 `/WX` 下是 error（clang-cl 不报，Linux 无关）——已在 `ScopePool` / `EffectScope` 上实测炸过，一度让 cl.exe 线整条编不过。逐类显式豁免而非全局 `/wd4251`：豁免要一次次做，才不会把新代码的真错一起放行。前提是工具链与 STL 矩阵钉死（§8.5）＋ `HeaderVersion` 拦头文件不匹配（D13）；**若日后允许插件用不同版本的 MSVC STL 构建，前提即破，届时应改为 pimpl 或把 STL 成员移出导出面**。T7 的 `Pod` / `PluginHost` 同样带 STL 成员，照此办理。
 - **格式门必须覆盖未跟踪文件**：`git ls-files` 对**尚未 `git add` 的新文件静默跳过**（本计划早期的门禁命令有此漏洞，实测：整体报 exit 0，单独跑那两个新文件却报差异）。命令一律用 `git ls-files -z --cached --others --exclude-standard ...`。
 - **插件 fixture 与测试探针类放匿名命名空间**，否则撞 `misc-use-internal-linkage`（T4 起实测会报）。`VASE_PLUGIN` 的宏展开自带其所需的抑制，不必再管；`VASE_PLUGIN` 本身仍须留在全局作用域（放匿名命名空间里会破坏 `extern "C"`）。
-- **C++ 改动的运行期成本按 `.claude/skills/cpp20-zero-overhead/SKILL.md` 办**：新增或修改类型、函数签名、
+- 〔**本条已作废**（2026-09-21）：`.claude/skills/cpp20-zero-overhead/` 已整体删除，CLAUDE.md 的配套文件条目
+  与 `Source/{Pod,Host}` 三处代码注释块里的例外登记表一并移除，仓库内不再有运行期成本的登记处。下面的正文
+  保留作 M1 当时的记录。〕**C++ 改动的运行期成本按 `.claude/skills/cpp20-zero-overhead/SKILL.md` 办**：新增或修改类型、函数签名、
   循环、容器与分配、导出面接口之前**先调该 skill**。两条硬约束照办：**每个付费点要么在例外登记表
   占一行**（位置 / 付了什么 / 为什么值 / 测量点＋最近数字与日期 / 复核触发），**要么经确认无付费——
   不许悬空**；**没有验证阶梯上的数字就不写「更快 / 更省 / 零开销」**，注释里也不写。

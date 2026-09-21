@@ -4,8 +4,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 配套文件
 
-- [`.claude/skills/cpp20-zero-overhead/SKILL.md`](.claude/skills/cpp20-zero-overhead/SKILL.md) —— **C++20 零运行时开销条约**（通用，不限本仓库）。新增或修改 C++ 类型、函数签名、循环、容器与分配、导出面接口，以及评审这类改动时，先调该 skill 再动手。它只管运行期成本：命名与格式归 `.clang-tidy` / `.clang-format`，异常策略归本文件。
-
 - [`.claude/CLAUDE.md`](.claude/CLAUDE.md) —— CodeGraph 代码检索工具的用法约定。本仓库已在根目录建立 `.codegraph/` 索引，并在 `.mcp.json` 中注册了 codegraph MCP server。
 
   两者关系：**本文件**描述「这个项目是什么、怎么构建」；**`.claude/CLAUDE.md`** 描述「用什么工具去定位和理解代码」。当 `.codegraph/` 存在时，查找或理解代码应优先调用 `codegraph_explore`，而非 grep/find 或逐个读文件。

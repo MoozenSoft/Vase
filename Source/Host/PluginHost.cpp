@@ -31,48 +31,6 @@
 #include <utility>
 #include <vector>
 
-// —— 零开销条约登记（.claude/skills/cpp20-zero-overhead 第 8 组）——
-// 本文件引入的全部付费点都在「装配 / 拆除」上，每个都每 Pod 或每插件发生常数次，
-// 不在任何循环或稳态重复路径里（条约 4.2 的临界路径是每帧 / 每对外事件 / 稳态每入口）。
-// 本任务未做阶梯 1/2/3/4 的任何测量，故不主张任何性能结论；下面写的是「付了什么」
-// 与「为什么值」。复核触发：CreatePod / DestroyPod / EjectPlugin / AdoptPlugin 若进入
-// 每帧或每事件的路径，或插件数进入三位数，回来做阶梯 2 的分配计数。
-//
-//   位置                          付了什么                      为什么值
-//   Pod::Pod ×1/Pod               4 次堆分配（注册表 / 总线 /    §5.1 的「销毁即归零」就是这
-//                                 根 Scope / 根 Context）        批 unique_ptr 的所有权；
-//                                                               合并分配会牺牲类型清晰与析构序
-//   CreatePodImpl ×1/新建槽       1 次槽分配（**复用空槽走      槽位稳定是「句柄 = 索引 + 代际」
-//                                 :165-171，是 0 次**）          的前提
-//   CreatePodImpl ×N/插件         3 次堆分配（LiveInstance /    每插件一个 Context/Scope 是 §2.1
-//                                 Scope / Context）+ OwnerLabel  的实例边界；两份串都不可省——
-//                                 一份 string 拷贝 + 一次         拥有型拷贝是「别赌字面量生命
-//                                 `std::string id(entry.Id)`     周期」，id 是入口要的 NUL 结尾
-//                                                               形态（string_view 不保证）
-//   CreatePodImpl ×N/插件         KnownBinaries 一次插入：1 个   §5.6「M1 无清单，以计划登记
-//                                 结点分配，Id 超过 15 字符时     代替」；短 Id 走 SSO，长 Id 再
-//                                 另加一份键 string              加一次分配
-//   CreatePodImpl ×1/Pod          1 次 std::function 间接调用    PodOptions::Stage0 由宿主提供，
-//                                                              类型编译期不可知（条约 1.3）
-//   CreatePodImpl 失败路径        每处失败约 4 次 std::string     §5.2「保留记录不保留实例」——
-//                                 构造（Id 拷贝、消息拷贝、       失败的代价本来就在诊断上；
-//                                 消息拼接、to_string 临时量）   不进稳态路径
-//   DestroyPod ×1/Pod             PodReport 按值返回：Failures   §5.1：DestroyPod 永不失败，
-//                                 与 Residuals 的 vector 拷贝     报告是唯一出口（HotSwapLog
-//                                 （HotSwapLog 是 move）          是 std::move，不拷贝）
-//   EjectPlugin ×1/被卸插件   EdgesTo 的一张入边 vector      §5.6 的 ①②③ 判定流本体。
-//                                  （M1 边数十条，线性扫即   EdgesTo 的 vector 是账本既有
-//                                  正确复杂度）＋ 1 次 Scope   API（T9）的形状——本任务不新增
-//                                  Dispose ＋ 全局闸扫活槽      索引；全局闸不分配
-//                                  与实例（不分配）
-//   AdoptPlugin ×1/被领回插件     档三 + §8.7 各读**一遍整个文件**  判据来自文件字节，没有
-//                                 （FileIdentity / 导入解析，各一次  「流式验新」的既有 API 可
-//                                 vector<uint8_t> 按文件大小分配）  复用；M1 的插件是几百 KB
-//                                 ＋ 2 次 ImageIdentity 的 Bytes    级，且 Adopt 是人工进出的
-//                                 ＋ 出边/兄弟名两组 vector；       动作、不在稳态路径上
-//                                 装配同 CreatePodImpl 的 3 次分配
-//   ~PluginHost ×1/进程           AllResident() 拷贝整张驻留表    一次，退出路径
-
 namespace
 {
 
