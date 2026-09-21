@@ -1,20 +1,43 @@
 # CLAUDE.md
 
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 配套文件
+## 目录
 
-- [`.claude/CLAUDE.md`](.claude/CLAUDE.md) —— CodeGraph 代码检索工具的用法约定。本仓库已在根目录建立 `.codegraph/` 索引，并在 `.mcp.json` 中注册了 codegraph MCP server。
+四组按「先弄清要做什么 → 再动手 → 最后宣布完成」排。
 
-  两者关系：**本文件**描述「这个项目是什么、怎么构建」；**`.claude/CLAUDE.md`** 描述「用什么工具去定位和理解代码」。当 `.codegraph/` 存在时，查找或理解代码应优先调用 `codegraph_explore`，而非 grep/find 或逐个读文件。
+**节名是稳定接口**：`.claude/skills/vase-cpp-engineering/` 里有几十处按名字指向本文件各节（`构建与测试`、`静态检查与格式`、`工具链 flag 是承重的`、`规矩 N`…）。**改这些标题要同步那些链路**，否则技能里的指针当场变孤儿（见规矩 7）。
 
-  注意：该文件由 CodeGraph 自动维护（内容包裹在 `<!-- CODEGRAPH_START -->` / `<!-- CODEGRAPH_END -->` 之间），**不要手工编辑**；需要改动时通过 CodeGraph 自身重新生成。
+- **一、这个项目是什么** —— 定位、现状，以及本文件与技能 / wiki 的分工。第一次接触仓库先读这一组。
+- **二、怎么跑** —— 六个 preset 的命令、按线基数、产物落位，与两条承重的工具链 flag。
+- **三、怎么写** —— 语言与提交约定、七条规矩、格式与命名的偏离项。改代码前读。
+- **四、怎么验** —— tidy 与 format 怎么跑、退出码为什么单独不够、基数怎么读。宣布完成前读。
 
-- [`wiki/vase-architecture.md`](wiki/vase-architecture.md) —— **架构设计文档 v3**：Vase 的定位与边界、分层模型（`PluginCatalog` / `PluginHost` / `Pod`）、插件清单与 Preset 格式、生命周期与服务解析、**热插拔（档 ①：局内仅装卸无人依赖的叶插件，依赖账本执法）**、验证策略。v3 的逐条变更见其 1.5 节；`Source/Session` → `Source/Pod` 的实体更名**已于 M1-T1 落地**；仓库凡提到现有目录/探针以 `Source/Pod` / `VasePod` 为准。
+找命令与基数去 `构建与测试`；找七条规矩去 `在这个仓库里干活要知道的规矩`；跑门禁与读基数表去 `静态检查与格式` 与 `核这些门禁时，退出码单独用是不够的`（这两节原先嵌在 `构建与测试` 里，现独立成组）。
 
-  注意：文档中的**接口签名与文件格式**仍为提议；**目录布局已确认**（第 10 节）。M1 已按其中的**最小形**落地（描述符宏与基类 + `HeaderVersion`、效果与作用域、服务与事件、依赖账本、Pod / PluginHost、Adopt / Eject 与三档证据），但**落地的是最小形，不等于提案的全量兑现**——例如 `LoadPlan` 就是手写形（D12），不是 §5.1 的清单格式；Catalog 接入时回归提案形。凡未落成代码的，仍按本文件「尚未确定的事项」处理——**先询问，不要假设**。
+## 一、这个项目是什么
 
-## 项目状态：M0 与 M1 均已完成
+定位、现状，以及本文件与技能 / wiki 的分工。第一次接触仓库先读这一组。
+
+### 技术前提（由需求方指定）
+
+
+- 语言标准：**C++20**。
+- 项目性质：**plugin 插件管理能力库**——只负责发现插件、解析依赖、装配、运行、干净关停；不提供业务逻辑，不提供编辑器，不提供引擎适配。
+- 目标平台：**Win x64 / Linux x64 / macOS arm64**（开发 + 发布）、**Android arm64 / iOS arm64**（仅发布）。编译器与 STL 矩阵见架构文档 8.5——注意 Windows 上 `cl` 与 `clang-cl` 都可，Linux/macOS/Android/iOS 用 `clang` + `libc++`。
+- 许可证：MIT，版权归 MoozenSoft。
+- **不使用 C++ 异常**：全项目以关闭异常的方式编译（Windows `/EHs-c-`、Linux/macOS `-fno-exceptions`）。错误一律经 `Result<T>` / `Error` 显式返回，**不写 `throw` / `try` / `catch`**。连带约束（标准库与第三方库的抛错 API 改用不抛形式、`nlohmann/json` 开 `JSON_NOEXCEPTION`、`EXPECT_THROW` 在本项目 TU 不可用）见架构文档 0.3 原则 7 与 13.2，以及 M0/M1 设计文档第 9 节。
+
+### 设计意图（摘自 README）
+
+
+> Vase is a plugin framework that treats every module like a branch in flower arranging — carefully selected, gracefully placed, and cleanly removed.
+
+即核心关注点是**模块的选取、挂载与干净卸载**。M1 已把它的最小形落成代码（见「项目状态」；具体机制以磁盘上的头文件与实现为准，`wiki/vase-architecture.md` 里其余部分仍是提案）。**不要在文档或代码注释中把提案写成既定事实**——新增或变更机制前先与需求方确认。
+
+### 项目状态：M0 与 M1 均已完成
+
 
 **M0（构建地基）与 M1（Pod 闭环 + 热插拔骨架）均已完成**。当前仓库里有什么：
 
@@ -40,7 +63,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   文件格式仍是提案。新增或变更机制前先与需求方确认。
 - 新增源码 / 测试 / 目录时，若引入了本文件没记的规矩或命令，**请同步更新本文件**。
 
-## 构建与测试
+### 配套文件
+
+
+- [`.claude/CLAUDE.md`](.claude/CLAUDE.md) —— CodeGraph 代码检索工具的用法约定。本仓库已在根目录建立 `.codegraph/` 索引，并在 `.mcp.json` 中注册了 codegraph MCP server。
+
+  两者关系：**本文件**描述「这个项目是什么、怎么构建」；**`.claude/CLAUDE.md`** 描述「用什么工具去定位和理解代码」。当 `.codegraph/` 存在时，查找或理解代码应优先调用 `codegraph_explore`，而非 grep/find 或逐个读文件。
+
+  注意：该文件由 CodeGraph 自动维护（内容包裹在 `<!-- CODEGRAPH_START -->` / `<!-- CODEGRAPH_END -->` 之间），**不要手工编辑**；需要改动时通过 CodeGraph 自身重新生成。
+
+- [`wiki/vase-architecture.md`](wiki/vase-architecture.md) —— **架构设计文档 v3**：Vase 的定位与边界、分层模型（`PluginCatalog` / `PluginHost` / `Pod`）、插件清单与 Preset 格式、生命周期与服务解析、**热插拔（档 ①：局内仅装卸无人依赖的叶插件，依赖账本执法）**、验证策略。v3 的逐条变更见其 1.5 节；`Source/Session` → `Source/Pod` 的实体更名**已于 M1-T1 落地**；仓库凡提到现有目录/探针以 `Source/Pod` / `VasePod` 为准。
+
+  注意：文档中的**接口签名与文件格式**仍为提议；**目录布局已确认**（第 10 节）。M1 已按其中的**最小形**落地（描述符宏与基类 + `HeaderVersion`、效果与作用域、服务与事件、依赖账本、Pod / PluginHost、Adopt / Eject 与三档证据），但**落地的是最小形，不等于提案的全量兑现**——例如 `LoadPlan` 就是手写形（D12），不是 §5.1 的清单格式；Catalog 接入时回归提案形。凡未落成代码的，仍按本文件「尚未确定的事项」处理——**先询问，不要假设**。
+
+- [`.claude/skills/vase-cpp-engineering/`](.claude/skills/vase-cpp-engineering/) —— **本仓库的 C++ 工程约束技能**：`SKILL.md` 给工程权重、五条不可违反、干活流程、提交前自查与「改什么必须验什么」矩阵；`references/` 按 architecture / ownership-lifetime / error-handling / abi-boundary / plugin-lifecycle / concurrency / performance / portability / verification 分面，另附一份通用 C++20 写法参考。设计、实现或评审任何 C++ 之前先读它。
+
+  **与本文件的关系**：本文件是命令、构建规矩与测试基数的**唯一真值来源**。技能该给的是「什么边界不能跨、该读哪一份、某类改动必须验到哪一档」这一层判断，而不是把本文件的话在远处再说一遍——门禁阈值抄进第二处必腐：M2 每加一条用例，本文件改、技能不改，拿技能当准的人会算出「少了几条」，把健康的构建判成漏注册。
+
+  **现状没做到这一点，这是已知待收的债**：基数已全数撤出技能（`SKILL.md` 与 `references/verification.md` 只把数字指回本文件），但**字面真值仍有约三十处散在技能的七个文件里**——命令块、preset 名、选择子字符串、承重 flag、`WarningsAsErrors` 为空这几类，多数集中在 `references/verification.md`（它 §1/§3/§4 基本是本文件「构建与测试」的重排）。首轮评测实测到的正是这个后果：技能把基数数字直接递到手上的那份回答，只说了「差值是设计不是漏注册」，而没读技能的那份反而给出了成因。处置口径见规矩 7；冲突时一律**以本文件为准，并回头修正技能**。
+
+  接入方式：Claude Code 从项目级 `.claude/skills/` **自动发现**它，靠 frontmatter 的 `description` 触发，不需要在 `settings.json` 里开任何东西；主会话与 `Agent` 工具起的子代理都会拿到（已实测）。同一个约束在本仓库可能有**三种载体**：源文件自己的头部注释、本文件、技能。**越靠近改动现场越不易腐**——`PluginDescriptor.h` 的 POD 纪律、`Context.cpp` 落账本边那一段，都属于第一类，它们不需要、也不应该在别处再写一遍。
+
+### 尚未确定的事项
+
+
+下表逐项对照「架构文档怎么说的」与「仓库里实际有什么」。**凡「仓库里的状态」仍写着「无」的，都属未定，请先询问而不是假设**——架构文档里「有决定或提案」不等于「有实现」：
+
+| 项 | 架构文档里的状态 | 仓库里的状态 |
+|---|---|---|
+| 构建系统 | 已决定：CMake + vcpkg（13.2） | **已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（3 个）、`Cmake/Triplets/x64-linux-libcxx.cmake`、`Cmake/VasePluginHelpers.cmake`，六个 preset 全绿（见「构建与测试」） |
+| 目录布局与模块划分 | **已确认**（第 10 节） | **已按第 10 节落成**：`Include/Vase/`（`Plugin.h` / `PluginDescriptor.h` / `Effect` / `Service` / `Event` / `Pod` / `Host` / `Detail`）、`Source/{Pod,Host}` 双 target、`Samples/{HelloCommon,HelloPlugin,Embedding}`、`Tests/{Smoke,Unit,Lifecycle,Integration,HotSwap,Abi,TestingSupport}`。第 10 节里尚未出现的实体（`Catalog/`、`Host/` 的清单解析面）等真有内容再立 |
+| 测试框架与运行方式 | 有分层与验证策略（12 节） | **已落成**：GoogleTest 1.18.0（vcpkg manifest）+ `ctest` + `gtest_discover_tests`；分层即 12.2 那五类（Unit / Integration / Lifecycle / HotSwap / Abi，外加 M0 的 Smoke），各线基数见「构建与测试」的按线分账表。12 节里依赖 M2 起的部分（Catalog 求解链、账本 3b 完整执法）尚未落成 |
+| 插件接口 / ABI 约定 | 有完整设计（第 3、8 节） | **已落地最小形**：§3.1 的宏（`VASE_PLUGIN`）、插件基类、描述符结构体与 `kHeaderVersion` 都在 M1；**清单/`Preset` 格式与 `Catalog` 解析在 M2**。接口以磁盘上的 `Include/Vase/Plugin.h` 与 `PluginDescriptor.h` 为准，第 3、8 节其余部分仍是提案 |
+
+**不要从文档推断出可用的命令、路径或接口签名**——文档写的是「打算怎么做」，本文件负责说明「现在有什么」。
+## 二、怎么跑
+
+六个 preset 的命令、按线基数、产物落位，与两条承重的工具链 flag。
+
+### 构建与测试
+
 
 **六个 preset，全部已实测可用**。最近一次全量验收（M1-T14，2026-09-17）：**四棵 Windows 树与两棵
 Linux 树全部删树重配**（`rm -rf` 后从零 configure），逐线 configure → build → ctest → `ctest -N`，
@@ -53,7 +115,7 @@ Linux 树全部删树重配**（`rm -rf` 后从零 configure），逐线 configu
 | Linux / clang + libc++ | `linux-x64-clang-debug`、`linux-x64-clang-release` |
 
 **各线 `ctest -N` 基数**（2026-09-17 实测；`ctest` 在没发现测试时同样返回 0，故基数要按线单独记，
-见下方「核这些门禁时，退出码单独用是不够的」）：
+见「四、怎么验」下的「核这些门禁时，退出码单独用是不够的」）：
 
 | preset | `Total Tests` | 与 Win debug 的差 |
 |---|---|---|
@@ -66,7 +128,8 @@ Linux 树全部删树重配**（`rm -rf` 后从零 configure），逐线 configu
 Linux 与 Windows 差的 2 条是 T11 的 Linux-only 用例（`-Wl,--build-id=none` 的 fixture 只在 Linux 存在）。
 两侧都与预期值逐位对上，说明 `gtest_discover_tests` 没有静默漏掉任何一条。
 
-### Windows（在 Git Bash 里直接跑）
+#### Windows（在 Git Bash 里直接跑）
+
 
 ```bash
 cmake --preset win-x64-clang-debug
@@ -91,7 +154,8 @@ ctest → `ctest -N`，逐步打印退出码，末尾汇总并以失败步数作
 构建产物落 `build-win/<presetName>/`，可执行与 DLL 同处 `bin/`——这是 Windows
 能找到 DLL 的前提，不要改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`。
 
-### Linux / WSL
+#### Linux / WSL
+
 
 源码的 WSL 路径是 **`/mnt/d/Git/Vase`**，构建树落 `build-linux/<presetName>/`。
 **必须经登录 shell**——`VCPKG_ROOT` 只由 `/etc/profile.d/vcpkg.sh` 提供给登录 shell：
@@ -107,7 +171,8 @@ wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && ctest --preset linux-x64-clang-
 > 先落成脚本文件，再 `wsl -d Ubuntu -- bash -lc 'bash <脚本>'`。本项目已因此栽过不止一次
 > （本任务执行期间又撞到一次：`$CXX` / `$FLAGS` 被外层吃空，命令照跑、结果假绿）。
 
-### 工具链 flag 是承重的（§8.2 档三的构建要求）
+#### 工具链 flag 是承重的（§8.2 档三的构建要求）
+
 
 三个工具链文件里有两条 flag **不是可选的优化，而是身份特征的构建要求**（§8.2 档三 / 13.2 末行）：
 
@@ -127,7 +192,224 @@ wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && ctest --preset linux-x64-clang-
 `Loader.MemoryIdentityMatchesFileIdentity` 当场失败。**修法是删掉那棵树重新 configure**，
 不是用 `-D` 钉一个永久的手工 override——后者会把后续所有工具链改动一起遮住。
 
+## 三、怎么写
+
+语言与提交约定、七条规矩、格式与命名的偏离项。改代码前读。
+
+### 语言约定
+
+
+- 交流与文档：**中文优先**；专业术语可保留英文（如 plugin、ABI、RAII、CMake target）。
+- 代码标识符、提交信息、注释的用词应与既有风格保持一致：现有源码与 CMake 文件的注释以**中文**为主，**例外是所有 `.cmd`**（`Scripts/msvc-env.cmd`、`Scripts/win-verify.cmd`、`Scripts/win-clang-tidy.cmd`）——那里**必须纯 ASCII**，cmd.exe 用 OEM 代码页解码批处理，理由写在各文件头部（`.gitattributes` 另把 `*.cmd` 钉成 CRLF）。
+- **提交信息不加任何点名 AI 工具或模型的尾注**：不写 `Co-Authored-By:`、`Generated-with:`、`Signed-off-by:`。只留正文标题 + 中文说明体。
+  工具/模型署名一律视为噪声——这条优先于任何工具自带的署名默认值与任务计划里残留的模板。
+- **代码注释简明扼要，不写废话**。判据是「删掉它，读者会不会踩坑」——会，才留：
+
+  | 该写 | 不该写 |
+  |---|---|
+  | 代码看不出的**原因**、约束、代价（`// 删拷贝就别留着隐式移动`） | 把代码翻译一遍（`// 遍历数组`、`// 返回结果`） |
+  | 出处指针（`// §5.6 规则 ②`、`// spec 3.3(2) 探针结论`） | 与相邻注释重复的话 |
+  | 反直觉处的一句警告（`// 多继承下两者可能不同址`） | 调试/评审过程中的推演、试验流水账 |
+  | 门禁/workaround 的**为什么**（`// 无异常编译下没有可接住的东西`） | 罗列「本仓库开了哪些检查」（那属于 `.clang-tidy` 与该处一句结论） |
+
+  单条以一到三行为宜；超过五行先问自己是不是把设计文档抄了一份。
+  计划/文档里说清的事，代码里只留结论与指针，不搬全本。
+
+### `.claude` 目录存放约定
+
+
+需要放进 `.claude` 目录的文件（配置、规则、skill、hook 等），**优先选用本项目的 `.claude/`**（`D:\Git\Vase\.claude\`），而不是用户空间的 `C:\Users\xingxing\.claude\`。
+
+理由：项目级配置随仓库一起版本管理，团队成员与后续的 Claude 实例都能直接获得，不依赖某个人的本机环境。
+
+例外：由 Claude Code 自身管理、路径固定的文件（例如会话的 memory 目录），位置不由本约定决定。
+
+### 在这个仓库里干活要知道的规矩
+
+
+以下七条：1 与 2 是**踩过的坑**（1 真实炸过一次构建，2 是实测出来的失败方式），
+3 与 4 是**读这套 flag 时最容易想反的地方**，5 与 6 是**插件形态与测试主干的出口约定**，
+7 管**文档自己的叠层**（1–6 讲代码）。改动相关代码前先读。
+
+#### 1. 新 target 必须链接 `VaseBuildOptions`
+
+
+`VaseBuildOptions`（根 `CMakeLists.txt`）是编译选项的唯一出口：警告级别与
+`/WX` / `-Werror`、`/utf-8`、`/EHs-c-` / `-fno-exceptions`、`_HAS_EXCEPTIONS=0`、
+cl.exe 线的 `/we4530`、`/wd4251` 与 `/external:*` 全在里面。**新建 target 时忘了链它，
+不是一个「少几个警告」的问题**：
+
+- 少了 `/EHs-c-`，异常策略就没了编译期强制；
+- **少了 `/utf-8` 会以完全看不出与编码有关的方式炸掉**：cl.exe 改按系统代码页
+  （本机 CP936）解释 UTF-8 源码，中文注释的字节被解成别的字符，于是报出一个
+  **与「编码」二字毫无字面关联**的错误。本项目见过两种形态：
+  - **`fatal error C1019: unexpected #else`**（真实炸过一次构建：错误信息指向
+    预处理指令，看着像 `#if` 写错了）；
+  - `warning C4819` 之后紧跟 **`error C2447`**（另一处实测记录的形态，
+    见 M0 设计文档 2.1.1(e) 的表；那是一次「故意摘掉 `/utf-8`」的对照实验）。
+
+  两种都指向「去翻源码找语法错误」，而真正的原因在代码页。所以别去查语法。
+  （`/utf-8` 只在 Windows 侧加；Linux 侧 clang 默认 UTF-8，不需要。）
+
+**C4251 走全局 `/wd4251`，不走头文件里的逐类 `#pragma` 区域**（导出类带 STL 成员：池、
+槽表、账本）。前提由 §8.5 的工具链与 STL 矩阵钉死、D13 的 `HeaderVersion` 兜着。
+两条代价已知并接受：该 flag 是整 TU 免检，所以新增「导出类带 STL 成员」**不再有逐处把关**；
+且它**出不了这棵树**——仓库外的插件作者与嵌入方 include Vase 头时，C4251 报在我们的头文件
+那一行、由他们自己的编译选项管，需要他们自行加 `/wd4251`。**若 §8.5 那条前提破掉**（允许
+插件用不同版本的 MSVC STL 构建），全局豁免即失去依据，届时改 pimpl 或把 STL 成员移出导出面。
+站点数、M5 分发时的两条还债路径，记在 [`wiki/vase-architecture.md`](wiki/vase-architecture.md) 的 13.3。
+
+#### 2. 测试里不要用 `EXPECT_THROW` 一族
+
+
+含 `ASSERT_THROW` / `EXPECT_ANY_THROW` / `EXPECT_NO_THROW`。
+
+理由不是「静默退化」，而是**编译期硬失败**：`gtest.h` 的 `EXPECT_THROW` 无条件展开成
+`gtest-internal.h` 的 `GTEST_TEST_THROW_`，而后者**不受 `GTEST_HAS_EXCEPTIONS` 包裹**，
+宏体里就是一个裸 `try/catch`。我们全项目关异常，于是：
+
+```
+clang-cl  error: cannot use 'try' with exceptions disabled   （exit 1）
+cl.exe    error C4530（被 /we4530 升为 error）                （exit 2）
+```
+
+根因是 gtest 头在本仓库看到的 `GTEST_HAS_EXCEPTIONS == 0`，而预编译的 gtest DLL 是 1，
+两侧不一致（推导与实测写在 `Tests/CMakeLists.txt` 的注释里）。
+
+**要测「某个操作必须失败」，只能用 `Result<T>` / `Error` 的显式返回值。**
+
+#### 3. Vase 自己的头文件一律用引号包含
+
+
+写 `#include "Vase/Plugin.h"`，**不要写 `#include <Vase/Plugin.h>`**。
+
+cl.exe 线的 `VaseBuildOptions` 带 `/external:anglebrackets`，它把**所有以尖括号包含的头**
+标记为外部头，再由 `/external:W0` 豁免其警告。于是 Vase 自己的头一旦被尖括号包含，
+它的警告就**静默**绕过了 `/W4 /WX`——门禁看起来还是绿的。
+
+> `wiki/vase-architecture.md` 给**插件作者**的示例用的是尖括号，那是仓库外的写法，
+> 与仓库内部不同。仓库内部一律引号。
+
+#### 4. `_HAS_EXCEPTIONS=0` 的语义代价
+
+
+`VaseBuildOptions` 在 Windows 侧定义了 `_HAS_EXCEPTIONS=0`（该宏**不由 `/EH` 推导**，
+MSVC STL 默认给它 1，必须显式置 0）。代价是 **MSVC STL 的前置条件失败从「抛异常」
+变成「进程终止」**：`vector::at` 越界、`std::stoi` 解析失败、`<filesystem>` 的
+error overload 等，全部直接 abort，没有可接住的东西。
+
+**因此错误处理必须走 `Result<T>` / `Error`，不能指望 STL 的前置条件检查给出
+可恢复的失败。** 更完整的说明（含 `/external:W0` 管不着 C4530 这类边界）在
+根 `CMakeLists.txt` 的注释里——`/external:*` 那一段与 `_HAS_EXCEPTIONS` 那一段。
+（`Cmake/` 下的三个工具链文件与一个 triplet 只讲编译器定位、vcvars 与 STL 选型，
+**不涉及异常设置**，别去那里找。）
+
+#### 5. 插件 target 一律经 `vase_add_plugin_fixture`
+
+
+`Cmake/VasePluginHelpers.cmake` 的 `vase_add_plugin_fixture(name SOURCES … LINK_LIBRARIES …)`
+是**插件形态的唯一出口**——示例与测试 fixture 都走它（`Samples/HelloPlugin/CMakeLists.txt` 亦然）。
+它承载两件手搭 `add_library(SHARED)` 会漏掉的事：**只链 VasePod**（D11：「插件不依赖 Host」
+是链接期事实而非约定）与**可见性收紧**（`CXX_VISIBILITY_PRESET hidden` + `VISIBILITY_INLINES_HIDDEN`）。
+手搭的插件 target 视为违规——那也正是「某个 target 忘了链 `VaseBuildOptions`」（规矩 1）的复发点。
+
+#### 6. `Tests/HotSwap` 按主干对待（它的判据力按平台不对称）
+
+
+v3 §12.2：v2 里 `Tests/Reload` 是「不必每次提交都跑」的尾部测试；热插拔升为主干承诺后，
+**任何改动 Loader、依赖账本、Eject / Adopt 路径、描述符布局或 `HeaderVersion` 的提交，
+必须跑 `Tests/HotSwap/` 的全部用例，且 Windows 与 Linux 各自留证据**。
+这几类改动正是「六线全绿」最靠不住的地方。
+
+> **选择子是 `-R 'HotSwap|Eject|Adopt'`，不是 `-R HotSwap`。** `Tests/HotSwap/` 的用例名按套件
+> 分三类：`HotSwap.*`（主循环）、`Eject.*`（拆除路径）、`Adopt.*`（领回路径）。**`-R HotSwap`
+> 只选到第一类**，会把守 Eject / Adopt 的边界用例（点名消费者、kept-resident、failed-record、
+> 同文件两 id……）整套漏掉——照规则做的人会拿到几条绿灯，然后从没跑过那一堆。
+> `-R 'HotSwap|Eject|Adopt'` 是「该目录全部用例」的**超集**：它另捎上
+> `Abi.AdoptRejectsBinaryThatImportsSiblingPlugin`（也走 Adopt 路径，跑上没有坏处）。
+> 这里不写条数——写死的数会随用例增删漂移，规则要的是「该目录全部用例」。
+
+**但别把「六线全绿」读成「六线等价」**（T12 复评的判定）：
+
+- `Tests/HotSwap/HotSwapLoopTests.cpp` 里 `InstallPrime()` 的覆盖断言在 **Windows 上是真的
+  sharing-violation 探针**——镜像还映射着时 `copy_file(overwrite_existing)` 失败，直接暴露
+  「Eject 没真卸」（T12 实测：注释掉 `EjectPlugin` 那一行，该断言报
+  `The process cannot access the file because it is being used by another process.`）；
+- 在 **Linux 上它是空转的**——`copy_file(overwrite_existing)` 是 truncate-in-place（同一 inode），
+  镜像还映射着也会覆盖成功、随后读到新字节，同一条断言照样通过。
+
+因此 Windows 比 Linux 多一层文件锁证据；两平台同跑得到的不是同一件事的两份拷贝。
+
+#### 7. 同一件事只准有一处字面真值（本文件与技能的叠层口径）
+
+
+本文件、`.claude/skills/vase-cpp-engineering/`、以及源文件自己的头部注释，是同一个约束的**三种载体**。判据不是字数重不重，是**仓库变一次，这个副本要不要跟着变**：
+
+| 类别 | 例 | 处置 |
+|---|---|---|
+| **阈值与基数** | `ctest -N` 的各线 `Total Tests`、tidy 的 TU 数与抑制合计 | **只住本文件**，技能里出现即违规。除了腐烂，实测还有一个更实的害处：把数字直接递到手上的那份回答，只复述了「差值是设计不是漏注册」，没读技能的那份反而给出了成因 |
+| **可整段引用的块** | 六个 preset 的命令块、WSL 登录 shell 那三条、`git ls-files` 那串 | **只住本文件**，技能写指针。整段抄过去换不到任何可读性 |
+| **嵌在论述里的单个字面值** | 一句论证里提到 `/DEBUG:FULL`、卸载选择子的字符串、`WarningsAsErrors` 为空 | **可以留在技能里**，但该处必须带「字面值以本文件 X 节为准」的指针——危险的不是副本，是没有链路的副本：带指针的能 grep 到、跟着一起改，没指针的是孤儿 |
+| **判据与理由** | 为什么关了异常就不能写 `throw`、为什么摘掉承重 flag 的症状是运行期而非编译期 | **允许两边各写一份，不需要指针**。它随代码一起变，而真要变时是一次实质复审，不是同步动作 |
+
+自检（技能目录里扫字面真值，命中就逐条判它属上表哪一类）：
+
+```bash
+grep -rn "Total Tests\|[0-9][0-9] TU\|DEBUG:FULL\|build-id=sha1\|EHs-c-\|HAS_EXCEPTIONS\|--cached --others\|WarningsAsErrors\|PRE_TEST\|ctest --preset\|run-clang-tidy -p\|cmake --build --preset" \
+  .claude/skills/vase-cpp-engineering/ | grep -v cpp-core-guidelines.md
+```
+
+**规矩 1–6 讲代码，规矩 7 讲文档。** 它自己同样适用：本文件与技能冲突时以本文件为准，并回头改技能。
+
+### 格式化与静态检查
+
+
+配置：`.clang-format`、`.clang-tidy`。
+
+**`.clang-format`** —— 基线为 LLVM style、标准 C++20，但有多处**显著偏离**（逐项以 `.clang-format` 文件为准），不要按「LLVM 风格」的直觉去写代码。最容易写错的三项：`Allman`、`PointerAlignment: Left`，以及构造初始化表的 `PackConstructorInitializers: Never` + `BreakConstructorInitializers: BeforeComma`——**每个初始化式各占一行、逗号在行首**，哪怕整表一行放得下。同理 `BreakTemplateDeclarations: Yes`：`template <...>` 头与 `class` / 函数签名永远分两行（不是超列宽才拆）。另两项 `BreakAfterAttributes: Leave` 与 `ConstructorInitializerIndentWidth: 4` 只是沿用默认的锚定。
+
+**一个例外：宏参数内部的花括号对不受 `BreakBeforeBraces` 管辖。** `Tests/Smoke/CrossDllSmoke.cpp`
+的两个 `TEST(...)` 体在本配置下**只能是单行**（实测：把它们折成 Allman，`clang-format --dry-run --Werror`
+报 3 处 violation 并 exit 1；`clang-format -i` 会把它们折回单行）——那是格式门要求的输出，不要「修」它。
+同一文件里 `namespace` 的花括号仍是 Allman，两者不矛盾。
+
+#### 命名规范
+
+
+由 `.clang-tidy` 的 `readability-identifier-naming.*` 强制，clang-tidy 会直接给出建议名，`--fix` 可自动改写（**包括自动补上前后缀**）。
+
+| 类别 | 规范 | 示例 |
+|---|---|---|
+| 命名空间 | `lower_case` | `plugin_detail` |
+| 类 / 结构 / 联合 / 枚举 / typedef | `CamelCase` | `PluginRegistry` |
+| 模板参数（类型 / 模板模板 / 非类型） | `CamelCase` | `TypeParam` |
+| 函数（含方法） | `CamelCase` | `LoadPlugin()` |
+| 成员变量 | `CamelCase` | `PluginCount` |
+| 参数 / 局部变量 | `camelBack` | `pluginPath` |
+| **全局变量** | `g` + `CamelCase` | `gPluginCount` |
+| **常量**（全局 / 类 / 静态） | `k` + `CamelCase` | `kMaxSize` |
+| **constexpr 变量** | `k` + `CamelCase` | `kLimit` |
+| **枚举常量** | `k` + `CamelCase` | `kPluginLoaded` |
+
+三条机制要点：
+
+- **前缀之后才判 Case**：`kmaxSize` 违规，`kMaxSize` 合规。
+- **成员名不带任何前后缀**：`Message_` / `mCount` / `_private` 全部违规，写 `Message`。
+  成员与同名访问器撞车时**让成员改名**，别去改公开的访问器名——`Message()` 与成员撞车，
+  成员叫 `Text`；`Root()` / `Failures()` / `OwnerLabel()` 同理。
+- `VariableCase: camelBack` 是**伞形兜底**；全局变量、各类常量、constexpr 都已单独覆盖，不再走它。同理 `StructCase` 回退到 `ClassCase`。
+
+两个**空转选项**（留着无害，但当前不产生任何效果）：
+
+- `StaticConstantCase` / `StaticConstantPrefix` —— 实测五种 static 常量写法全部归入其他类目（文件作用域的归 global constant、类内的归 class constant、带 constexpr 的归 constexpr variable），对照实验删除后输出完全一致。
+- `TemplateParameterCase` —— 真实的泛型兜底，但 `TypeTemplateParameterCase` 与 `TemplateTemplateParameterCase` 均已设置，故不触发。
+
+## 四、怎么验
+
+tidy 与 format 怎么跑、退出码为什么单独不够、基数怎么读。宣布完成前读。
+
 ### 静态检查与格式
+
 
 ```bash
 run-clang-tidy -p build-win/win-x64-clang-debug          # clang-cl 线（48 个 TU）
@@ -145,7 +427,7 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
 `Scripts\win-clang-tidy.cmd`（Windows 两条 debug 线，参数 `clangcl` / `msvc` 可单跑一条）。
 两者同契约：日志落在脚本旁边（`*.log`，已被 gitignore），stdout 打全「退出码 + 正文
 `error:` 条数 + 正文 `warning:` 条数」三判据与摘要计数，**退出码非 0 即门禁未过**，
-不必再手工 grep 日志。基数以下一节「核这些门禁时」的实测表为准，脚本不复制阈值。
+不必再手工 grep 日志。基数见「核这些门禁时，退出码单独用是不够的」那节的实测表，脚本不复制阈值。
 实测两侧输出与该表逐位对上：Linux 49 TU / 133833 / NOLINT 18，Windows 两线各 48 TU /
 309464 / NOLINT 30。
 
@@ -156,6 +438,7 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
 后者由环境（PATH 最前）保证，不是 configure 保证的。
 
 #### 「两侧 LLVM 同版本」是必要条件，不是充分条件
+
 
 **「Windows 两条线绿」不能推「Linux 绿」。** 同一版 clang-tidy（两侧均 23.1.0）跑两棵树，
 T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 条**。这 9 条要分两类看：
@@ -177,6 +460,7 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
 
 #### NOLINT 的口径是「有没有代码级出路」，不是数量
 
+
 旧口径是数量门槛（「同类累计超过 4 处就改为在 `.clang-tidy` 里禁用该检查」）——**已作废**：
 仓库现在的抑制数早已越过任何这样的门槛，而每一处都在**就地写明理由**并逐条过评审。现行规矩：
 
@@ -188,6 +472,7 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
   **不是「改起来麻烦」**。
 
 ### 核这些门禁时，退出码单独用是不够的
+
 
 两个**静默**陷阱，都在本仓库实测过：
 
@@ -220,206 +505,3 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
   与「构建与测试」一节那张**按线分账的基数表**逐位对上（Win debug 75 / Win release 74 /
   Linux debug 77 / Linux release 76）。`gtest_discover_tests` 用的是 `DISCOVERY_MODE PRE_TEST`，
   枚举发生在 ctest 运行时——测试被漏注册时，`ctest` 会一声不吭地报成功。
-
-## 在这个仓库里干活要知道的规矩
-
-以下六条：1 与 2 是**踩过的坑**（1 真实炸过一次构建，2 是实测出来的失败方式），
-3 与 4 是**读这套 flag 时最容易想反的地方**，5 与 6 是**插件形态与测试主干的出口约定**。
-改动相关代码前先读。
-
-### 1. 新 target 必须链接 `VaseBuildOptions`
-
-`VaseBuildOptions`（根 `CMakeLists.txt`）是编译选项的唯一出口：警告级别与
-`/WX` / `-Werror`、`/utf-8`、`/EHs-c-` / `-fno-exceptions`、`_HAS_EXCEPTIONS=0`、
-cl.exe 线的 `/we4530`、`/wd4251` 与 `/external:*` 全在里面。**新建 target 时忘了链它，
-不是一个「少几个警告」的问题**：
-
-- 少了 `/EHs-c-`，异常策略就没了编译期强制；
-- **少了 `/utf-8` 会以完全看不出与编码有关的方式炸掉**：cl.exe 改按系统代码页
-  （本机 CP936）解释 UTF-8 源码，中文注释的字节被解成别的字符，于是报出一个
-  **与「编码」二字毫无字面关联**的错误。本项目见过两种形态：
-  - **`fatal error C1019: unexpected #else`**（真实炸过一次构建：错误信息指向
-    预处理指令，看着像 `#if` 写错了）；
-  - `warning C4819` 之后紧跟 **`error C2447`**（另一处实测记录的形态，
-    见 M0 设计文档 2.1.1(e) 的表；那是一次「故意摘掉 `/utf-8`」的对照实验）。
-
-  两种都指向「去翻源码找语法错误」，而真正的原因在代码页。所以别去查语法。
-  （`/utf-8` 只在 Windows 侧加；Linux 侧 clang 默认 UTF-8，不需要。）
-
-**C4251 走全局 `/wd4251`，不走头文件里的逐类 `#pragma` 区域**（导出类带 STL 成员：池、
-槽表、账本）。前提由 §8.5 的工具链与 STL 矩阵钉死、D13 的 `HeaderVersion` 兜着。
-两条代价已知并接受：该 flag 是整 TU 免检，所以新增「导出类带 STL 成员」**不再有逐处把关**；
-且它**出不了这棵树**——仓库外的插件作者与嵌入方 include Vase 头时，C4251 报在我们的头文件
-那一行、由他们自己的编译选项管，需要他们自行加 `/wd4251`。**若 §8.5 那条前提破掉**（允许
-插件用不同版本的 MSVC STL 构建），全局豁免即失去依据，届时改 pimpl 或把 STL 成员移出导出面。
-站点数、M5 分发时的两条还债路径，记在 [`wiki/vase-architecture.md`](wiki/vase-architecture.md) 的 13.3。
-
-### 2. 测试里不要用 `EXPECT_THROW` 一族
-
-含 `ASSERT_THROW` / `EXPECT_ANY_THROW` / `EXPECT_NO_THROW`。
-
-理由不是「静默退化」，而是**编译期硬失败**：`gtest.h` 的 `EXPECT_THROW` 无条件展开成
-`gtest-internal.h` 的 `GTEST_TEST_THROW_`，而后者**不受 `GTEST_HAS_EXCEPTIONS` 包裹**，
-宏体里就是一个裸 `try/catch`。我们全项目关异常，于是：
-
-```
-clang-cl  error: cannot use 'try' with exceptions disabled   （exit 1）
-cl.exe    error C4530（被 /we4530 升为 error）                （exit 2）
-```
-
-根因是 gtest 头在本仓库看到的 `GTEST_HAS_EXCEPTIONS == 0`，而预编译的 gtest DLL 是 1，
-两侧不一致（推导与实测写在 `Tests/CMakeLists.txt` 的注释里）。
-
-**要测「某个操作必须失败」，只能用 `Result<T>` / `Error` 的显式返回值。**
-
-### 3. Vase 自己的头文件一律用引号包含
-
-写 `#include "Vase/Plugin.h"`，**不要写 `#include <Vase/Plugin.h>`**。
-
-cl.exe 线的 `VaseBuildOptions` 带 `/external:anglebrackets`，它把**所有以尖括号包含的头**
-标记为外部头，再由 `/external:W0` 豁免其警告。于是 Vase 自己的头一旦被尖括号包含，
-它的警告就**静默**绕过了 `/W4 /WX`——门禁看起来还是绿的。
-
-> `wiki/vase-architecture.md` 给**插件作者**的示例用的是尖括号，那是仓库外的写法，
-> 与仓库内部不同。仓库内部一律引号。
-
-### 4. `_HAS_EXCEPTIONS=0` 的语义代价
-
-`VaseBuildOptions` 在 Windows 侧定义了 `_HAS_EXCEPTIONS=0`（该宏**不由 `/EH` 推导**，
-MSVC STL 默认给它 1，必须显式置 0）。代价是 **MSVC STL 的前置条件失败从「抛异常」
-变成「进程终止」**：`vector::at` 越界、`std::stoi` 解析失败、`<filesystem>` 的
-error overload 等，全部直接 abort，没有可接住的东西。
-
-**因此错误处理必须走 `Result<T>` / `Error`，不能指望 STL 的前置条件检查给出
-可恢复的失败。** 更完整的说明（含 `/external:W0` 管不着 C4530 这类边界）在
-根 `CMakeLists.txt` 的注释里——`/external:*` 那一段与 `_HAS_EXCEPTIONS` 那一段。
-（`Cmake/` 下的三个工具链文件与一个 triplet 只讲编译器定位、vcvars 与 STL 选型，
-**不涉及异常设置**，别去那里找。）
-
-### 5. 插件 target 一律经 `vase_add_plugin_fixture`
-
-`Cmake/VasePluginHelpers.cmake` 的 `vase_add_plugin_fixture(name SOURCES … LINK_LIBRARIES …)`
-是**插件形态的唯一出口**——示例与测试 fixture 都走它（`Samples/HelloPlugin/CMakeLists.txt` 亦然）。
-它承载两件手搭 `add_library(SHARED)` 会漏掉的事：**只链 VasePod**（D11：「插件不依赖 Host」
-是链接期事实而非约定）与**可见性收紧**（`CXX_VISIBILITY_PRESET hidden` + `VISIBILITY_INLINES_HIDDEN`）。
-手搭的插件 target 视为违规——那也正是「某个 target 忘了链 `VaseBuildOptions`」（规矩 1）的复发点。
-
-### 6. `Tests/HotSwap` 按主干对待（它的判据力按平台不对称）
-
-v3 §12.2：v2 里 `Tests/Reload` 是「不必每次提交都跑」的尾部测试；热插拔升为主干承诺后，
-**任何改动 Loader、依赖账本、Eject / Adopt 路径、描述符布局或 `HeaderVersion` 的提交，
-必须跑 `Tests/HotSwap/` 的全部用例，且 Windows 与 Linux 各自留证据**。
-这几类改动正是「六线全绿」最靠不住的地方。
-
-> **选择子是 `-R 'HotSwap|Eject|Adopt'`，不是 `-R HotSwap`。** `Tests/HotSwap/` 的用例名按套件
-> 分三类：`HotSwap.*`（主循环）、`Eject.*`（拆除路径）、`Adopt.*`（领回路径）。**`-R HotSwap`
-> 只选到第一类**，会把守 Eject / Adopt 的边界用例（点名消费者、kept-resident、failed-record、
-> 同文件两 id……）整套漏掉——照规则做的人会拿到几条绿灯，然后从没跑过那一堆。
-> `-R 'HotSwap|Eject|Adopt'` 是「该目录全部用例」的**超集**：它另捎上
-> `Abi.AdoptRejectsBinaryThatImportsSiblingPlugin`（也走 Adopt 路径，跑上没有坏处）。
-> 这里不写条数——写死的数会随用例增删漂移，规则要的是「该目录全部用例」。
-
-**但别把「六线全绿」读成「六线等价」**（T12 复评的判定）：
-
-- `Tests/HotSwap/HotSwapLoopTests.cpp` 里 `InstallPrime()` 的覆盖断言在 **Windows 上是真的
-  sharing-violation 探针**——镜像还映射着时 `copy_file(overwrite_existing)` 失败，直接暴露
-  「Eject 没真卸」（T12 实测：注释掉 `EjectPlugin` 那一行，该断言报
-  `The process cannot access the file because it is being used by another process.`）；
-- 在 **Linux 上它是空转的**——`copy_file(overwrite_existing)` 是 truncate-in-place（同一 inode），
-  镜像还映射着也会覆盖成功、随后读到新字节，同一条断言照样通过。
-
-因此 Windows 比 Linux 多一层文件锁证据；两平台同跑得到的不是同一件事的两份拷贝。
-
-## 语言约定
-
-- 交流与文档：**中文优先**；专业术语可保留英文（如 plugin、ABI、RAII、CMake target）。
-- 代码标识符、提交信息、注释的用词应与既有风格保持一致：现有源码与 CMake 文件的注释以**中文**为主，**例外是所有 `.cmd`**（`Scripts/msvc-env.cmd`、`Scripts/win-verify.cmd`、`Scripts/win-clang-tidy.cmd`）——那里**必须纯 ASCII**，cmd.exe 用 OEM 代码页解码批处理，理由写在各文件头部（`.gitattributes` 另把 `*.cmd` 钉成 CRLF）。
-- **提交信息不加任何点名 AI 工具或模型的尾注**：不写 `Co-Authored-By:`、`Generated-with:`、`Signed-off-by:`。只留正文标题 + 中文说明体。
-  工具/模型署名一律视为噪声——这条优先于任何工具自带的署名默认值与任务计划里残留的模板。
-- **代码注释简明扼要，不写废话**。判据是「删掉它，读者会不会踩坑」——会，才留：
-
-  | 该写 | 不该写 |
-  |---|---|
-  | 代码看不出的**原因**、约束、代价（`// 删拷贝就别留着隐式移动`） | 把代码翻译一遍（`// 遍历数组`、`// 返回结果`） |
-  | 出处指针（`// §5.6 规则 ②`、`// spec 3.3(2) 探针结论`） | 与相邻注释重复的话 |
-  | 反直觉处的一句警告（`// 多继承下两者可能不同址`） | 调试/评审过程中的推演、试验流水账 |
-  | 门禁/workaround 的**为什么**（`// 无异常编译下没有可接住的东西`） | 罗列「本仓库开了哪些检查」（那属于 `.clang-tidy` 与该处一句结论） |
-
-  单条以一到三行为宜；超过五行先问自己是不是把设计文档抄了一份。
-  计划/文档里说清的事，代码里只留结论与指针，不搬全本。
-
-## `.claude` 目录存放约定
-
-需要放进 `.claude` 目录的文件（配置、规则、skill、hook 等），**优先选用本项目的 `.claude/`**（`D:\Git\Vase\.claude\`），而不是用户空间的 `C:\Users\xingxing\.claude\`。
-
-理由：项目级配置随仓库一起版本管理，团队成员与后续的 Claude 实例都能直接获得，不依赖某个人的本机环境。
-
-例外：由 Claude Code 自身管理、路径固定的文件（例如会话的 memory 目录），位置不由本约定决定。
-
-## 技术前提（由需求方指定）
-
-- 语言标准：**C++20**。
-- 项目性质：**plugin 插件管理能力库**——只负责发现插件、解析依赖、装配、运行、干净关停；不提供业务逻辑，不提供编辑器，不提供引擎适配。
-- 目标平台：**Win x64 / Linux x64 / macOS arm64**（开发 + 发布）、**Android arm64 / iOS arm64**（仅发布）。编译器与 STL 矩阵见架构文档 8.5——注意 Windows 上 `cl` 与 `clang-cl` 都可，Linux/macOS/Android/iOS 用 `clang` + `libc++`。
-- 许可证：MIT，版权归 MoozenSoft。
-- **不使用 C++ 异常**：全项目以关闭异常的方式编译（Windows `/EHs-c-`、Linux/macOS `-fno-exceptions`）。错误一律经 `Result<T>` / `Error` 显式返回，**不写 `throw` / `try` / `catch`**。连带约束（标准库与第三方库的抛错 API 改用不抛形式、`nlohmann/json` 开 `JSON_NOEXCEPTION`、`EXPECT_THROW` 在本项目 TU 不可用）见架构文档 0.3 原则 7 与 13.2，以及 M0/M1 设计文档第 9 节。
-
-## 设计意图（摘自 README）
-
-> Vase is a plugin framework that treats every module like a branch in flower arranging — carefully selected, gracefully placed, and cleanly removed.
-
-即核心关注点是**模块的选取、挂载与干净卸载**。M1 已把它的最小形落成代码（见「项目状态」；具体机制以磁盘上的头文件与实现为准，`wiki/vase-architecture.md` 里其余部分仍是提案）。**不要在文档或代码注释中把提案写成既定事实**——新增或变更机制前先与需求方确认。
-
-## 格式化与静态检查
-
-配置：`.clang-format`、`.clang-tidy`。
-
-**`.clang-format`** —— 基线为 LLVM style、标准 C++20，但有多处**显著偏离**（逐项以 `.clang-format` 文件为准），不要按「LLVM 风格」的直觉去写代码。最容易写错的三项：`Allman`、`PointerAlignment: Left`，以及构造初始化表的 `PackConstructorInitializers: Never` + `BreakConstructorInitializers: BeforeComma`——**每个初始化式各占一行、逗号在行首**，哪怕整表一行放得下。同理 `BreakTemplateDeclarations: Yes`：`template <...>` 头与 `class` / 函数签名永远分两行（不是超列宽才拆）。另两项 `BreakAfterAttributes: Leave` 与 `ConstructorInitializerIndentWidth: 4` 只是沿用默认的锚定。
-
-**一个例外：宏参数内部的花括号对不受 `BreakBeforeBraces` 管辖。** `Tests/Smoke/CrossDllSmoke.cpp`
-的两个 `TEST(...)` 体在本配置下**只能是单行**（实测：把它们折成 Allman，`clang-format --dry-run --Werror`
-报 3 处 violation 并 exit 1；`clang-format -i` 会把它们折回单行）——那是格式门要求的输出，不要「修」它。
-同一文件里 `namespace` 的花括号仍是 Allman，两者不矛盾。
-
-### 命名规范
-
-由 `.clang-tidy` 的 `readability-identifier-naming.*` 强制，clang-tidy 会直接给出建议名，`--fix` 可自动改写（**包括自动补上前后缀**）。
-
-| 类别 | 规范 | 示例 |
-|---|---|---|
-| 命名空间 | `lower_case` | `plugin_detail` |
-| 类 / 结构 / 联合 / 枚举 / typedef | `CamelCase` | `PluginRegistry` |
-| 模板参数（类型 / 模板模板 / 非类型） | `CamelCase` | `TypeParam` |
-| 函数（含方法） | `CamelCase` | `LoadPlugin()` |
-| 成员变量 | `CamelCase` | `PluginCount` |
-| 参数 / 局部变量 | `camelBack` | `pluginPath` |
-| **全局变量** | `g` + `CamelCase` | `gPluginCount` |
-| **常量**（全局 / 类 / 静态） | `k` + `CamelCase` | `kMaxSize` |
-| **constexpr 变量** | `k` + `CamelCase` | `kLimit` |
-| **枚举常量** | `k` + `CamelCase` | `kPluginLoaded` |
-
-三条机制要点：
-
-- **前缀之后才判 Case**：`kmaxSize` 违规，`kMaxSize` 合规。
-- **成员名不带任何前后缀**：`Message_` / `mCount` / `_private` 全部违规，写 `Message`。
-  成员与同名访问器撞车时**让成员改名**，别去改公开的访问器名——`Message()` 与成员撞车，
-  成员叫 `Text`；`Root()` / `Failures()` / `OwnerLabel()` 同理。
-- `VariableCase: camelBack` 是**伞形兜底**；全局变量、各类常量、constexpr 都已单独覆盖，不再走它。同理 `StructCase` 回退到 `ClassCase`。
-
-两个**空转选项**（留着无害，但当前不产生任何效果）：
-
-- `StaticConstantCase` / `StaticConstantPrefix` —— 实测五种 static 常量写法全部归入其他类目（文件作用域的归 global constant、类内的归 class constant、带 constexpr 的归 constexpr variable），对照实验删除后输出完全一致。
-- `TemplateParameterCase` —— 真实的泛型兜底，但 `TypeTemplateParameterCase` 与 `TemplateTemplateParameterCase` 均已设置，故不触发。
-
-## 尚未确定的事项
-
-下表逐项对照「架构文档怎么说的」与「仓库里实际有什么」。**凡「仓库里的状态」仍写着「无」的，都属未定，请先询问而不是假设**——架构文档里「有决定或提案」不等于「有实现」：
-
-| 项 | 架构文档里的状态 | 仓库里的状态 |
-|---|---|---|
-| 构建系统 | 已决定：CMake + vcpkg（13.2） | **已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（3 个）、`Cmake/Triplets/x64-linux-libcxx.cmake`、`Cmake/VasePluginHelpers.cmake`，六个 preset 全绿（见「构建与测试」） |
-| 目录布局与模块划分 | **已确认**（第 10 节） | **已按第 10 节落成**：`Include/Vase/`（`Plugin.h` / `PluginDescriptor.h` / `Effect` / `Service` / `Event` / `Pod` / `Host` / `Detail`）、`Source/{Pod,Host}` 双 target、`Samples/{HelloCommon,HelloPlugin,Embedding}`、`Tests/{Smoke,Unit,Lifecycle,Integration,HotSwap,Abi,TestingSupport}`。第 10 节里尚未出现的实体（`Catalog/`、`Host/` 的清单解析面）等真有内容再立 |
-| 测试框架与运行方式 | 有分层与验证策略（12 节） | **已落成**：GoogleTest 1.18.0（vcpkg manifest）+ `ctest` + `gtest_discover_tests`；分层即 12.2 那五类（Unit / Integration / Lifecycle / HotSwap / Abi，外加 M0 的 Smoke），各线基数见「构建与测试」的按线分账表。12 节里依赖 M2 起的部分（Catalog 求解链、账本 3b 完整执法）尚未落成 |
-| 插件接口 / ABI 约定 | 有完整设计（第 3、8 节） | **已落地最小形**：§3.1 的宏（`VASE_PLUGIN`）、插件基类、描述符结构体与 `kHeaderVersion` 都在 M1；**清单/`Preset` 格式与 `Catalog` 解析在 M2**。接口以磁盘上的 `Include/Vase/Plugin.h` 与 `PluginDescriptor.h` 为准，第 3、8 节其余部分仍是提案 |
-
-**不要从文档推断出可用的命令、路径或接口签名**——文档写的是「打算怎么做」，本文件负责说明「现在有什么」。

@@ -22,6 +22,7 @@
     "clangd-lsp@claude-plugins-official": true,
     "c4-architecture@claude-code-workflows": true,
     "comprehensive-review@claude-code-workflows": true,
-    "systems-programming@claude-code-workflows": true
+    "systems-programming@claude-code-workflows": true,
+    "skill-creator@claude-plugins-official": true
   }
 }

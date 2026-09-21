@@ -69,3 +69,6 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# skill 评测工作区（with_skill / baseline 输出，看完即弃，不进版本库）
+.claude/skills/*-workspace/
