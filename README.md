@@ -79,15 +79,38 @@ Scripts/msvc-env.cmd cmake --build --preset win-x64-msvc-debug
 ctest --preset win-x64-msvc-debug           # ctest 不调编译器，不必包
 ```
 
-六个 preset 全绿：`win-x64-{clang,msvc}-{debug,release}`、
+`Scripts\win-verify.cmd` 是上面两条线的脚本形态（四棵 preset 树各自 `rmdir /s /q` +
+configure + build + ctest + `ctest -N`，每步打印退出码，末尾汇总失败步骤并以**失败步数**
+作退出码）——`Scripts/linux-verify.sh` 的 Windows 对位件。它自己 `cd` 到仓库根，从任意目录
+都能跑；Linux 侧「先落脚本、再 `bash -lc 'bash <脚本>'`」那条规矩（Git Bash 会先展开
+`$VAR`）与它无关，`.cmd` 不经 Git Bash。
+
+```bat
+Scripts\win-verify.cmd
+```
+
+六个 preset 全绿（最近一次全量验收：M1-T14，2026-09-17——六棵树**全部删树重配**后逐线
+configure → build → ctest → `ctest -N`，构建零警告）：`win-x64-{clang,msvc}-{debug,release}`、
 `linux-x64-clang-{debug,release}`。Windows 侧构建树落 `build-win/<presetName>/`，
 可执行与 DLL 同处 `bin/`——这是 Windows 运行时能找到 DLL 的前提，
 不要改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`。
 
 > `ctest` 在一个测试都没发现时**同样返回 0**。所以「测试全绿」不能只看退出码，
-> 要另跑一次 `ctest --preset <p> -N` 核对 `Total Tests: 2`（当前基数）。
+> 要另跑一次 `ctest --preset <p> -N`，把 `Total Tests` 与下表逐位对上。
 > `gtest_discover_tests` 用的是 `DISCOVERY_MODE PRE_TEST`，用例枚举发生在 ctest
 > 运行时，测试被漏注册时 `ctest` 会一声不吭地报成功。
+
+**各线 `ctest -N` 基数**（与 `CLAUDE.md` 同源）：
+
+| preset | `Total Tests` | 与 Win debug 的差 |
+|---|---|---|
+| `win-x64-{clang,msvc}-debug` | 75 | —（基线） |
+| `win-x64-{clang,msvc}-release` | 74 | −1：T3 的 death test 受 `#ifndef NDEBUG` 门 |
+| `linux-x64-clang-debug` | 77 | +2：T11 的两条 Linux-only（`Adopt.MissingIdentityFeatureRejectedWithPointer`、`Adopt.RenameReplacementCaughtByTierThree`） |
+| `linux-x64-clang-release` | 76 | 同上两点相抵：+2 −1 |
+
+**基数差是设计，不是漏注册**：debug/release 差的 1 条是 death test（`#ifndef NDEBUG` 门），
+Linux/Windows 差的 2 条是 Linux-only 用例（`-Wl,--build-id=none` 的 fixture 只在 Linux 存在）。
 
 ### Linux / WSL
 
@@ -105,39 +128,69 @@ wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && ctest --preset linux-x64-clang-
 `linux-x64-clang-release` 同构。`bash -c`（不带 `-l`）拿不到 `VCPKG_ROOT`——
 那是 shell 的加载规则，不是配置能改的，这类调用方得自己显式带上它。
 
+`Scripts/linux-verify.sh` 是这套流程的脚本形态（两棵 preset 各自 `rm -rf` + configure +
+build + ctest + `ctest -N`，每步打印退出码）——本项目在 WSL 侧一律用「先落脚本、再
+`bash -lc 'bash <脚本>'`」的写法，避开 Git Bash 先展开 `$VAR` 的老坑：
+
+```bash
+wsl -d Ubuntu -- bash -lc 'bash /mnt/d/Git/Vase/Scripts/linux-verify.sh'
+```
+
 Linux 侧**不需要** Windows 那样的 DLL 路径处理：CMake 会把链接到的共享库目录
 写进构建树的 RPATH（我们的库在 `lib/`，vcpkg 的 gtest 在 `vcpkg_installed/.../lib`），
 `ctest` 直接就能跑。
 
-静态检查与格式：
+### 静态检查与格式
 
 ```bash
-run-clang-tidy -p build-win/win-x64-clang-debug        # Windows
-run-clang-tidy -p build-linux/linux-x64-clang-debug    # Linux（同样经登录 shell）
-git ls-files -z '*.h' '*.hpp' '*.cpp' '*.cc' '*.ixx' | xargs -0 clang-format --dry-run --Werror
+run-clang-tidy -p build-win/win-x64-clang-debug          # Windows（clang-cl 线）
+run-clang-tidy -p build-linux/linux-x64-clang-debug      # Linux（同样经登录 shell）
+git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc' '*.ixx' \
+  | xargs -0 clang-format --dry-run --Werror
 ```
+
+- **三条 tidy 线都有脚本形态，且契约一致**：`Scripts/linux-clang-tidy.sh`（Linux，经登录
+  shell）与 `Scripts\win-clang-tidy.cmd`（Windows 两条 debug 线；带参数 `clangcl` / `msvc`
+  可单跑一条，不带则两条都跑）。日志落在脚本旁边（`*.log`，被 gitignore），stdout 打全三条
+  判据（`run-clang-tidy` 退出码 + 正文 `error:` 条数 + 正文 `warning:` 条数）与摘要计数，
+  **退出码非 0 就是门禁未过**，不必再手工 grep 日志；基数仍以 `CLAUDE.md` 的表为准，脚本
+  不复制阈值：
+
+  ```bash
+  wsl -d Ubuntu -- bash -lc 'bash /mnt/d/Git/Vase/Scripts/linux-clang-tidy.sh'
+  Scripts\win-clang-tidy.cmd
+  ```
 
 - `clang-format` 那条与 build 目录无关，全仓一条命令，两侧共用。**扩展名要列全**
   （`.h` / `.hpp` / `.cpp` / `.cc` / `.ixx`）——只列 `*.h` / `*.cpp` 时，将来出现的
-  `.hpp` / `.cc` / `.ixx` 会被 glob **静默跳过**，门禁照样绿。
+  `.hpp` / `.cc` / `.ixx` 会被 glob **静默跳过**，门禁照样绿。同理 `git ls-files` 要带
+  `--cached --others --exclude-standard`，否则**尚未 `git add` 的新文件**也会被静默跳过。
+- **「Windows 两条线绿」不能推「Linux 绿」。** 同一版 clang-tidy（两侧均 23.1.0）跑两棵树，
+  T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 条**。其中两类要分清：
+  **两条落在两侧都编译的共享文件上**（`Source/Pod/Pod.cpp:88`、`Source/Host/PluginHost.cpp:196`
+  的反向 `for`，`modernize-loop-convert`），Windows 线就是不报——成因是 **STL 不同**
+  （MSVC STL 的 `rbegin()` 走另一条路径），**不是版本差**；其余 7 条落在
+  `LoaderPosix.cpp` / `ImageInspectPosix.cpp`，那两个 TU **在 Windows 上根本不编译**。
+  所以**三条 debug 线各自跑、各自读正文**。
 - **`run-clang-tidy` 退出 0 不等于「没有 warning」**：`.clang-tidy` 的
   `WarningsAsErrors` 为空（既有且经 spec 认可），tidy 永远不会因 warning 失败。
   实测两侧都另有大量「已生成、已抑制」的 warning，**只出现在摘要行里**，既不影响
   退出码，也不被 `grep warning:` 命中：
 
   ```
-  359 warnings generated.
-  Suppressed 359 warnings (359 in non-user code).
+  998 warnings generated.
+  Suppressed 998 warnings (998 in non-user code).
   ```
 
-  （摘要行**每个 TU 各打一次**。M0 实测基数：Linux 为 359 + 359 + 3293 = **4011**，
-  Windows 两条线均为 998 + 998 + 5375 = **7371**；两者都**全部落在非用户代码**里，
-  我们自己的代码零 warning。）
+  （摘要行**每个 TU 各打一次**。2026-09-17 实测基数：clang-cl 与 cl.exe 两条线各 48 个 TU、
+  Suppressed 合计 **309464**；Linux 线 49 个 TU、合计 **133833**。两者都**全部落在非用户代码**里，
+  我们自己的代码零正文 warning。摘要行里还会出现 `N NOLINT`——那是抑制的**命中次数**
+  （同一处抑制会被每个包含它的 TU 各计一次），不是仓库里的抑制处数。）
 
   所以「没有新 warning」的判据是**三条一起**：**退出 0 + 正文 `error:` 0 条 +
   正文 `warning:` 0 条**，再连摘要行一起读。只看退出码会漏掉全部被抑制的量；
   只 grep `warning:` 也会——被抑制的那些不以 `warning:` 形式出现。
-- `run-clang-tidy` 对两条线都能跑，但 **MSVC 线要追加一个开关**：
+- `run-clang-tidy` 在三条 debug 线上都能跑，但 **cl.exe 线要追加一个开关**：
 
 ```bash
 run-clang-tidy -p build-win/win-x64-msvc-debug -extra-arg=-Wno-unused-command-line-argument
@@ -183,3 +236,51 @@ run-clang-tidy -p build-win/win-x64-msvc-debug -extra-arg=-Wno-unused-command-li
   **错误处理必须走 `Result<T>` / `Error` 显式返回**，不能指望 STL 的前置条件检查
   给出可恢复的失败。另：`_HAS_EXCEPTIONS=0` 是 MSVC STL 的**非官方支持**配置，
   STL 升级时需要重新验证。
+
+## 目录结构
+
+M1 结束时的形态（目录布局由架构 v3 第 10 节确认）：
+
+```text
+Vase/
+├── CMakeLists.txt  CMakePresets.json  vcpkg.json
+├── Cmake/
+│   ├── Toolchains/        windows-x64-clangcl.cmake、windows-x64-msvc.cmake、
+│   │                      linux-x64-clang-libcxx.cmake      （承重 flag 在注释里）
+│   ├── Triplets/          x64-linux-libcxx.cmake
+│   └── VasePluginHelpers.cmake   vase_add_plugin_fixture：插件 target 的唯一出口
+├── Include/Vase/          公开头
+│   ├── Plugin.h  PluginDescriptor.h
+│   └── Detail/  Effect/  Service/  Event/  Pod/  Host/
+├── Source/
+│   ├── Pod/               → target VasePod（效果/服务/事件/Pod/账本）
+│   └── Host/              → target VaseHost（链 VasePod；Loader、PluginHost、证据）
+├── Samples/
+│   ├── HelloCommon/       提供方与消费方共用的接口 + 事件头
+│   ├── HelloPlugin/       最小插件：Provide 一个服务 + On 一个事件
+│   └── Embedding/         验证宿主 VaseEmbedding
+├── Tests/
+│   ├── Smoke/             跨 DLL 冒烟（M0 保留）
+│   ├── Unit/  Lifecycle/  Integration/  HotSwap/  Abi/
+│   ├── TestingSupport/    PodTestPeer：M1 的形态注入缝
+│   └── */fixtures/        各层要真实二进制的插件 fixture（一律经 vase_add_plugin_fixture）
+├── Scripts/msvc-env.cmd   cl.exe 那条线的环境入口
+├── docs/superpowers/{plans,specs}/
+└── wiki/vase-architecture.md
+```
+
+构建树 `build-win/` 与 `build-linux/` 不在版本控制内。
+
+## 运行示例：`VaseEmbedding`
+
+`Samples/Embedding` 是验证宿主（v3 §10.1：没有 UI、没有业务，只有演示命令），
+证明「干净地起、干净地灭、可重复无数次」。产物与各 DLL 同处 `<构建树>/bin/`：
+
+```bash
+build-win/win-x64-clang-debug/bin/VaseEmbedding play       # 跑一局，打印 PodReport
+build-win/win-x64-clang-debug/bin/VaseEmbedding loop 20    # 连跑 20 局；任一局不 Clean 就非零退出
+build-win/win-x64-clang-debug/bin/VaseEmbedding swapdemo   # play → eject → adopt → stop，逐步打印报告
+```
+
+`loop 20` 也是 `ctest` 里 `EmbeddingLoop20` 这条用例的命令（判据「反复建销计数归零」的
+自动化形态）。Linux 侧路径同构，在 `build-linux/<preset>/bin/`。

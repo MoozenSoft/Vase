@@ -18,10 +18,16 @@ IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 
-# --- 以下四把钥匙是本项目对 LLVM 默认的**有意偏离**（LLVM 的值写在行尾）；
-#     只有 NamespaceIndentation 是沿用默认，列出仅为便于日后调整 ---
-ColumnLimit: 120            # LLVM: 80
-AccessModifierOffset: -4    # public:/private: 的缩进；LLVM: -2，-4 可与 class 对齐
-PointerAlignment: Left     # Right → "int *p"；Left → "int* p"；LLVM: Right
-BreakBeforeBraces: Allman   # LLVM: Attach
-NamespaceIndentation: None  # LLVM: None（默认）
+# --- 以下本项目对 LLVM 默认的**有意偏离**（默认值写在行尾）---
+ColumnLimit: 120              # LLVM: 80
+AccessModifierOffset: -4      # public:/private: 的缩进；LLVM: -2，-4 可与 class 对齐
+PointerAlignment: Left        # Right → "int *p"；Left → "int* p"；LLVM: Right
+BreakBeforeBraces: Allman     # LLVM: Attach
+BreakTemplateDeclarations: Yes # MultiLine：仅超列宽才拆 template 头；Yes：一律拆成两行
+BreakConstructorInitializers: BeforeComma # 默认 BeforeColon（尾随逗号）；此处前导逗号
+PackConstructorInitializers: Never        # 默认 BinPack；Never 连放得下的短表也每行一个
+
+# --- 沿用默认，列出仅为便于日后调整 ---
+NamespaceIndentation: None           # LLVM: None（默认）
+BreakAfterAttributes: Leave          # 默认 Leave；Always 会把紧凑的一行 [[nodiscard]] accessor 拆成五行
+ConstructorInitializerIndentWidth: 4 # 默认 4；与 BreakConstructorInitializers 配套

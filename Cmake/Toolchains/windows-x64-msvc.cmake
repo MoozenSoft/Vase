@@ -36,4 +36,14 @@ set(CMAKE_CXX_COMPILER cl CACHE STRING "Windows 平台 C++ 编译器（MSVC）" 
 # （与 `windows-x64-clangcl.cmake` 同一处的理由，那边写得长一些。）
 set(VCPKG_TARGET_TRIPLET x64-windows)
 
+# §8.2 档三 · 身份特征是插件的**构建要求**（13.2 末行）：MSVC 线没有 /DEBUG
+# 就没有 PE 调试目录里的 CodeView(RSDS)，Adopt 会直接拒绝该二进制（响亮的失败，
+# 不做静默降级）。/DEBUG:FULL 而非 FASTLINK：FASTLINK 的调试目录形态与增量
+# 链接器绑定，档三只认 RSDS 的 GUID+Age 稳定存在。
+# 用 *_FLAGS_INIT 而非 VaseBuildOptions：这是**链接器**标志，且必须早于
+# project() 的编译器检测进入缓存（CLAUDE.md 规矩 1 管编译选项的唯一出口，
+# 工具链文件管「平台与产物的构建形态」——两者不重叠，此处注释互相指认）。
+# 代价如实记下：vcpkg 子构建也走这份工具链，gtest 的 DLL 会多生成 PDB。
+string(APPEND CMAKE_SHARED_LINKER_FLAGS_INIT " /DEBUG:FULL")
+
 include("$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")

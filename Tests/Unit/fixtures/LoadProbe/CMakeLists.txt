@@ -1,0 +1,2 @@
+vase_add_plugin_fixture(LoadProbe SOURCES LoadProbe.cpp LINK_LIBRARIES VasePod)
+vase_add_plugin_fixture(UnloadProbe SOURCES LoadProbe.cpp LINK_LIBRARIES VasePod)

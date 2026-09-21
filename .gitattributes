@@ -1,0 +1,8 @@
+# 换行符纪律。本机 core.autocrlf=true，默认会把文本文件在检出时改成 CRLF；
+# 而 shell 脚本被 CRLF 污染后 bash 会当场报 `$'\r': command not found`（实测），
+# WSL 侧经 /mnt/d 跑脚本时直接失败。故 .sh 一律钉成 LF。
+*.sh text eol=lf
+
+# 对称的一条：.cmd 钉成 CRLF。cmd.exe 按行读批处理，而本机 msvc-env.cmd 的工作副本
+# 一直是 CRLF——那靠的是 core.autocrlf=true，不是仓库约定。钉住就不再依赖克隆方的设置。
+*.cmd text eol=crlf

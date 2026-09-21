@@ -69,9 +69,25 @@ endif()
 set(CMAKE_CXX_COMPILER "${VASE_CLANGXX_EXECUTABLE}" CACHE STRING "Linux 平台 C++ 编译器" FORCE)
 
 # 8.5：libstdc++ → libc++。编译与链接都要给，否则链接期找不到 libc++ 的符号。
+#
+# 追加的 --build-id=sha1 是**身份特征**（§8.2 档三 / 13.2 末行），不是可选优化：
+# .note.gnu.build-id 是 Linux 侧的身份特征，与 PE 的 RSDS 对位；档三在内存镜像
+# 与磁盘文件上比对的就是这段 desc。
+#
+# **计划要求同时追加 `-fno-gnu-unique`，本文件没有加——实测 clang 不接受该标志。**
+# 证据（clang 23.1.0，本机）：
+#   clang++: error: unknown argument: '-fno-gnu-unique'   （exit 1）
+# 它是 GCC 独有的开关（`clang++ --help | grep gnu-unique` 零命中）。但**设计意图
+# 不受影响**：该开关的作用是阻止编译器把符号标成 STB_GNU_UNIQUE，而 **clang 从不
+# 生成这种绑定**。同一份「inline 函数 + 静态局部变量」源码实测对比：
+#   g++    -fPIC -shared → 符号表里 4 个 UNIQUE
+#   clang++ -fPIC -shared → 0 个
+# 并且 libc++.so.1 与 Vase 自己的 .so 里也各是 0 个。即：Linux 线本来就没有
+# STB_GNU_UNIQUE 的成因可封，该标志对这条工具链是空操作、且名字不存在。
+# 仍记在此处而非删掉：后来人换 GCC 工具链时，这一条要重新评估。
 set(CMAKE_CXX_FLAGS_INIT "-stdlib=libc++")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-stdlib=libc++")
-set(CMAKE_SHARED_LINKER_FLAGS_INIT "-stdlib=libc++")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "-stdlib=libc++ -Wl,--build-id=sha1")
 set(CMAKE_MODULE_LINKER_FLAGS_INIT "-stdlib=libc++")
 
 # 内置 x64-linux 走 libstdc++，这里换成同目录下的自定义 triplet。

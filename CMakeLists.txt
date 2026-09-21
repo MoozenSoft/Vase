@@ -43,7 +43,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 可执行与动态库放同一目录：Windows 的 DLL 查找路径里包含可执行文件所在目录，
-# 测试可执行文件与 VaseSession/VaseHost 同处 bin/ 才能直接跑起来。
+# 测试可执行文件与 VasePod/VaseHost 同处 bin/ 才能直接跑起来。
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
@@ -169,6 +169,13 @@ if(WIN32)
         # clang-cl 连裸 throw 都拒。只跑 cl.exe 构建时它是漏网的，记在 spec 第 9 节。
         target_compile_options(VaseBuildOptions INTERFACE /we4530)
 
+        # 导出类带 STL 成员（池、槽表、账本）时 cl.exe 报 C4251，/WX 下即 error；本项目有意
+        # 这么写，前提由 §8.5 的工具链与 STL 矩阵钉死、D13 的 HeaderVersion 兜着。用全局豁免
+        # 而不是头文件里的逐类 #pragma 区域，代价两条，都要如实接受：
+        #   ① 整 TU 免检——新增「导出类带 STL 成员」不再有逐处把关；
+        #   ② 出不了这棵树——树外的插件/嵌入方会在**我们的头**那一行撞上 C4251，得自己加。
+        target_compile_options(VaseBuildOptions INTERFACE /wd4251)
+
         # 第三方头文件（目前只有 gtest）不进我们的警告口径：/external:anglebrackets 把
         # 「以尖括号包含的头文件」整体标记为外部，/external:W0 让它们的警告不参与 /WX。
         #
@@ -184,7 +191,7 @@ if(WIN32)
         #
         # 不变式（实测复核，改动这一带时必须重跑）：**我们自己的代码不受影响**。
         # 仓库源码一律用引号包含（`#include "Vase/..."`），且编译的是自己的 .cpp；
-        # 往 `Source/Session/SmokeProbe.cpp` 里插一个 try/catch，cl.exe 线仍报
+        # 往 `Source/Pod/SmokeProbe.cpp` 里插一个 try/catch，cl.exe 线仍报
         # `error C4530`（exit 2），即 D17 的强制力没有被本开关削弱。
         #
         # **前向陷阱（写新代码时必须守）：Vase 自己的头文件一律用引号包含，
@@ -237,8 +244,18 @@ if(MSVC)
     target_compile_definitions(VaseBuildOptions INTERFACE _HAS_EXCEPTIONS=0)
 endif()
 
+# 插件 target 的形态定义（vase_add_plugin_fixture）：Samples 与 Tests 都要用，
+# 故在 add_subdirectory 之前就位。
+include(Cmake/VasePluginHelpers.cmake)
+
 enable_testing()
 
-add_subdirectory(Source/Session)
+add_subdirectory(Source/Pod)
 add_subdirectory(Source/Host)
+
+# Samples 在 Tests 之前：Tests 与 VaseEmbedding 都要用 $<TARGET_FILE:HelloPlugin>，
+# 生成器表达式求值时该 target 必须已存在。
+add_subdirectory(Samples/HelloPlugin)
+add_subdirectory(Samples/Embedding)
+
 add_subdirectory(Tests)

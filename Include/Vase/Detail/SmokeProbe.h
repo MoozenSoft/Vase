@@ -12,10 +12,10 @@
 namespace vase
 {
 
-// 定义在 VaseSession。
-VASE_SESSION_API std::uint32_t SessionSmokeProbe();
+// 定义在 VasePod。
+VASE_POD_API std::uint32_t PodSmokeProbe();
 
-// 定义在 VaseHost，内部调用 SessionSmokeProbe()——让这次调用真的跨过动态库边界。
+// 定义在 VaseHost，内部调用 PodSmokeProbe()——让这次调用真的跨过动态库边界。
 VASE_HOST_API std::uint32_t HostSmokeProbe();
 
 } // namespace vase

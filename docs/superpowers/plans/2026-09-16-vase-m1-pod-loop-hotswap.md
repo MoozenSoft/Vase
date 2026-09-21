@@ -28,7 +28,7 @@
 | 双版本 reload fixture | 「留 M4」 | **进 M1**（12.1 全循环） | v3 勘误 ③ / 12.3 |
 | Adopt / Eject / 账本 | 无 | **进 M1（最小形）** | v3 1.5 #3/#4/#5、12.3 |
 | 卸载证据 | 单条（文件可覆盖写 / Linux 重载归零） | **三档判据**，且 Linux 主判改 `dl_iterate_phdr` 条目消失 | v3 8.2（取代 D16 与 3.3(4) 判据；成因措辞按 v3 修订） |
-| 身份特征构建标志 | 无 | **进 M1，落三个工具链文件**（`/DEBUG:FULL`、`-Wl,--build-id=sha1`、`-fno-gnu-unique`） | v3 8.2、13.2 末行 |
+| 身份特征构建标志 | 无 | **进 M1，落三个工具链文件**（`/DEBUG:FULL`、`-Wl,--build-id=sha1`；v3 还点名 `-fno-gnu-unique`，**实测 clang 不接受该标志**，见 T6） | v3 8.2、13.2 末行 |
 | 导入表执法（8.7） | 无 | **进 M1（Adopt 路径最小形）**：读导入表/DT_NEEDED，命中已知兄弟插件即拒；缺依赖诊断共用同一解析器 | v3 1.5 #7、5.1 注 |
 | Pod 内插件数 | 1 | ≥2（A、B 并存，手写序，无拓扑求解） | 12.1 |
 | `.ProcessState` 登记与 Eject 自动重置（判据 3d） | M3 | **仍 M3**。`EjectReport` 预留空字段并注释理由 | 12.3 里程碑归属 |
@@ -58,6 +58,18 @@
   - **不用变参函数**（`cppcoreguidelines-pro-type-vararg`）：整数格式化走 `std::to_chars`；
   - 类类型成员**不要**写 `{}` 初值——`cppcoreguidelines-pro-type-member-init` 与 `readability-redundant-member-init` 在这点上互斥，实测「什么都不写」才是两边都过的解；
   - `std::optional` 取值前先 `has_value()`：`bugprone-unchecked-optional-access` 不认自己的封装访问器。
+  - **「先断 `IsOk()` 为假、随后立刻 `GetError()`」的位置，前一条必须是 `ASSERT_` 族**（T11 实测）：`EXPECT_FALSE` 只记录失败、**不返回**，下一行的 `GetError()` 照样撞上 `Result::GetError()` 的 `ProgrammerError`，测试从「一条断言失败」变成「整条进程挂掉」。
+    例外是 `ASSERT_TRUE(r.IsOk()) << r.GetError().Message();` 那种写法——gtest 把 `<<` 的流表达式挂在 else 分支上，条件成立时不求值，可以放心用 `ASSERT_`（用 `EXPECT_` 也可，但没必要）。
+- 〔**本条已被取代**（2026-09-18，M1 之后）：`VASE_MSVC_DLL_WARNINGS_BEGIN/END` 已从仓库删除，C4251 改由根 `CMakeLists.txt` 的全局 `/wd4251`（cl.exe 线）豁免，逐类把关让位于构建侧一次性豁免。下面的正文保留作 M1 当时的记录与本条当时的实测结论。现行口径见 CLAUDE.md 规矩 1、wiki 8.3 与 13.3（含「豁免出不了这棵树」这笔待还的债）。〕**导出类带 STL 成员时，用 `VASE_MSVC_DLL_WARNINGS_BEGIN` / `VASE_MSVC_DLL_WARNINGS_END`（`Export.h`，T1 落地）把类定义包起来**：MSVC 的 C4251 在 `/WX` 下是 error（clang-cl 不报，Linux 无关）——已在 `ScopePool` / `EffectScope` 上实测炸过，一度让 cl.exe 线整条编不过。逐类显式豁免而非全局 `/wd4251`：豁免要一次次做，才不会把新代码的真错一起放行。前提是工具链与 STL 矩阵钉死（§8.5）＋ `HeaderVersion` 拦头文件不匹配（D13）；**若日后允许插件用不同版本的 MSVC STL 构建，前提即破，届时应改为 pimpl 或把 STL 成员移出导出面**。T7 的 `Pod` / `PluginHost` 同样带 STL 成员，照此办理。
+- **格式门必须覆盖未跟踪文件**：`git ls-files` 对**尚未 `git add` 的新文件静默跳过**（本计划早期的门禁命令有此漏洞，实测：整体报 exit 0，单独跑那两个新文件却报差异）。命令一律用 `git ls-files -z --cached --others --exclude-standard ...`。
+- **插件 fixture 与测试探针类放匿名命名空间**，否则撞 `misc-use-internal-linkage`（T4 起实测会报）。`VASE_PLUGIN` 的宏展开自带其所需的抑制，不必再管；`VASE_PLUGIN` 本身仍须留在全局作用域（放匿名命名空间里会破坏 `extern "C"`）。
+- **C++ 改动的运行期成本按 `.claude/skills/cpp20-zero-overhead/SKILL.md` 办**：新增或修改类型、函数签名、
+  循环、容器与分配、导出面接口之前**先调该 skill**。两条硬约束照办：**每个付费点要么在例外登记表
+  占一行**（位置 / 付了什么 / 为什么值 / 测量点＋最近数字与日期 / 复核触发），**要么经确认无付费——
+  不许悬空**；**没有验证阶梯上的数字就不写「更快 / 更省 / 零开销」**，注释里也不写。
+- **提交信息用中文**，与仓库既有风格一致；**不加任何点名 AI 工具或模型的尾注**——不写
+  `Co-Authored-By:`、`Generated-with:`、`Signed-off-by:` 或「🤖 Generated with …」一行
+  （CLAUDE.md「语言约定」明定，优先于任何工具自带的署名默认值）。只留标题 + 中文说明体。
 - **注释中文为主**；每个机制点注释里标 v3 节号（如 `// §5.6 规则 ②`），承重处标 spec 探针结论出处。
 - **铁律 §1.2 + 最小属主追踪（D15）**：进程级容器（二进制表、账本、池）插入时 Debug 断言不持实例级对象；Vase 的实例级对象（`Plugin` 实例、`EffectScope`、服务注册项）带属主标记（M1 只存 `OwnerLabel` 字符串指针，够断言与诊断归属，完整归属追踪 M3）。
 - **§1.4**：`PluginHost` 进程内唯一、绑定创建线程；一切生命周期与注册动作串行于绑定线程（Debug 断言 thread id）。计数器的非原子维护依赖这条——见代码注释。
@@ -101,18 +113,17 @@ Source/
 │   ├── EffectScope.cpp  ScopePool.cpp                                        （T3）
 │   ├── ServiceRegistry.cpp  EventBus.cpp  Context.cpp                        （T5）
 │   ├── DependencyLedger.cpp                                                  （T9）
-│   └── Pod.cpp  PodReport.cpp                                                 （T7）
+│   └── Pod.cpp                                                                 （T7）
 └── Host/         → target VaseHost（链 VasePod）
     ├── SmokeProbe.cpp                                                       （T1 改名）
     ├── Loader.cpp  LoaderWindows.cpp  LoaderPosix.cpp                        （T6）
     ├── ImageInspectCommon.cpp  ImageInspectWindows.cpp  ImageInspectPosix.cpp（T6）
-    ├── PluginHost.cpp（二进制表、建销 Pod、诊断计数、Adopt/Eject）            （T7/T9/T10/T11）
-    └── Evidence.cpp                                                            （T10/T11）
+    └── PluginHost.cpp（二进制表、建销 Pod、诊断计数、Adopt/Eject）            （T7/T9/T10/T11）
 
 Samples/
 ├── HelloCommon/Greeter.h        提供方与消费方共用的接口+事件头（T7）
 ├── HelloPlugin/                 最小插件：Provide 一个服务 + On 一个事件（T7）
-└── Embedding/                   验证宿主：play / loop（T7）+ eject / adopt（T11）
+└── Embedding/                   验证宿主：play | loop <N> | swapdemo（T7/T10/T11）
                                  （§10.1：Samples 只放演示；「加载失败」语义归 Tests fixture——
                                   失败插件对宿主是演示、对判据是测试材料，M1 取后者，
                                   原 FailingPlugin 演示位改列 Tests/Integration/fixtures 的
@@ -181,7 +192,23 @@ Expected: 命中点全部落在下面的映射表内。替换映射（**逐串�
 
 - [ ] **Step 2: 应用替换（三处语义注释要改写，不是串替换）**
 
-1. `Include/Vase/Detail/Export.h`：`VASE_SESSION_BUILD/API` 两个宏整体改为 POD 版（`#ifdef` 行与 `#define` 行共 4 行）。
+1. `Include/Vase/Detail/Export.h`：`VASE_SESSION_BUILD/API` 两个宏整体改为 POD 版（`#ifdef` 行与 `#define` 行共 4 行）；**并在文件末尾追加 C4251 的逐类豁免宏**——T3 起实测：导出类里放 STL 成员会让 cl.exe 线整条编不过（`/WX` 把 C4251 升为 error，clang-cl 与 Linux 都不报）。原样追加：
+
+   ```cpp
+   // 导出类里带 STL 成员时，MSVC 报 C4251（客户端用不了没 dllexport 的 STL 类型），
+   // 在 /WX 下是 error。本项目**有意**在导出类里放 STL 成员（池、槽表、账本），
+   // 前提由两条保证：工具链与 STL 矩阵钉死（§8.5）、HeaderVersion 拦头文件不匹配（D13）。
+   // 因此逐类显式豁免，而不是全局 /wd4251——豁免要一次次做，才不会把新代码的真错一起放行。
+   // clang-cl 也定义 _MSC_VER，故它同样展开出这对 pragma——无害（clang-cl 本就不报 C4251，
+// 而它认得 MSVC 的 warning pragma）；只有真正非 MSVC 的目标（Linux/macOS）下展开为空。
+   #ifdef _MSC_VER
+   #define VASE_MSVC_DLL_WARNINGS_BEGIN __pragma(warning(push)) __pragma(warning(disable : 4251))
+   #define VASE_MSVC_DLL_WARNINGS_END __pragma(warning(pop))
+   #else
+   #define VASE_MSVC_DLL_WARNINGS_BEGIN
+   #define VASE_MSVC_DLL_WARNINGS_END
+   #endif
+   ```
 2. `Source/Host/CMakeLists.txt`：`PUBLIC VaseSession` → `PUBLIC VasePod`；其上注释「Host 依赖 Session」→「Host 依赖 Pod——分层方向（§1：二进制层在实例层之上）与「插件不依赖 Host」（D11）由链接图承载」。
 3. 根 `CMakeLists.txt`：`add_subdirectory(Source/Session)` → `add_subdirectory(Source/Pod)`；`:45` 附近输出目录注释里的 `VaseSession/VaseHost` → `VasePod/VaseHost`；`Tests/CMakeLists.txt` 里 `gtest_discover_tests` 注释提到的 `VaseSession` → `VasePod`。
 
@@ -207,17 +234,17 @@ Expected: 双线 build 零警告、ctest 全绿、`-N` 基数 2。产物 `VasePo
 - [ ] **Step 5: 残留检查 + 格式门**
 
 ```bash
-git grep -n "VaseSession\|SessionSmokeProbe\|VASE_SESSION"   # Expected: 零命中
-git ls-files -z '*.h' '*.hpp' '*.cpp' '*.cc' '*.ixx' | xargs -0 clang-format --dry-run --Werror
+# 范围限定在代码 / 构建 / 现状文书：历史计划与设计文档是**记录**，不改史（T14 的文书义务同此口径）
+git grep -n "VaseSession\|SessionSmokeProbe\|VASE_SESSION" -- Source Include Tests CMakeLists.txt CLAUDE.md README.md wiki
+# Expected: 零命中。全仓范围必然命中 docs/superpowers/ 里本计划自己的映射表与 M0 历史计划——那不是残留。
+git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc' '*.ixx' | xargs -0 clang-format --dry-run --Werror
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add -A
-git commit -m "M1-T1：Session→Pod 实体更名（目录/target/宏/符号），CLAUDE.md 连带更新
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T1：Session→Pod 实体更名（目录/target/宏/符号），CLAUDE.md 连带更新"
 ```
 
 ---
@@ -237,7 +264,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
   - `vase::ErrorContext { std::string PluginId; std::string ServiceName; std::uint32_t ServiceVersion; Phase Stage; }`（§13.2 钉死的字段集）
   - `vase::Error`：`IsSet()` / `Message()` / `Context()`；全拥有（spec 3.3(3)，§0.3-6 的登记例外）
   - `vase::Result<T>`：`static Ok(T)` / `static Err(Error)` / `IsOk()` / `Value()`（非 Ok 时 → programmer error 终止）/ `GetError()`；`Result<void>` 特例化
-  - `vase::MetaArray<T, Capacity>`：`constexpr`、`Size()` / `Empty()` / `Begin()` / `End()` / `operator[]`、溢出=编译错
+  - `vase::MetaArray<T, Capacity>`：`constexpr`、`Size()` / `Empty()` / `Begin()` / `End()` / `operator[]`、溢出=编译错（另加运行期 abort）
   - `detail::ProgrammerError(msg, loc = std::source_location::current())` **函数**（不是宏）：打印消息 + `assert`（Debug 便于挂调试器）+ `abort`（两态都终止——§6.2「断言/终止」双形态在本实现里合一为「带诊断输出的终止」）。C++20 的 `source_location` 正好补上宏唯一不可替代的那点能力（`__FILE__`/`__LINE__`），于是 `cppcoreguidelines-macro-usage` 无从下手
 
 - [ ] **Step 1: 写 `Include/Vase/Detail/Fail.h`**
@@ -345,7 +372,9 @@ class Error
 {
 public:
     Error() = default;
-    explicit Error(std::string message, ErrorContext context = {}) : Text(std::move(message)), Info(std::move(context))
+    explicit Error(std::string message, ErrorContext context = {})
+        : Text(std::move(message))
+        , Info(std::move(context))
     {
     }
 
@@ -358,7 +387,8 @@ private:
     ErrorContext Info;
 };
 
-template <typename T> class [[nodiscard]] Result
+template <typename T>
+class [[nodiscard]] Result
 {
 public:
     static Result Ok(T value)
@@ -411,7 +441,8 @@ private:
     std::optional<Error> Failure;
 };
 
-template <> class [[nodiscard]] Result<void>
+template <>
+class [[nodiscard]] Result<void>
 {
 public:
     static Result Ok()
@@ -453,7 +484,7 @@ private:
 
 - [ ] **Step 3: 写 `Include/Vase/Detail/MetaArray.h`**
 
-spec 3.3(2) 定稿原样搬运（D17 后的「只声明不定义」溢出机制）：
+spec 3.3(2) 的定稿形态（**溢出机制已按 2026-09-17 实测修订**：`MetaArrayCapacityExceeded` 改为「定义成非 constexpr 终止函数」，理由见块内注释——只声明不定义会让运行期构造链接失败）：
 
 ```cpp
 #pragma once
@@ -469,17 +500,22 @@ spec 3.3(2) 定稿原样搬运（D17 后的「只声明不定义」溢出机制�
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdlib>
 #include <initializer_list>
 #include <iterator>
 
 namespace vase
 {
 
-// 只声明、不定义：constexpr 求值中调用它必然失败，诊断指向这个自解释的名字；
-// 运行期真被调用是链接错误——同样是响亮失败。溢出绝不静默截断（spec 3.3(2)）。
-void MetaArrayCapacityExceeded();
+// 溢出出口：定义成**非 constexpr 的终止函数**，而不是 spec 3.3(2) 原始的「只声明不定义」。
+// 两者都能让溢出的 constexpr 求值失败（碰到非 constexpr 调用即不是常量表达式）；差别在
+// 非溢出路径——只声明不定义时符号引用照样发射，一切**运行期**构造都链接失败
+// （实测 lld-link: undefined symbol，引它的是 `MetaArray<int,4>::MetaArray(initializer_list<int>)`，
+// 成因是函数内的运行期构造）。溢出照旧响：常量求值里报错、运行期 abort。
+[[noreturn]] inline void MetaArrayCapacityExceeded() { std::abort(); }
 
-template <typename T, std::size_t Capacity> class MetaArray
+template <typename T, std::size_t Capacity>
+class MetaArray
 {
 public:
     constexpr MetaArray() = default;
@@ -497,7 +533,8 @@ public:
     [[nodiscard]] constexpr std::size_t Size() const { return Count; }
     [[nodiscard]] constexpr bool Empty() const { return Count == 0; }
     [[nodiscard]] constexpr const T* Begin() const { return Items.data(); }
-    [[nodiscard]] constexpr const T* End() const { return Items.data() + Count; }
+    // 用 std::next 而非 Items.data() + Count：指针算式过不了 cppcoreguidelines-pro-bounds-*。
+    [[nodiscard]] constexpr const T* End() const { return std::next(Begin(), static_cast<std::ptrdiff_t>(Count)); }
     [[nodiscard]] constexpr const T& operator[](std::size_t index) const
     {
         return *std::next(Items.begin(), static_cast<std::ptrdiff_t>(index));
@@ -518,9 +555,12 @@ private:
 #include "Vase/Detail/MetaArray.h"
 #include "Vase/Detail/Result.h"
 
+#include <cstdint>
 #include <gtest/gtest.h>
+#include <iterator>
 #include <string>
-#include <vector>
+#include <string_view>
+#include <utility>
 
 namespace
 {
@@ -530,10 +570,22 @@ struct MoveOnly
     std::string S;
 
     MoveOnly() = default;
-    explicit MoveOnly(std::string s) : S(std::move(s)) {}
+    explicit MoveOnly(std::string s)
+        : S(std::move(s))
+    {
+    }
     MoveOnly(const MoveOnly&) = delete;
     MoveOnly& operator=(const MoveOnly&) = delete;
     MoveOnly(MoveOnly&&) noexcept = default;
+    MoveOnly& operator=(MoveOnly&&) noexcept = default;
+    ~MoveOnly() = default;
+};
+
+// 描述符里的条目就是这个形状（名字 + 主版本），拿来测非平凡元素类型的运行期构造。
+struct Service
+{
+    std::string_view Name;
+    std::uint32_t Version = 0;
 };
 
 TEST(Result, OkCarriesMoveOnlyValue)
@@ -591,6 +643,21 @@ TEST(MetaArray, CapacityBoundaryIsExact)
     EXPECT_EQ(a.Size(), 2U);
 }
 
+// 运行期（非 constexpr）构造非平凡元素：这是「只声明不定义」的 MetaArrayCapacityExceeded
+// 会让整个 TU 链接失败的形态（实测 undefined symbol），本用例即那条失效模式的守卫。
+// 注意 -O2 下 clang 会把常量初值的构造整体折叠掉（const 与否都一样），故本守卫的有效范围是 debug 线。
+TEST(MetaArray, RuntimeConstructionPopulatesAndReads)
+{
+    const vase::MetaArray<Service, 2> services{
+        {.Name = "Vase.World", .Version = 1},
+        {.Name = "Vase.Audio", .Version = 2},
+    };
+    ASSERT_EQ(services.Size(), 2U);
+    EXPECT_EQ(std::distance(services.Begin(), services.End()), 2);
+    EXPECT_EQ(services.Begin()->Name, "Vase.World");
+    EXPECT_EQ(std::next(services.Begin())->Version, 2U);
+}
+
 TEST(Fail, ProgrammerErrorTerminates)
 {
     // 终止类断言只能用 death test——EXPECT_THROW 族在本仓库是编译期硬失败（CLAUDE.md 规矩 2）。
@@ -612,20 +679,17 @@ add_executable(VaseTests
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 10（基数 2 + 本任务 8）
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 11（基数 2 + 本任务 9）
 ```
 
 - [ ] **Step 6: MetaArray 溢出反例（仓库外一次性，不入构建）**
 
-溢出是**编译期**机制，只能以「编译应失败」验证。建 `D:\Git\.vase-probe\m1t2-overflow.cpp`：
+溢出在**常量求值**里是编译错、在运行期是 abort。反例必须写成常量求值形态——写成函数内的运行期局部会编过（运行期才 abort，实测如此）。建 `D:\Git\.vase-probe\m1t2-overflow.cpp`：
 
 ```cpp
 #include "Vase/Detail/MetaArray.h"
-int main()
-{
-    vase::MetaArray<int, 2> overflow{1, 2, 3}; // 应编译失败
-    return static_cast<int>(overflow.Size());
-}
+
+constexpr vase::MetaArray<int, 2> kOverflow{1, 2, 3}; // 应编译失败
 ```
 
 ```bash
@@ -633,18 +697,16 @@ export MSYS2_ARG_CONV_EXCL='*'   # 防 Git Bash 把 /I 开头的参数当路径�
 clang++ -std=c++20 -fno-exceptions -Wall -Wextra -Werror \
     -I D:/Git/Vase/Include -c D:/Git/.vase-probe/m1t2-overflow.cpp
 ```
-Expected: **编译失败**，note 链指向 `MetaArrayCapacityExceeded` 的声明处（spec 3.3(2) 记录的诊断形态）。验证后删除临时文件——它无法作为常规编译单元存在（它的全部价值是不编译）。
+Expected: **编译失败**，诊断含 `constant expression`，note 链点名 `MetaArrayCapacityExceeded`。验证后删除临时文件——它无法作为常规编译单元存在（它的全部价值是不编译）。
 
 - [ ] **Step 7: 门禁 + Commit**
 
 ```bash
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 run-clang-tidy -p build-win/win-x64-clang-debug 2>&1 | tail -4
 # Expected: 退出 0 且正文 error:/warning: 各 0 条（摘要行里的「Suppressed」是第三方头的既有基数，CLAUDE.md）
 git add -A
-git commit -m "M1-T2：Detail 地基——Result<T>/Error/MetaArray/ProgrammerError + 单测
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T2：Detail 地基——Result<T>/Error/MetaArray/ProgrammerError + 单测"
 ```
 
 ---
@@ -711,16 +773,21 @@ struct DiagnosticCounters
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
 
 namespace vase::detail
 {
 
+VASE_MSVC_DLL_WARNINGS_BEGIN
 class VASE_POD_API ScopePool
 {
 public:
-    static constexpr std::size_t kAlignment = alignof(std::max_align_t);
+    // 块对齐**写死 16**，不用 alignof(std::max_align_t)：后者在 MSVC STL 是 8、libc++ 是 16
+    // （实测：同一句 static_assert 在 Windows 失败、Linux 通过），会让 alignas(16) 的 Effect
+    // 在 Linux 编得过、Windows 编不过——跨平台插件库不该有这种陷阱。
+    static constexpr std::size_t kAlignment = 16;
 
     ScopePool() = default;
     ~ScopePool() = default;
@@ -731,6 +798,7 @@ public:
     ScopePool& operator=(ScopePool&&) = delete;
 
     // 返回一块 Size 字节、kAlignment 对齐的内存（内部向上取整，最小 sizeof(FreeNode)）。
+    // Size 无上界：超过 kChunkBytes 时按需开一块更大的 chunk（见 .cpp）。
     void* Acquire(std::size_t size);
     // Object 必须是先前 Acquire(Size) 的返回值且 Size 相同（两次的取整一致）。
     void Release(void* object, std::size_t size);
@@ -750,9 +818,11 @@ private:
     }
 
     std::vector<std::vector<std::uint8_t>> Chunks;
-    std::size_t BumpOffset = kChunkBytes;                     // == kChunkBytes：下一块必须开新 chunk
+    std::uint8_t* ChunkCursor = nullptr;                      // 当前 chunk 的**已对齐**起点
+    std::size_t BumpOffset = 0;                               // 相对 ChunkCursor
     std::vector<std::pair<std::size_t, FreeNode*>> FreeLists; // (块字节数, 链头)
 };
+VASE_MSVC_DLL_WARNINGS_END
 
 } // namespace vase::detail
 ```
@@ -760,8 +830,11 @@ private:
 ```cpp
 #include "Vase/Detail/ScopePool.h"
 
-#include <algorithm>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <memory>
 
 namespace vase::detail
 {
@@ -771,29 +844,38 @@ void* ScopePool::Acquire(std::size_t size)
     assert(size > 0);
     const std::size_t bytes = BlockBytes(size);
 
-    for (std::size_t i = 0; i < FreeLists.size(); ++i)
+    // 迭代器而非下标：非常量下标的 operator[] 过不了 cppcoreguidelines-pro-bounds-*。
+    for (auto entry = FreeLists.begin(); entry != FreeLists.end(); ++entry)
     {
-        if (FreeLists[i].first == bytes)
+        if (entry->first == bytes)
         {
-            FreeNode* node = FreeLists[i].second;
+            FreeNode* node = entry->second;
             if (node->Next == nullptr)
             {
-                FreeLists.erase(FreeLists.begin() + static_cast<long>(i));
+                FreeLists.erase(entry);
             }
             else
             {
-                FreeLists[i].second = node->Next;
+                entry->second = node->Next;
             }
-            return node; // 复用的块本就是 16 对齐的
+            return node; // 复用的块本就是 kAlignment 对齐的
         }
     }
 
-    if (BumpOffset + bytes > kChunkBytes)
+    if (ChunkCursor == nullptr || BumpOffset + bytes > kChunkBytes)
     {
-        Chunks.push_back(std::make_unique<std::uint8_t[]>(kChunkBytes));
+        // 多要 kAlignment 字节做对齐余量，再把可用起点向上取整到 kAlignment——
+        // 不赌分配器给多少对齐（kAlignment 写死 16，而 max_align_t 在 MSVC STL 只有 8）。
+        // 同时按需开大：bytes > kChunkBytes 时若只开 kChunkBytes，返回区会越过 chunk 末尾。
+        const std::size_t chunkBytes = (bytes > kChunkBytes ? bytes : kChunkBytes) + kAlignment;
+        Chunks.emplace_back(chunkBytes, std::uint8_t{0});
+        std::size_t space = chunkBytes;
+        void* cursor = Chunks.back().data();
+        ChunkCursor = static_cast<std::uint8_t*>(std::align(kAlignment, 1, cursor, space));
+        assert(ChunkCursor != nullptr); // 留了 kAlignment 余量，必然成功
         BumpOffset = 0;
     }
-    std::uint8_t* block = Chunks.back().get() + BumpOffset;
+    std::uint8_t* block = std::next(ChunkCursor, static_cast<std::ptrdiff_t>(BumpOffset));
     BumpOffset += bytes;
     return block;
 }
@@ -864,6 +946,14 @@ protected:
 // 索引 + 代际句柄（D9）。代际一次解决两件事：§7.2 的 Dispose 幂等
 // （过期句柄 Release 无副作用）与 §7.3 的「从账上移除」。可平凡拷贝——
 // 拷贝出去的第二份句柄在槽位被回收并复用后自动失效（代际不匹配）。
+//
+// **句柄不得活得比它的 EffectScope 久**：Scope 是非拥有裸指针，Release()/IsValid() 都解引用它。
+// 代际只护「槽位复用」那一侧，护不了「Scope 已死」——陈旧句柄安全不是全保。
+//
+// 标 VASE_POD_API：两个成员函数的定义在 VasePod（要 EffectScope 完整类型），
+// 不导出则本库外的调用方链接期即失败（实测 lld-link: undefined symbol）。
+
+#include "Vase/Detail/Export.h"
 
 #include <cstdint>
 
@@ -872,7 +962,7 @@ namespace vase
 
 class EffectScope;
 
-struct EffectHandle
+struct VASE_POD_API EffectHandle
 {
     static constexpr std::uint32_t kInvalidSlot = 0xFFFFFFFFU;
 
@@ -882,8 +972,8 @@ struct EffectHandle
 
     [[nodiscard]] bool IsValid() const;
     // 立即回收 + 从 Scope 账上移除——两件事原子，缺一不可（§7.3）。
-    // 对失效句柄调用无副作用（幂等）。
-    void Release();
+    // 对失效句柄调用无副作用（幂等）。const 是准确的：它改的是 Scope，不是句柄本身。
+    void Release() const;
 };
 
 } // namespace vase
@@ -909,6 +999,7 @@ struct EffectHandle
 
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <new>
 #include <tuple>
 #include <type_traits>
@@ -918,19 +1009,21 @@ struct EffectHandle
 namespace vase
 {
 
+VASE_MSVC_DLL_WARNINGS_BEGIN
 class VASE_POD_API EffectScope
 {
 public:
     explicit EffectScope(detail::ScopePool& pool, detail::DiagnosticCounters* counters = nullptr,
                          const char* ownerLabel = "");
-    ~EffectScope(); // 未 Dispose 则兜底 Dispose；「忘了 Dispose」由 §9.2 计数抓，不在这里静默
+    ~EffectScope(); // 兜底 Dispose；计数能抓的是「Scope 从未析构」，不是「忘了 Dispose」——析构里补上了
 
     EffectScope(const EffectScope&) = delete;
     EffectScope& operator=(const EffectScope&) = delete;
     EffectScope(EffectScope&&) = delete;
     EffectScope& operator=(EffectScope&&) = delete;
 
-    template <typename T, typename... Args> EffectHandle Create(Args&&... args)
+    template <typename T, typename... Args>
+    EffectHandle Create(Args&&... args)
     {
         static_assert(std::is_base_of_v<IEffect, T>, "Effect must derive from vase::IEffect");
         static_assert(alignof(T) <= detail::ScopePool::kAlignment, "over-aligned effects need a pool change first");
@@ -944,7 +1037,9 @@ public:
                            { ::new (where) T(std::forward<decltype(unpacked)>(unpacked)...); }, std::move(p));
                 *out = static_cast<IEffect*>(static_cast<T*>(where)); // 多继承下两者可能不同址
             },
-            &pack);
+            // 析构必须由 T 自己跑：~IEffect 非虚，s.Object->~IEffect() 只销毁基类子对象，
+            // 派生类成员全漏。§7.1 的「销毁路径 = Recycle + 显式析构调用」要的正是这一下。
+            [](IEffect* object) { static_cast<T*>(object)->~T(); }, &pack);
     }
 
     void Dispose(); // 逆序、幂等（§7.2）
@@ -960,8 +1055,9 @@ private:
 
     struct Slot
     {
-        IEffect* Memory = nullptr; // placement-new 的原始块（多继承下 != 对象指针）
+        void* Memory = nullptr; // placement-new 的原始块（多继承下 != 对象指针），Release 时原样还给池
         IEffect* Object = nullptr;
+        void (*Destroy)(IEffect*) = nullptr; // 由 Create<T> 交下来的派生析构 thunk
         std::size_t Size = 0;
         std::uint32_t Generation = 0;
         std::uint32_t Prev = kNone;
@@ -969,10 +1065,22 @@ private:
         bool Live = false;
     };
 
-    EffectHandle CreateRaw(std::size_t size, void (*construct)(void*, void*, IEffect**), void* arg);
+    EffectHandle CreateRaw(std::size_t size, void (*construct)(void*, void*, IEffect**), void (*destroy)(IEffect*),
+                           void* arg);
     void ReleaseSlot(std::uint32_t slot, std::uint32_t generation);
     void Unlink(std::uint32_t slot);
     [[nodiscard]] bool SlotAlive(std::uint32_t slot, std::uint32_t generation) const;
+
+    // 槽按下标寻址是设计本体（自由链与注册链存的就是下标），故下标访问集中在这两个访问器里。
+    // 用 std::next 而非 operator[]：非常量下标过不了 cppcoreguidelines-pro-bounds-avoid-unchecked-container-access。
+    [[nodiscard]] Slot& SlotAt(std::uint32_t index)
+    {
+        return *std::next(Slots.begin(), static_cast<std::ptrdiff_t>(index));
+    }
+    [[nodiscard]] const Slot& SlotAt(std::uint32_t index) const
+    {
+        return *std::next(Slots.begin(), static_cast<std::ptrdiff_t>(index));
+    }
 
     detail::ScopePool& Pool;
     detail::DiagnosticCounters* Counters;
@@ -983,6 +1091,7 @@ private:
     std::uint32_t FreeHead = kNone;
     bool Disposed = false;
 };
+VASE_MSVC_DLL_WARNINGS_END
 
 } // namespace vase
 ```
@@ -992,14 +1101,21 @@ private:
 ```cpp
 #include "Vase/Effect/EffectScope.h"
 
+#include "Vase/Detail/Counters.h"
 #include "Vase/Detail/Fail.h"
+#include "Vase/Detail/ScopePool.h"
+#include "Vase/Effect/EffectHandle.h"
+#include "Vase/Effect/IEffect.h"
+
+#include <cstddef>
+#include <cstdint>
 
 namespace vase
 {
 
 bool EffectHandle::IsValid() const { return Scope != nullptr && Scope->SlotAlive(Slot, Generation); }
 
-void EffectHandle::Release()
+void EffectHandle::Release() const
 {
     if (Scope != nullptr && Slot != kInvalidSlot)
     {
@@ -1008,7 +1124,9 @@ void EffectHandle::Release()
 }
 
 EffectScope::EffectScope(detail::ScopePool& pool, detail::DiagnosticCounters* counters, const char* ownerLabel)
-    : Pool(pool), Counters(counters), Label(ownerLabel)
+    : Pool(pool)
+    , Counters(counters)
+    , Label(ownerLabel)
 {
     if (Counters != nullptr)
     {
@@ -1021,7 +1139,8 @@ EffectScope::~EffectScope()
     Dispose(); // 幂等，已 Dispose 则无副作用
 }
 
-EffectHandle EffectScope::CreateRaw(std::size_t size, void (*construct)(void*, void*, IEffect**), void* arg)
+EffectHandle EffectScope::CreateRaw(std::size_t size, void (*construct)(void*, void*, IEffect**),
+                                    void (*destroy)(IEffect*), void* arg)
 {
     if (Disposed)
     {
@@ -1029,11 +1148,11 @@ EffectHandle EffectScope::CreateRaw(std::size_t size, void (*construct)(void*, v
         detail::ProgrammerError("disposed scope rejects new effects");
     }
 
-    std::uint32_t slot;
+    std::uint32_t slot = kNone;
     if (FreeHead != kNone)
     {
         slot = FreeHead;
-        FreeHead = Slots[slot].Next;
+        FreeHead = SlotAt(slot).Next;
     }
     else
     {
@@ -1041,19 +1160,20 @@ EffectHandle EffectScope::CreateRaw(std::size_t size, void (*construct)(void*, v
         Slots.emplace_back();
     }
 
-    Slot& s = Slots[slot];
+    Slot& s = SlotAt(slot);
     void* mem = Pool.Acquire(size);
     IEffect* obj = nullptr;
     construct(mem, arg, &obj); // 构造回调把对象指针写进 out（不用返回值：那是 owning-memory 的所有权语义）
     s.Memory = mem;
     s.Object = obj;
+    s.Destroy = destroy;
     s.Size = size;
     s.Live = true;
     s.Prev = Tail;
     s.Next = kNone;
     if (Tail != kNone)
     {
-        Slots[Tail].Next = slot;
+        SlotAt(Tail).Next = slot;
     }
     else
     {
@@ -1064,7 +1184,7 @@ EffectHandle EffectScope::CreateRaw(std::size_t size, void (*construct)(void*, v
     {
         ++Counters->Effects;
     }
-    return EffectHandle{this, slot, s.Generation};
+    return EffectHandle{.Scope = this, .Slot = slot, .Generation = s.Generation};
 }
 
 void EffectScope::ReleaseSlot(std::uint32_t slot, std::uint32_t generation)
@@ -1073,14 +1193,16 @@ void EffectScope::ReleaseSlot(std::uint32_t slot, std::uint32_t generation)
     {
         return;
     }
-    Slot& s = Slots[slot];
+    Slot& s = SlotAt(slot);
     if (!s.Live || s.Generation != generation)
     {
         return; // 陈旧/重复句柄：静默无副作用（§7.2 幂等 + D9）
     }
 
     s.Object->Recycle(); // 逻辑撤销（注册链此刻仍含本槽：Recycle 里允许读兄弟 Effect）
-    s.Object->~IEffect();
+    // 派生析构由 thunk 跑。写成 s.Object->~IEffect() 只销毁基类子对象（~IEffect 非虚），
+    // 派生成员全漏；限定名写法只是压掉 -Wdelete-abstract-non-virtual-dtor，不解决问题。
+    s.Destroy(s.Object);
     Pool.Release(s.Memory, s.Size);
 
     Unlink(slot);
@@ -1098,10 +1220,10 @@ void EffectScope::ReleaseSlot(std::uint32_t slot, std::uint32_t generation)
 
 void EffectScope::Unlink(std::uint32_t slot)
 {
-    const Slot& s = Slots[slot];
+    const Slot& s = SlotAt(slot);
     if (s.Prev != kNone)
     {
-        Slots[s.Prev].Next = s.Next;
+        SlotAt(s.Prev).Next = s.Next;
     }
     else
     {
@@ -1109,7 +1231,7 @@ void EffectScope::Unlink(std::uint32_t slot)
     }
     if (s.Next != kNone)
     {
-        Slots[s.Next].Prev = s.Prev;
+        SlotAt(s.Next).Prev = s.Prev;
     }
     else
     {
@@ -1126,7 +1248,7 @@ void EffectScope::Dispose()
     while (Tail != kNone)
     {
         const std::uint32_t current = Tail;
-        ReleaseSlot(current, Slots[current].Generation); // 后注册先销毁（§5.4 的顺序保证）
+        ReleaseSlot(current, SlotAt(current).Generation); // 后注册先销毁（§5.4 的顺序保证）
     }
     Disposed = true;
     if (Counters != nullptr)
@@ -1138,7 +1260,7 @@ void EffectScope::Dispose()
 std::size_t EffectScope::EffectCount() const
 {
     std::size_t count = 0;
-    for (std::uint32_t i = Head; i != kNone; i = Slots[i].Next)
+    for (std::uint32_t i = Head; i != kNone; i = SlotAt(i).Next)
     {
         ++count;
     }
@@ -1147,7 +1269,7 @@ std::size_t EffectScope::EffectCount() const
 
 bool EffectScope::SlotAlive(std::uint32_t slot, std::uint32_t generation) const
 {
-    return slot < Slots.size() && Slots[slot].Live && Slots[slot].Generation == generation;
+    return slot < Slots.size() && SlotAt(slot).Live && SlotAt(slot).Generation == generation;
 }
 
 } // namespace vase
@@ -1158,7 +1280,9 @@ bool EffectScope::SlotAlive(std::uint32_t slot, std::uint32_t generation) const
 ```cpp
 #include "Vase/Detail/Counters.h"
 #include "Vase/Detail/ScopePool.h"
+#include "Vase/Effect/EffectHandle.h"
 #include "Vase/Effect/EffectScope.h"
+#include "Vase/Effect/IEffect.h"
 
 #include <gtest/gtest.h>
 #include <vector>
@@ -1172,11 +1296,45 @@ std::vector<int>& RecycleLog()
     return log;
 }
 
-class Tagged : public vase::IEffect
+// final：IEffect 是保护非虚析构（销毁权归 Scope），派生类不该被拿去多态 delete；
+// 标了 final 才不招 cppcoreguidelines-virtual-class-destructor。
+class Tagged final : public vase::IEffect
 {
 public:
-    explicit Tagged(int tag) : Tag(tag) {}
+    explicit Tagged(int tag)
+        : Tag(tag)
+    {
+    }
     void Recycle() override { RecycleLog().push_back(Tag); }
+
+    int Tag;
+};
+
+std::vector<int>& DestroyLog()
+{
+    static std::vector<int> log;
+    return log;
+}
+
+// Finding 1 的守卫装置：Tagged 只持一个 int（析构平凡），回收路径漏没漏跑派生析构看不出来。
+// 这个的析构往静态日志记一笔——若回收只销毁 IEffect 基类子对象（限定名析构那种写法），
+// 日志必为空，用例确定性红灯，无需 ASan。
+class NonTrivial final : public vase::IEffect
+{
+public:
+    explicit NonTrivial(int tag)
+        : Tag(tag)
+    {
+    }
+    ~NonTrivial() { DestroyLog().push_back(Tag); }
+    void Recycle() override {}
+
+    // 与 IEffect 一致：Effect 就地构造、由 Scope 回收，从不拷贝也从不移动。
+    // 显式写全也是 cppcoreguidelines-special-member-functions 要的（声明了析构就得处置其余四个）。
+    NonTrivial(const NonTrivial&) = delete;
+    NonTrivial& operator=(const NonTrivial&) = delete;
+    NonTrivial(NonTrivial&&) = delete;
+    NonTrivial& operator=(NonTrivial&&) = delete;
 
     int Tag;
 };
@@ -1213,11 +1371,21 @@ TEST(EffectScope, DisposeIsIdempotent)
     EXPECT_EQ(f.Counters.Scopes, 0U); // 第二次 Dispose 不得再动计数
 }
 
+TEST(EffectScope, DisposeRunsDerivedDestructor)
+{
+    Fixture f;
+    DestroyLog().clear();
+    f.Scope.Create<NonTrivial>(11);
+    f.Scope.Create<NonTrivial>(12);
+    f.Scope.Dispose();
+    EXPECT_EQ(DestroyLog(), (std::vector<int>{12, 11})); // 派生析构真跑了，且与回收同序（Finding 1 的守卫）
+}
+
 TEST(EffectHandle, ReleaseExecutesAndUnregistersAtomically)
 {
     Fixture f;
     RecycleLog().clear();
-    vase::EffectHandle h = f.Scope.Create<Tagged>(42);
+    const vase::EffectHandle h = f.Scope.Create<Tagged>(42);
     EXPECT_EQ(f.Scope.EffectCount(), 1U);
     h.Release();
     EXPECT_EQ(RecycleLog(), (std::vector<int>{42})); // 动作执行了……
@@ -1230,7 +1398,7 @@ TEST(EffectHandle, SecondReleaseIsNoOp)
 {
     Fixture f;
     RecycleLog().clear();
-    vase::EffectHandle h = f.Scope.Create<Tagged>(7);
+    const vase::EffectHandle h = f.Scope.Create<Tagged>(7);
     h.Release();
     h.Release();
     EXPECT_EQ(RecycleLog().size(), 1U);
@@ -1239,12 +1407,13 @@ TEST(EffectHandle, SecondReleaseIsNoOp)
 TEST(EffectHandle, StaleHandleCannotTouchReusedSlot)
 {
     Fixture f;
-    vase::EffectHandle a = f.Scope.Create<Tagged>(1);
-    a.Release();                                      // 槽进自由链，代际推进
-    vase::EffectHandle b = f.Scope.Create<Tagged>(2); // 大概率复用同一槽
-    a.Release();                                      // 陈旧句柄：必须无副作用（D9）
-    EXPECT_EQ(f.Scope.EffectCount(), 1U);             // b 仍活着
-    EXPECT_EQ(RecycleLog().size(), 1U);               // 只回收了 a 那一次
+    RecycleLog().clear(); // 与其他用例一致：日志是静态的，单进程整跑时不先清会串味
+    const vase::EffectHandle a = f.Scope.Create<Tagged>(1);
+    a.Release();                                            // 槽进自由链，代际推进
+    const vase::EffectHandle b = f.Scope.Create<Tagged>(2); // 大概率复用同一槽
+    a.Release();                                            // 陈旧句柄：必须无副作用（D9）
+    EXPECT_EQ(f.Scope.EffectCount(), 1U);                   // b 仍活着
+    EXPECT_EQ(RecycleLog().size(), 1U);                     // 只回收了 a 那一次
     b.Release();
     EXPECT_EQ(f.Scope.EffectCount(), 0U);
 }
@@ -1292,18 +1461,16 @@ add_library(VasePod SHARED
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 18（10 + 8；death test 计入 debug 线）
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 20（11 + 9；death test 计入 debug 线）
 ```
 
 - [ ] **Step 7: Linux 线 + 门禁 + Commit**
 
 ```bash
 wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug -N'
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T3：Effect 机器——IEffect/EffectHandle/EffectScope/ScopePool + 回收序单测
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T3：Effect 机器——IEffect/EffectHandle/EffectScope/ScopePool + 回收序单测"
 ```
 
 > **release 线基数备忘**：`#ifndef NDEBUG` 的 death test 在 release 树编译掉——release preset 的 `-N` 基数比 debug 少 1。T14 写进 `CLAUDE.md`。
@@ -1347,6 +1514,7 @@ v3 §3.1 的三件套（工厂、唯一命名描述符、统一入口）落地�
 #include "Vase/Detail/Result.h"
 
 #include <cstdint>
+#include <memory>
 #include <string_view>
 
 namespace vase
@@ -1394,7 +1562,7 @@ public:
     virtual ~Plugin() = default;
 
     // 默认构造**必须显式 default**：删拷贝/移动会一并抑制隐式默认构造，
-    // 少了这一行 VASE_PLUGIN 的 `new Type()` 当场编不过。
+    // 少了这一行 VASE_PLUGIN 的 `std::make_unique<Type>()` 当场编不过。
     Plugin() = default;
     Plugin(const Plugin&) = delete;
     Plugin& operator=(const Plugin&) = delete;
@@ -1420,10 +1588,24 @@ public:
 //
 // 作者侧写法：VASE_PLUGIN(MyPlugin){ ... }; —— 花括号紧贴宏。它落在宏实参内，
 // 不受 Allman 管辖，换行写会被格式门判红。
+// 宏体里**一个 NOLINT 都不需要**——三条会被报的检查各有代码级出路：
+//   · Create / Destroy 只在本 TU 内被取地址 → 放进匿名命名空间，同时避开
+//     misc-use-internal-linkage 与 misc-use-anonymous-namespace（`static` 只满足前者，
+//     会立刻招来后者；两者都是内部链接，语义等价）；
+//   · 创建走 make_unique、销毁端用 unique_ptr 接住再析构：既消掉裸 new/delete 表达式，
+//     也消掉 misc-const-correctness——后者对 raw 的建议是给**指针所指**加 const
+//     （`::vase::Plugin const* raw`），那是另一个函数类型、赋不进描述符的 Destroy 槽，
+//     所以正确的出路是把裸指针整个去掉，而不是照它的 fix-it 改。
+// 与 spec 3.3(1) 的探针定稿相比，宏体的外围写法有**四处**不同：上面两处、匿名命名空间的
+// 包裹、以及 GetPlugin 的 nullptr 守卫（探针片段没有）。探针证明的**机制**——用户花括号
+// 落在宏末行的变量声明上——原样保留。spec 是历史记录，不改史；其宏体写法以此为最新。
 #define VASE_PLUGIN(Type)                                                                                              \
     extern const ::vase::PluginMeta kVaseMeta_##Type;                                                                  \
-    ::vase::Plugin* VasePluginCreate_##Type() { return new Type(); }                                                   \
-    void VasePluginDestroy_##Type(::vase::Plugin* raw) { delete raw; }                                                 \
+    namespace                                                                                                          \
+    {                                                                                                                  \
+    ::vase::Plugin* VasePluginCreate_##Type() { return std::make_unique<Type>().release(); }                           \
+    void VasePluginDestroy_##Type(::vase::Plugin* raw) { const std::unique_ptr<::vase::Plugin> owning{raw}; }          \
+    }                                                                                                                  \
     extern "C" VASE_EXPORT const ::vase::PluginDescriptor* VasePluginDesc_##Type()                                     \
     {                                                                                                                  \
         static const ::vase::PluginDescriptor kDesc{::vase::kHeaderVersion, &kVaseMeta_##Type,                         \
@@ -1432,7 +1614,7 @@ public:
     }                                                                                                                  \
     extern "C" VASE_EXPORT const ::vase::PluginDescriptor* VasePlugin_GetPlugin(const char* id)                        \
     {                                                                                                                  \
-        return std::string_view{id} == kVaseMeta_##Type.Id ? VasePluginDesc_##Type() : nullptr;                        \
+        return id != nullptr && std::string_view{id} == kVaseMeta_##Type.Id ? VasePluginDesc_##Type() : nullptr;       \
     }                                                                                                                  \
     const ::vase::PluginMeta kVaseMeta_##Type = ::vase::PluginMeta
 ```
@@ -1442,22 +1624,35 @@ public:
 - [ ] **Step 2: 写测试 `Tests/Unit/DescriptorTests.cpp`（4 个 TEST）**
 
 ```cpp
+#include "Vase/Detail/Result.h"
 #include "Vase/PluginDescriptor.h"
 
 #include <gtest/gtest.h>
+#include <iterator>
+#include <type_traits>
 
+// 探针类放匿名命名空间：tidy 的 misc-use-internal-linkage 要求「只在本 TU 使用的类型」
+// 就该有内部链接。类的名字只在 VASE_PLUGIN 展开里用一次，放进匿名命名空间不改变任何语义
+// （全局作用域的非限定查找仍能找到它），却省掉一条 NOLINT。
+namespace
+{
 class DescriptorProbePlugin final : public vase::Plugin
 {
 public:
-    vase::Result<void> OnLoad(vase::Context&) override { return vase::Result<void>::Ok(); }
+    vase::Result<void> OnLoad(vase::Context& ctx) override
+    {
+        static_cast<void>(ctx);
+        return vase::Result<void>::Ok();
+    }
 };
+} // namespace
 
 VASE_PLUGIN(DescriptorProbePlugin){
     .Id = "Vase.DescriptorProbe",
     .DisplayName = "描述符探针",
     .Version = "0.0.1",
-    .Requires = {{"Vase.World", 1}, {"Vase.Audio", 2}},
-    .Provides = {{"Vase.Probe.Service", 1}},
+    .Requires = {{.Name = "Vase.World", .Version = 1}, {.Name = "Vase.Audio", .Version = 2}},
+    .Provides = {{.Name = "Vase.Probe.Service", .Version = 1}},
 };
 
 namespace
@@ -1469,10 +1664,11 @@ TEST(Descriptor, MetaPopulatedThroughBraceBlock)
     EXPECT_EQ(d->HeaderVersion, vase::kHeaderVersion);
     EXPECT_EQ(d->Meta->Id, "Vase.DescriptorProbe");
     ASSERT_EQ(d->Meta->Requires.Size(), 2U);
-    EXPECT_EQ(d->Meta->Requires[1].Name, "Vase.Audio");
-    EXPECT_EQ(d->Meta->Requires[1].Version, 2U);
+    // 迭代器而非 operator[]：非常量下标过不了 cppcoreguidelines-pro-bounds-*（计划「tidy 形态约束」）。
+    EXPECT_EQ(std::next(d->Meta->Requires.Begin())->Name, "Vase.Audio");
+    EXPECT_EQ(std::next(d->Meta->Requires.Begin())->Version, 2U);
     ASSERT_EQ(d->Meta->Provides.Size(), 1U);
-    EXPECT_EQ(d->Meta->Provides[0].Name, "Vase.Probe.Service");
+    EXPECT_EQ(d->Meta->Provides.Begin()->Name, "Vase.Probe.Service");
 }
 
 TEST(Descriptor, GetPluginRoutesByIdentity)
@@ -1486,7 +1682,9 @@ TEST(Descriptor, CreateDestroyRoundTrips)
 {
     const vase::PluginDescriptor* d = VasePluginDesc_DescriptorProbePlugin();
     vase::Plugin* p = d->Create();
-    ASSERT_NE(p, nullptr);
+    // EXPECT 而非 ASSERT：ASSERT_NE 的失败早退在 clang-analyzer 眼里是「p 泄漏路径」，
+    // 而 p 为 null 时销毁端（unique_ptr 接住空指针）本来就无害，无需早退。
+    EXPECT_NE(p, nullptr);
     d->Destroy(p); // 虚析构路径（§3.1 的「Delete 在镜像内」性质；测试 exe 内等价演示）
 }
 
@@ -1508,18 +1706,16 @@ TEST(Descriptor, DefaultOnStartReturnsOk)
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 22
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 24
 ```
 
 - [ ] **Step 4: 双平台 + 门禁 + Commit**
 
 ```bash
 wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug'
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T4：PluginDescriptor/Plugin 基类/VASE_PLUGIN 宏（spec 3.3(1) 定稿展开式）
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T4：PluginDescriptor/Plugin 基类/VASE_PLUGIN 宏（spec 3.3(1) 定稿展开式）"
 ```
 
 ---
@@ -1626,7 +1822,7 @@ struct EventKey
 // Context——Pod 内的服务访问入口（§2.1/§2.3/§6.2）。四条边界（§2.3）在类型上的
 // 投影：无 Proxy、无惰性解析（Get 是显式的）、查找是**一张扁平面**（子 Context
 // 不是查找链的一环——它只记录 Effect 归属与诊断说话的身份）、一个服务标识
-// 一个实现（重复 Provide 在 M2 求解期拒，M1 运行期取后写覆盖，见 .cpp 注释）。
+// 一个实现（重复 Provide 在 M1 运行期即终止、两个构建一致；M2 把它提前到求解期硬拒——见 .cpp 注释）。
 //
 // 堆壳的所有权写法：make_unique 造壳 + release() 显式移交，销毁端用 unique_ptr<Cell>
 // 接住再析构——全程不出现裸 new/delete 表达式。
@@ -1672,14 +1868,16 @@ public:
     Context& operator=(Context&&) = delete;
     ~Context() = default;
 
-    template <typename T> EffectHandle Provide(T& instance)
+    template <typename T>
+    EffectHandle Provide(T& instance)
     {
         static_assert(HasServiceIdentity<T>,
                       "服务接口必须声明 kName 与 kVersion。参见 Vase/Service/Service.h 的示例。");
         return ProvideRaw(ServiceKey{T::kName, T::kVersion}, &instance, nullptr, nullptr);
     }
 
-    template <typename T> EffectHandle Provide(std::unique_ptr<T> owned)
+    template <typename T>
+    EffectHandle Provide(std::unique_ptr<T> owned)
     {
         static_assert(HasServiceIdentity<T>,
                       "服务接口必须声明 kName 与 kVersion。参见 Vase/Service/Service.h 的示例。");
@@ -1695,7 +1893,8 @@ public:
                           &DestroyShell<std::unique_ptr<T>>);
     }
 
-    template <typename T> T& Get()
+    template <typename T>
+    T& Get()
     {
         static_assert(HasServiceIdentity<T>,
                       "服务接口必须声明 kName 与 kVersion。参见 Vase/Service/Service.h 的示例。");
@@ -1703,19 +1902,22 @@ public:
         return *static_cast<T*>(found);
     }
 
-    template <typename T> T* TryGet()
+    template <typename T>
+    T* TryGet()
     {
         static_assert(HasServiceIdentity<T>,
                       "服务接口必须声明 kName 与 kVersion。参见 Vase/Service/Service.h 的示例。");
         return static_cast<T*>(ResolveRaw(T::kName, T::kVersion, /*required=*/false));
     }
 
-    template <typename E, typename C> EffectHandle On(void (C::*method)(const E&), C* self)
+    template <typename E, typename C>
+    EffectHandle On(void (C::*method)(const E&), C* self)
     {
         return On<E>([self, method](const E& event) { (self->*method)(event); });
     }
 
-    template <typename E, typename F> EffectHandle On(F&& handler)
+    template <typename E, typename F>
+    EffectHandle On(F&& handler)
     {
         static_assert(HasEventIdentity<E>, "事件结构必须声明 kName 与 kVersion。参见 Vase/Event/Event.h 的示例。");
         static_assert(std::is_invocable_v<F, const E&>, "handler 必须可 (const E&) 调用");
@@ -1724,7 +1926,8 @@ public:
         return SubscribeRaw(EventKey{E::kName, E::kVersion}, shell.release(), &InvokeHandler<E>, &DestroyShell<Fn>);
     }
 
-    template <typename E> void Emit(const E& event)
+    template <typename E>
+    void Emit(const E& event)
     {
         static_assert(HasEventIdentity<E>, "事件结构必须声明 kName 与 kVersion。参见 Vase/Event/Event.h 的示例。");
         EmitRaw(EventKey{E::kName, E::kVersion}, &event);
@@ -1740,17 +1943,23 @@ private:
 
     Context(EffectScope& scope, detail::ServiceRegistry& registry, detail::EventBus& bus,
             detail::DiagnosticCounters* counters, const PluginMeta* selfMeta)
-        : Scope(&scope), Registry(&registry), Bus(&bus), Counters(counters), SelfMeta(selfMeta)
+        : Scope(&scope)
+        , Registry(&registry)
+        , Bus(&bus)
+        , Counters(counters)
+        , SelfMeta(selfMeta)
     {
     }
 
     // 堆壳的统一销毁端：用 unique_ptr 接住再析构，不出现裸 delete 表达式。
-    template <typename Cell> static void DestroyShell(void* cell)
+    template <typename Cell>
+    static void DestroyShell(void* cell)
     {
         const std::unique_ptr<Cell> owning{static_cast<Cell*>(cell)};
     }
 
-    template <typename E> static void InvokeHandler(const void* event, void* cell)
+    template <typename E>
+    static void InvokeHandler(const void* event, void* cell)
     {
         (*static_cast<std::function<void(const E&)>*>(cell))(*static_cast<const E*>(event));
     }
@@ -1812,6 +2021,7 @@ struct ServiceEntry
     bool Alive = false;
 };
 
+VASE_MSVC_DLL_WARNINGS_BEGIN
 class VASE_POD_API ServiceRegistry
 {
 public:
@@ -1824,18 +2034,23 @@ public:
 
     [[nodiscard]] std::size_t Count() const; // alive 数
 
-    // M1 规模下 tombstone 不压缩（整 Pod 消亡时全清）；重复 Provide = 后写覆盖 +
-    // Debug 断言（§2.3-4 的「一服务一实现」求解期执法是 M2，这里是运行期兜底）。
+    // M1 规模下 tombstone 不压缩（整 Pod 消亡时全清）。重复 Provide 是**编程错误**，
+    // 与解析失败同路，经 detail::ProgrammerError **两个构建都终止**——不要用裸 assert：
+    // 它会让 Debug 终止、Release 静默后写覆盖，两个构建行为分叉。
+    // （§2.3-4 的「一服务一实现」求解期硬拒是 M2，这里是运行期兜底。）
 
 private:
     std::vector<ServiceEntry> Entries;
     std::uint64_t NextId = 1;
 };
+VASE_MSVC_DLL_WARNINGS_END
 
+VASE_MSVC_DLL_WARNINGS_BEGIN
 class VASE_POD_API EventBus
 {
 public:
-    explicit EventBus(detail::DiagnosticCounters* counters = nullptr);
+    EventBus() = default; // 不接计数：§9.2 的账由**注册通道**（Context）记一处，
+                          // 存储容器保持哑存储——与 ServiceRegistry 对称
 
     std::uint64_t Add(EventKey key, void* handler, void (*invoke)(const void*, void*), void (*destroy)(void*));
     bool Remove(EventKey key, std::uint64_t id);
@@ -1857,8 +2072,8 @@ private:
     std::vector<Subscription> Subs;
     std::vector<Subscription> DeferredDestroy; // Emit 期间的 Remove 先记这里，派完再真删
     std::uint32_t EmitDepth = 0;
-    detail::DiagnosticCounters* Counters;
 };
+VASE_MSVC_DLL_WARNINGS_END
 
 } // namespace vase::detail
 ```
@@ -1880,6 +2095,9 @@ private:
 //                  provider=entry->ProviderInstance；provider 为 nullptr（kHost）不落边——
 //                  §5.6「宿主的解析不落边」）；返回 Instance。
 // SubscribeRaw：Bus->Add + Subscriptions++；SubscriptionEffect 的 Recycle = Remove + --。
+//             **计数只在这一处**：ServiceRegistry / EventBus 两个容器都不记账（哑存储），
+//             否则同一件事被记两次、只减一次（实测：EventBus::Add 与 SubscribeRaw 各 ++、
+//             SubscriptionEffect::Recycle 只 --，净 +1/轮）。
 // EmitRaw：     Bus->Emit；事件对象是借用——Emit 返回后即失效（§2.4），类型上已保证
 //               （const E& 临时对象传进来，没有任何路径能把指针存出去，除非 handler 违规——9.3 契约束）。
 ```
@@ -2049,25 +2267,25 @@ TEST(EventBus, CountTracksAliveSubscriptions)
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 27
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 30
 ```
 
 - [ ] **Step 7: Linux 线 + 门禁 + Commit**
 
 ```bash
 wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug'
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T5：ServiceRegistry/EventBus/Context 与 Plugin.h 作者入口组装
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T5：ServiceRegistry/EventBus/Context 与 Plugin.h 作者入口组装"
 ```
 
 ---
 ## Task 6: 构建标志落工具链 + `Loader` + 镜像解析器（三档判据的地基）
 
 两件事一个主题——「**二进制带着可验证的身份进场**」（§8.2 / §8.7）：
-① 身份特征是构建要求（13.2 末行）：MSVC 线 `/DEBUG:FULL`（无 RSDS 则档三无从谈起）、Linux 线 `-Wl,--build-id=sha1` + `-fno-gnu-unique`（封 `STB_GNU_UNIQUE` 成因）。**按需求方拍板落三个工具链文件**——`CMAKE_*_INIT` 只在 configure 期生效、不进 `VaseBuildOptions`（后者是**编译**选项的唯一出口，这三个里两个是**链接**标志，工具链文件是它们唯一早于 `project()` 的落点；`-fno-gnu-unique` 虽是编译标志，但它是 Linux/libc++ 线的**平台选型后果**，与 `-stdlib=libc++` 同处才不分裂）。
+① 身份特征是构建要求（13.2 末行）：MSVC 线 `/DEBUG:FULL`（无 RSDS 档三无从谈起）、Linux 线 `-Wl,--build-id=sha1`。**按需求方拍板落三个工具链文件**——`CMAKE_*_INIT` 只在 configure 期生效、不进 `VaseBuildOptions`（后者是**编译**选项的唯一出口，这两个都是**链接**标志，工具链文件是它们唯一早于 `project()` 的落点）。
+
+   **v3 §8.2 还点名 `-fno-gnu-unique`（封 `STB_GNU_UNIQUE` 成因）——实测不加，理由两条**（T6 实测，证据写在 `Cmake/Toolchains/linux-x64-clang-libcxx.cmake` 的注释里）：(a) **clang 不接受该标志**（`clang++: error: unknown argument: '-fno-gnu-unique'`，它是 GCC 独有），照加会直接把 Linux 线编崩；(b) 该成因在本工具链上**不存在**——实测同一份 `inline` 函数局部静态，**g++ 生成 4 个 `STB_GNU_UNIQUE` 符号、clang++ 生成 0 个**。设计意图（不让「卸载后符号仍在」）由 clang 的默认行为满足；**若日后 Linux 线改用 GCC，这条必须回来重审**。
 ② 三档证据与导入表执法共用**同一个自写镜像解析器**（§8.2 末段 / §8.7），先以「纯字节进、纯数据出」的纯函数落地并单测穷举，`Loader` 在其上包住平台 API。
 
 **Files:**
@@ -2084,7 +2302,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Produces:
   - `vase::detail::ImageIdentity { IdentityKind Kind; std::vector<std::uint8_t> Bytes; }`（`operator==` defaulted）——档三的比对原语
   - 纯函数（`VASE_HOST_API`，单测直接喂构造字节）：`ParsePeCodeView(span, loadedInMemory)`、`ParsePeImports(span, loadedInMemory)`、`ExtractBuildIdFromNotes(span)`、`ParseElfBuildIdFile(span)`、`ParseElfNeededFile(span)`
-  - `vase::detail::Loader`（`VASE_HOST_API`）：`EnsureResident(path) -> Result<BinaryRecord>`、`Unload(rec) -> UnloadEvidence`、`Symbol(rec, name) -> Result<void*>`、`MemoryIdentity(rec)`、`FileIdentity(path)`、`ImportedLibraryNames(rec)`（读**磁盘**镜像的导入声明——执法要的是「这个文件要谁」，不是「运行期已解析成谁」）、`DescribeLoadFailure(path, rawError)`、`ResidentBinaryCount()` / `FindResident(path)`、`AllResident()`（Shutdown 迭代）
+  - `vase::detail::Loader`（`VASE_HOST_API`）：`EnsureResident(path) -> Result<BinaryRecord>`、`Unload(rec) -> UnloadEvidence`、`Symbol(rec, name) -> Result<void*>`、`MemoryIdentity(rec)`、`FileIdentity(path)`、`ImportedLibraryNamesFromFile(path)`（读**磁盘**镜像的导入声明——执法要的是「这个文件要谁」，不是「运行期已解析成谁」）、`DescribeLoadFailure(path)`、`ResidentBinaryCount()` / `FindResident(path)`、`AllResident()`（Shutdown 迭代）
   - `struct UnloadEvidence { bool ReopenWritable; bool MappingRemoved; bool ReopenWritableIsMeaningful; bool MappingRemovalIsObservable; }`——**哪个字段在本平台有判据力是平台事实，写进结构而不是让读报告的人背 §8.2**：Windows 主判 `ReopenWritable`（辅助地位：改名替换可骗过它），Linux 主判 `MappingRemoved`（`dl_iterate_phdr` 条目消失）
   - 平台宏约定：`Loader.h` 内部 `#ifdef _WIN32` 选实现；测试两端跑同一条断言
 
@@ -2108,12 +2326,12 @@ string(APPEND CMAKE_SHARED_LINKER_FLAGS_INIT " /DEBUG:FULL")
 
 ```cmake
 # 8.5：libstdc++ → libc++。编译与链接都要给，否则链接期找不到 libc++ 的符号。
-set(CMAKE_CXX_FLAGS_INIT "-stdlib=libc++ -fno-gnu-unique")   # ← 追加 -fno-gnu-unique（§8.2：封死 STB_GNU_UNIQUE 成因）
+set(CMAKE_CXX_FLAGS_INIT "-stdlib=libc++")   # ← 不加 -fno-gnu-unique：clang 不认该标志，且实测 clang 不生成 STB_GNU_UNIQUE（见上文）
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-stdlib=libc++")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "-stdlib=libc++ -Wl,--build-id=sha1")  # ← 追加 --build-id（§8.2 档三：.note.gnu.build-id 是 Linux 身份特征）
 set(CMAKE_MODULE_LINKER_FLAGS_INIT "-stdlib=libc++")
 ```
-（上面四行是**替换后**的最终形态；原有注释保留。`-fno-gnu-unique` 是 libc++ 线专属——MSVC STL 无此做派，Windows 侧不加。）
+（上面四行是**替换后**的最终形态；原有注释保留。`-fno-gnu-unique` 见上文——**实测不加**。）
 
 - [ ] **Step 2: 验证标志真的进了产物（这一步是本 task 的存在理由）**
 
@@ -2174,6 +2392,12 @@ VASE_HOST_API Result<std::vector<std::string>> ParseElfNeededFile(std::span<cons
 
 // 供 §8.2「加载失败时补一句缺哪个依赖」：在**文件字节**上找导入表里磁盘上
 // 不存在的条目名；找不到任何解释则返回空串（诊断尽力而为，不假装有把握）。
+//
+// 契约边界（纯函数拿不到的东西，就别假装拿到）：本函数只做「从文件字节里取出
+// **第一个**导入条目名」这一步——它没有路径，也就无从查磁盘。名字里的
+// Unresolvable 说的是**调用语境**：调用方（EnsureResident 的失败路径）已经把
+// 加载失败握在手里，拿这个名字当「最可能的缺项」写进报告。存在性判定若要更准，
+// 是 §8.7 执法（读同一份导入表 + 文件名主干比对）而不是这里的事。
 VASE_HOST_API std::string FirstUnresolvableImport(std::span<const std::uint8_t> fileBytes, bool isPe);
 
 } // namespace vase::detail
@@ -2425,7 +2649,7 @@ TEST(ImageInspect, ElfWithoutBuildIdNoteFailsLouder)
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug -R ImageInspect
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 33
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 36
 ```
 
 ---
@@ -2472,6 +2696,9 @@ struct UnloadEvidence
     bool MappingRemovalIsObservable = false; // Linux: true；Win: false
 };
 
+// C4251：导出类带 std::vector 成员（本仓库有意为之，前提见 Export.h 里那段的说明），
+// 逐类豁免而不是全局关掉。
+VASE_MSVC_DLL_WARNINGS_BEGIN
 class VASE_HOST_API Loader
 {
 public:
@@ -2485,32 +2712,43 @@ public:
 
     Result<BinaryRecord*> EnsureResident(const std::filesystem::path& path);
     UnloadEvidence Unload(const BinaryRecord& record);
-    Result<void*> Symbol(const BinaryRecord& record, std::string_view name);
 
-    [[nodiscard]] Result<ImageIdentity> MemoryIdentity(const BinaryRecord& record) const;      // 档三 · 内存侧
-    [[nodiscard]] Result<ImageIdentity> FileIdentity(const std::filesystem::path& path) const; // 档三 · 磁盘侧
+    // —— 以下五项**与实例状态无关**，故声明为 static ——
+    //
+    // 计划原文把它们写成 `const` 实例成员（Symbol 更没带 const）。那样过不了
+    // tidy：readability-convert-member-functions-to-static 对「不碰 this 的成员函数」
+    // 逐个报（实测 10 条正文 warning，全仓第一次撞上这条检查）。它们的 `const`
+    // 本来就只是「不改自己」的代理说法，而这里真正的事实是**根本不看实例**——
+    // static 才是准确写法：行为一字不变、所有调用点（`loader.X(...)` 这种写法照样
+    // 编过）、且不必为一个有代码级出路的检查花 NOLINT 额度。
+    static Result<void*> Symbol(const BinaryRecord& record, std::string_view name);
+
+    [[nodiscard]] static Result<ImageIdentity> MemoryIdentity(const BinaryRecord& record);      // 档三 · 内存侧
+    [[nodiscard]] static Result<ImageIdentity> FileIdentity(const std::filesystem::path& path); // 档三 · 磁盘侧
 
     // §8.7 执法读的是**文件声明**（「这个二进制要谁」），从磁盘镜像解析——运行期
     // 已解析的导入表会替隐式兄弟链拉边，而账面看不见的正是这种「文件里写着」的关系。
-    [[nodiscard]] Result<std::vector<std::string>>
-    ImportedLibraryNamesFromFile(const std::filesystem::path& path) const;
+    [[nodiscard]] static Result<std::vector<std::string>>
+    ImportedLibraryNamesFromFile(const std::filesystem::path& path);
 
-    [[nodiscard]] std::string DescribeLoadFailure(const std::filesystem::path& path) const; // §8.2 缺依赖诊断
+    [[nodiscard]] static std::string DescribeLoadFailure(const std::filesystem::path& path); // §8.2 缺依赖诊断
 
     [[nodiscard]] std::size_t ResidentBinaryCount() const { return Binaries.size(); }
     [[nodiscard]] const BinaryRecord* FindResident(const std::filesystem::path& path) const;
     [[nodiscard]] std::vector<BinaryRecord> AllResident() const;
 
 private:
-    Result<void*> PlatformLoad(const std::filesystem::path& path, std::string& outError);
-    void PlatformFree(void* raw);
-    void* PlatformSymbol(void* raw, const char* name);
-    bool PlatformReopenWritable(const std::filesystem::path& path);
-    bool PlatformMappingRemoved(const std::filesystem::path& path);
+    static Result<void*> PlatformLoad(const std::filesystem::path& path, std::string& outError);
+    static void PlatformFree(void* raw);
+    static void* PlatformSymbol(void* raw, const char* name);
+    static bool PlatformReopenWritable(const std::filesystem::path& path);
+    static bool PlatformMappingRemoved(const std::filesystem::path& path);
 
     std::vector<std::unique_ptr<BinaryRecord>> Binaries; // 进程级表：只存路径+句柄，
-    // 不存任何实例级对象（§1.2；T7 的 Host 在写入处 Debug 断言属主为空）。
+    // 不存任何实例级对象——**这一点由 BinaryRecord 的类型承载**（path + void* 句柄，
+    // 装不下实例级对象），不是靠插入点断言（§1.2）。
 };
+VASE_MSVC_DLL_WARNINGS_END
 
 } // namespace vase::detail
 ```
@@ -2522,7 +2760,19 @@ private:
 ```cpp
 #include "Vase/Host/Loader.h"
 
+#include "ImageInspectPlatform.h"
+#include "Vase/Detail/ImageInspect.h"
+#include "Vase/Detail/Result.h"
+
 #include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace vase::detail
 {
@@ -2535,10 +2785,13 @@ Result<BinaryRecord*> Loader::EnsureResident(const std::filesystem::path& path)
     {
         abs = path;
     }
-    if (const BinaryRecord* found = FindResident(abs))
+    const auto existing = std::ranges::find_if(Binaries, [&abs](const std::unique_ptr<BinaryRecord>& entry)
+                                               { return entry->Path == abs; });
+    if (existing != Binaries.end())
     {
-        return Result<BinaryRecord*>::Ok(
-            const_cast<BinaryRecord*>(found)); // 已驻留：复用，不触发二次平台加载（§8.1 表）
+        // 已驻留：复用同一记录，不触发二次平台加载（§8.1 表）。
+        // 表本身是可变的，所以这里直接取非 const 指针——不需要 const_cast 那一手。
+        return Result<BinaryRecord*>::Ok(existing->get());
     }
 
     std::string platformError;
@@ -2546,22 +2799,27 @@ Result<BinaryRecord*> Loader::EnsureResident(const std::filesystem::path& path)
     if (!loaded.IsOk())
     {
         std::string message = "failed to load binary: " + abs.string() + " (" + platformError + ")";
-        if (std::string hint = DescribeLoadFailure(abs); !hint.empty())
+        if (const std::string hint = DescribeLoadFailure(abs); !hint.empty())
         {
             message += " — missing dependency: " + hint; // POCO 借来的诊断：报「缺哪个」，不只 dlopen failed
         }
         return Result<BinaryRecord*>::Err(Error{std::move(message)});
     }
 
-    Binaries.push_back(std::make_unique<BinaryRecord>(BinaryRecord{abs, *loaded.Value()}));
+    // 计划原文这里写的是 `*loaded.Value()`。`Result<void*>::Value()` 返回的就是
+    // `void*`（不是 `void**`），解引用它编译不过——实测诊断：
+    //   error: indirection not permitted on operand of type 'void *'
+    //   error: cannot initialize a member subobject of type 'void *' with an lvalue of type 'void'
+    // 直接取那个句柄即可。
+    Binaries.push_back(std::make_unique<BinaryRecord>(BinaryRecord{.Path = abs, .Raw = loaded.Value()}));
     return Result<BinaryRecord*>::Ok(Binaries.back().get());
 }
 
 UnloadEvidence Loader::Unload(const BinaryRecord& record)
 {
     UnloadEvidence evidence;
-    auto it = std::ranges::find_if(Binaries, [&record](const auto& up)
-                                   { return up->Raw == record.Raw && up->Path == record.Path; });
+    const auto it = std::ranges::find_if(Binaries, [&record](const std::unique_ptr<BinaryRecord>& entry)
+                                         { return entry->Raw == record.Raw && entry->Path == record.Path; });
     if (it == Binaries.end())
     {
         return evidence; // 重复 Unload：全 false。调用方（Eject/Shutdown）必须读证据，不读=漏账
@@ -2578,8 +2836,8 @@ UnloadEvidence Loader::Unload(const BinaryRecord& record)
 #else
     evidence.MappingRemoved = PlatformMappingRemoved(copy.Path);
     evidence.MappingRemovalIsObservable = true;
-    evidence.ReopenWritable =
-        PlatformReopenWritable(copy.Path); // Linux 上恒真（旧 inode 解除链接即可），记录但不作判据（§8.2）
+    // Linux 上恒真（旧 inode 解除链接即可），记录但不作判据（§8.2）。
+    evidence.ReopenWritable = PlatformReopenWritable(copy.Path);
     evidence.ReopenWritableIsMeaningful = false;
 #endif
     return evidence;
@@ -2587,7 +2845,7 @@ UnloadEvidence Loader::Unload(const BinaryRecord& record)
 
 Result<void*> Loader::Symbol(const BinaryRecord& record, std::string_view name)
 {
-    std::string zeroTerminated(name);
+    const std::string zeroTerminated(name);
     void* address = PlatformSymbol(record.Raw, zeroTerminated.c_str()); // 平台文件各一行实现
     if (address == nullptr)
     {
@@ -2596,9 +2854,45 @@ Result<void*> Loader::Symbol(const BinaryRecord& record, std::string_view name)
     return Result<void*>::Ok(address);
 }
 
+Result<ImageIdentity> Loader::MemoryIdentity(const BinaryRecord& record)
+{
+    return MemoryIdentityPlatform(record.Raw, record.Path);
+}
+
+Result<ImageIdentity> Loader::FileIdentity(const std::filesystem::path& path) { return FileIdentityPlatform(path); }
+
+Result<std::vector<std::string>> Loader::ImportedLibraryNamesFromFile(const std::filesystem::path& path)
+{
+    const std::vector<std::uint8_t> bytes = ReadImageFileBytes(path);
+    if (bytes.empty())
+    {
+        return Result<std::vector<std::string>>::Err(Error{"cannot read file: " + path.string()});
+    }
+#ifdef _WIN32
+    return ParsePeImports(bytes, /*loadedInMemory=*/false);
+#else
+    return ParseElfNeededFile(bytes);
+#endif
+}
+
+std::string Loader::DescribeLoadFailure(const std::filesystem::path& path)
+{
+    const std::vector<std::uint8_t> bytes = ReadImageFileBytes(path);
+    if (bytes.empty())
+    {
+        return {};
+    }
+#ifdef _WIN32
+    return FirstUnresolvableImport(bytes, /*isPe=*/true);
+#else
+    return FirstUnresolvableImport(bytes, /*isPe=*/false);
+#endif
+}
+
 const BinaryRecord* Loader::FindResident(const std::filesystem::path& path) const
 {
-    const auto it = std::ranges::find_if(Binaries, [&path](const auto& up) { return up->Path == path; });
+    const auto it = std::ranges::find_if(Binaries, [&path](const std::unique_ptr<BinaryRecord>& entry)
+                                         { return entry->Path == path; });
     return it == Binaries.end() ? nullptr : it->get();
 }
 
@@ -2606,9 +2900,9 @@ std::vector<BinaryRecord> Loader::AllResident() const
 {
     std::vector<BinaryRecord> out;
     out.reserve(Binaries.size());
-    for (const auto& up : Binaries)
+    for (const std::unique_ptr<BinaryRecord>& entry : Binaries)
     {
-        out.push_back(*up);
+        out.push_back(*entry);
     }
     return out;
 }
@@ -2634,15 +2928,43 @@ Linux 版：`open(path.c_str(), O_WRONLY)`。全部 `wchar`/`char` 转换只走 
 ```cpp
 #include "Vase/Plugin.h"
 
+#include <cstdint>
+#include <string_view>
+
 // Loader 端到端探针：一个最小真实插件二进制。两个 CMake target
 // （LoadProbe / UnloadProbe）同源码不同输出名——**每个文件只被一个
 // TEST_F 装载**，避免同一镜像的 OS 引用计数（2 次 LoadLibrary）把
 // Unload 证据测试的档二判定污染成假红。
+
+namespace
+{
+
+// 探针事件：让 OnLoad 做一件**真实的 Pod 动作**，从而在导入表里留下 VasePod。
+//
+// 这不是装饰。计划原文的 OnLoad 是空的（只 return Ok），那样这个「真实插件二进制」
+// 一个 VasePod 符号都不引用——链接器只从导入库拉被引用的成员，于是产物里**没有**
+// VasePod 的导入条目（实测 llvm-readobj --coff-imports：只有 MSVCP140D / KERNEL32 /
+// VCRUNTIME140D）。而 ProbeImportsVasePod 断言的正是「解析器在真实产物上看得见
+// VasePod」——空 OnLoad 让它无从成立。Context::Emit<E> 会调到 Context::EmitRaw，
+// 那是 VasePod 的 out-of-line 成员，导入条目由此而来（D11 的链接期事实也就真的成立）。
+// 事件没有订阅者，派发是空转（§2.4 同步派发）。
+struct LoadProbeEvent
+{
+    static constexpr std::string_view kName = "Vase.LoadProbe.Loaded";
+    static constexpr std::uint32_t kVersion = 1;
+};
+
 class LoadProbePlugin final : public vase::Plugin
 {
 public:
-    vase::Result<void> OnLoad(vase::Context&) override { return vase::Result<void>::Ok(); }
+    vase::Result<void> OnLoad(vase::Context& ctx) override
+    {
+        ctx.Emit(LoadProbeEvent{});
+        return vase::Result<void>::Ok();
+    }
 };
+
+} // namespace
 
 VASE_PLUGIN(LoadProbePlugin){
     .Id = "Vase.LoadProbe",
@@ -2691,12 +3013,229 @@ target_compile_definitions(VaseTests PRIVATE
 `Tests/Unit/LoaderTests.cpp`（5 个 TEST，追加到 `LoaderTests.cpp` 同一文件末尾；`<vase/detail/...>` 一律引号包含）：
 
 ```cpp
+#include "Vase/Detail/ImageInspect.h"
+#include "Vase/Detail/Result.h"
 #include "Vase/Host/Loader.h"
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <filesystem>
 #include <gtest/gtest.h>
+#include <iterator>
+#include <string>
+#include <vector>
+
+#ifdef _WIN32
+#include <cctype> // Windows 分支用 std::tolower
+#else
+#include <algorithm> // 其余平台分支用 std::ranges::find
+#endif
 
 namespace
 {
+
+// 构造字节用的写手。计划正文写的是 `b[at] = v` / `b.data() + at`，那两种写法会
+// 分别招来 cppcoreguidelines 的「未检查容器访问」与「指针算术」两条（DetailTests
+// 里已有一处同类 NOLINT）。这里换成 std::next + memcpy：构造出来的字节完全一致，
+// 也不需要抑制——本文件因此一个 NOLINT 都没有。
+void Blit(std::vector<std::uint8_t>& bytes, std::size_t at, const void* source, std::size_t length)
+{
+    std::memcpy(std::next(bytes.data(), static_cast<std::ptrdiff_t>(at)), source, length);
+}
+
+// DataDirectory 一项的宽度（Debug 目录是下标 6，导入目录是下标 1）。写成具名 size_t
+// 常量：直接写 `6 * 8` 的话乘法在 int 里做、再隐式加宽到 size_t，过不了
+// bugprone-implicit-widening-of-multiplication-result。
+constexpr std::size_t kDataDirEntry = 8;
+
+void Put8(std::vector<std::uint8_t>& bytes, std::size_t at, std::uint8_t value)
+{
+    Blit(bytes, at, &value, sizeof(value));
+}
+
+void Put16(std::vector<std::uint8_t>& bytes, std::size_t at, std::uint16_t value)
+{
+    // 截断本身就是取低 8 位，不必再 & 0xFF——而 `value & 0xFFU` / `value >> 8U` 会让
+    // uint16_t 先提升成 int，与无符号字面量做位运算，撞 bugprone-signed-bitwise。
+    const std::array<std::uint8_t, 2> raw{
+        static_cast<std::uint8_t>(value),
+        static_cast<std::uint8_t>(static_cast<std::uint32_t>(value) >> 8U),
+    };
+    Blit(bytes, at, raw.data(), raw.size());
+}
+
+void Put32(std::vector<std::uint8_t>& bytes, std::size_t at, std::uint32_t value)
+{
+    Put16(bytes, at, static_cast<std::uint16_t>(value));
+    Put16(bytes, at + 2, static_cast<std::uint16_t>(value >> 16U));
+}
+
+void Put64(std::vector<std::uint8_t>& bytes, std::size_t at, std::uint64_t value)
+{
+    Put32(bytes, at, static_cast<std::uint32_t>(value));
+    Put32(bytes, at + 4, static_cast<std::uint32_t>(value >> 32U));
+}
+
+void PutStr(std::vector<std::uint8_t>& bytes, std::size_t at, const char* text)
+{
+    Blit(bytes, at, text, std::strlen(text) + 1);
+}
+
+std::vector<std::uint8_t> MakeMinimalPe()
+{
+    // 磁盘形态：DOS(64) + PE sig + COFF(20) + OptHdr(240, PE32+, Debug@dir[6]=RVA 0x2000,
+    // Import@dir[1]=RVA 0x2100) + 1 节表 2 项；.debug→0x400，.rdata→0x500。
+    std::vector<std::uint8_t> b(0x600, 0);
+    PutStr(b, 0, "MZ");
+    Put32(b, 0x3C, 0x40);    // e_lfanew
+    PutStr(b, 0x40, "PE\0"); // 0x40: sig(4) + COFF(20) = 0x44..0x58
+    Put16(b, 0x44, 0x8664);  // Machine
+    Put16(b, 0x46, 2);       // NumberOfSections
+    Put16(b, 0x54, 240);     // SizeOfOptionalHeader（COFF 起 0x44，字段 +16）
+    Put16(b, 0x58, 0x20B);   // Magic PE32+（可选头起 0x58）
+    Put32(b, 0x58 + 56, 0x3000);
+    Put32(b, 0x58 + 108, 16); // NumberOfRvaAndSizes
+    const std::size_t dirs = 0x58 + 112;
+    Put32(b, dirs + (6 * kDataDirEntry), 0x2000);
+    Put32(b, dirs + (6 * kDataDirEntry) + 4, 56); // Debug：1 项 28B + 1 null 28B
+    Put32(b, dirs + (1 * kDataDirEntry), 0x2100);
+    Put32(b, dirs + (1 * kDataDirEntry) + 4, 40); // Import：1 desc + null
+    // 节表 @ 0x58+240 = 0x148：两项各 40B，故第二项起 0x148+40 = 0x170。
+    // （计划正文这里写的是 0x168——0x148 起两项 40B 的第二项只能在 0x170；
+    // 0x168 会让 .rdata 的头 8 字节落进第一项的尾部，解析器按节表换算就找不到
+    // 导入表的 RVA 0x2100，实测报 "PE RVA not inside any section"。）
+    PutStr(b, 0x148, ".debug"); // VA@+12, SizeOfRawData@+16, PointerToRawData@+20
+    Put32(b, 0x148 + 12, 0x2000);
+    Put32(b, 0x148 + 16, 0x100);
+    Put32(b, 0x148 + 20, 0x400);
+    PutStr(b, 0x170, ".rdata");
+    Put32(b, 0x170 + 12, 0x2100);
+    Put32(b, 0x170 + 16, 0x100);
+    Put32(b, 0x170 + 20, 0x500);
+    // Debug 目录项 @ 0x400：Type=2@+12, SizeOfData@+16, AddressOfRawData@+20=0x2040, PointerToRawData@+24=0x440
+    Put32(b, 0x400 + 12, 2);
+    Put32(b, 0x400 + 16, 0x28);
+    Put32(b, 0x400 + 20, 0x2040);
+    Put32(b, 0x400 + 24, 0x440);
+    // RSDS @ 0x440：sig + GUID(0x01..0x10) + Age=2 + PdbPath
+    PutStr(b, 0x440, "RSDS");
+    for (std::size_t i = 0; i < 16; ++i)
+    {
+        Put8(b, 0x444 + i, static_cast<std::uint8_t>(i + 1));
+    }
+    Put32(b, 0x454, 2);
+    PutStr(b, 0x458, "probe.pdb");
+    // Import desc @ 0x500：Name RVA@+12 = 0x2140 → off 0x540；后跟 20B null 表尾
+    Put32(b, 0x500 + 12, 0x2140);
+    PutStr(b, 0x540, "sibling.dll");
+    return b;
+}
+
+std::vector<std::uint8_t> MakeMinimalElf(std::uint64_t buildIdLen = 20)
+{
+    // e_ident(16) + e_type..(48) = 64；phnum=2（PT_NOTE@0x200, PT_DYNAMIC@0x300）；strtab 在 0x400。
+    std::vector<std::uint8_t> b(0x500, 0);
+    Put8(b, 0, 0x7F);
+    PutStr(b, 1, "ELF"); // "ELF" 三字节 + NUL，正好落在 ident[1..4] 的位置
+    Put8(b, 4, 2);
+    Put8(b, 5, 1);      // ELFCLASS64, LSB
+    Put8(b, 6, 1);      // version
+    Put16(b, 16, 3);    // ET_DYN
+    Put16(b, 18, 0x3E); // x86-64
+    Put32(b, 20, 1);    // e_version
+    Put64(b, 32, 64);   // e_phoff
+    Put16(b, 52, 64);   // e_ehsize
+    Put16(b, 54, 56);   // e_phentsize
+    Put16(b, 56, 2);    // e_phnum
+    // phdr[0] PT_NOTE @64：type@0=4, offset@8=0x200, vaddr@16, filesz@32, memsz@40
+    Put32(b, 64 + 0, 4);
+    Put64(b, 64 + 8, 0x200);
+    Put64(b, 64 + 16, 0x200);
+    const std::size_t noteBytes =
+        12 + 4 + static_cast<std::size_t>(buildIdLen) + ((buildIdLen % 4) != 0 ? 4 - (buildIdLen % 4) : 0);
+    Put64(b, 64 + 32, noteBytes);
+    Put64(b, 64 + 40, noteBytes);
+    // note @0x200：namesz=4, descsz, type=3, "GNU\0", desc=0xAA..
+    Put32(b, 0x200, 4);
+    Put32(b, 0x204, static_cast<std::uint32_t>(buildIdLen));
+    Put32(b, 0x208, 3);
+    PutStr(b, 0x20C, "GNU");
+    for (std::uint64_t i = 0; i < buildIdLen; ++i)
+    {
+        Put8(b, 0x210 + static_cast<std::size_t>(i), static_cast<std::uint8_t>(0xAA + i));
+    }
+    // phdr[1] PT_DYNAMIC @120：offset 0x300，4 个 entry（STRTAB→0x400, NEEDED→10, NULL）
+    Put32(b, 120 + 0, 2);
+    Put64(b, 120 + 8, 0x300);
+    Put64(b, 120 + 32, std::uint64_t{4} * 16);
+    Put64(b, 0x300 + (0 * 16), 5);
+    Put64(b, 0x300 + (0 * 16) + 8, 0x400); // DT_STRTAB
+    Put64(b, 0x300 + (1 * 16), 1);
+    Put64(b, 0x300 + (1 * 16) + 8, 10); // DT_NEEDED → strtab+10
+    Put64(b, 0x300 + (2 * 16), 0);      // DT_NULL
+    PutStr(b, 0x400 + 10, "libSibling.so");
+    return b;
+}
+
+TEST(ImageInspect, PeFileCodeViewExtracted)
+{
+    auto b = MakeMinimalPe();
+    vase::Result<vase::detail::ImageIdentity> r = vase::detail::ParsePeCodeView(b, false);
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    EXPECT_EQ(r.Value().Kind, vase::detail::IdentityKind::kPdbCodeView);
+    ASSERT_EQ(r.Value().Bytes.size(), 20U); // GUID(16)+Age(4)
+    EXPECT_EQ(r.Value().Bytes.front(), 0x01);
+    EXPECT_EQ(*std::next(r.Value().Bytes.begin(), 16), 0x02); // Age=2 小端首字节
+}
+
+TEST(ImageInspect, PeFileImportsListed)
+{
+    auto b = MakeMinimalPe();
+    vase::Result<std::vector<std::string>> r = vase::detail::ParsePeImports(b, false);
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    ASSERT_EQ(r.Value().size(), 1U);
+    EXPECT_EQ(r.Value().front(), "sibling.dll");
+}
+
+TEST(ImageInspect, PeWithoutCodeViewFailsLouder)
+{
+    auto b = MakeMinimalPe();
+    Put32(b, 0x58 + 112 + (6 * kDataDirEntry), 0);
+    Put32(b, 0x58 + 112 + (6 * kDataDirEntry) + 4, 0); // 摘掉 Debug 目录
+    const vase::Result<vase::detail::ImageIdentity> r = vase::detail::ParsePeCodeView(b, false);
+    EXPECT_FALSE(r.IsOk());
+    EXPECT_NE(r.GetError().Message().find("/DEBUG"), std::string::npos); // 指路（§8.2）
+}
+
+TEST(ImageInspect, ElfFileBuildIdExtracted)
+{
+    auto b = MakeMinimalElf();
+    vase::Result<vase::detail::ImageIdentity> r = vase::detail::ParseElfBuildIdFile(b);
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    EXPECT_EQ(r.Value().Kind, vase::detail::IdentityKind::kElfBuildId);
+    ASSERT_EQ(r.Value().Bytes.size(), 20U);
+    EXPECT_EQ(*std::next(r.Value().Bytes.begin(), 19), static_cast<std::uint8_t>(0xAA + 19));
+}
+
+TEST(ImageInspect, ElfFileNeededListed)
+{
+    auto b = MakeMinimalElf();
+    vase::Result<std::vector<std::string>> r = vase::detail::ParseElfNeededFile(b);
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    ASSERT_EQ(r.Value().size(), 1U);
+    EXPECT_EQ(r.Value().front(), "libSibling.so");
+}
+
+TEST(ImageInspect, ElfWithoutBuildIdNoteFailsLouder)
+{
+    auto b = MakeMinimalElf();
+    Put32(b, 64 + 0, 6); // PT_NOTE → PT_PHDR：让解析器见不到 note
+    const vase::Result<vase::detail::ImageIdentity> r = vase::detail::ParseElfBuildIdFile(b);
+    EXPECT_FALSE(r.IsOk());
+    EXPECT_NE(r.GetError().Message().find("--build-id"), std::string::npos); // 指路（§8.2）
+}
 
 std::filesystem::path FixturePath(const char* defineValue) { return std::filesystem::path{defineValue}; }
 
@@ -2710,7 +3249,7 @@ TEST(Loader, EnsureResidentDedupsAndRejectsMissing)
     EXPECT_EQ(again.Value(), r.Value());         // 复用同一记录（§8.1「确保驻留」）
     EXPECT_EQ(loader.ResidentBinaryCount(), 1U); // 且只触发一次平台加载
 
-    vase::Result<vase::detail::BinaryRecord*> missing = loader.EnsureResident("this-binary-does-not-exist.vase");
+    const vase::Result<vase::detail::BinaryRecord*> missing = loader.EnsureResident("this-binary-does-not-exist.vase");
     EXPECT_FALSE(missing.IsOk());
     EXPECT_NE(missing.GetError().Message().find("does-not-exist"), std::string::npos);
     loader.Unload(*r.Value());
@@ -2734,9 +3273,10 @@ TEST(Loader, MemoryIdentityMatchesFileIdentity)
     ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
     // 档三原语的最小成立条件：同一文件的内存特征 == 磁盘特征（T11/T13 的
     // 「驻留复用也要比对」「换文件即变脸」全部建在这一条上）。
-    vase::Result<vase::detail::ImageIdentity> m = loader.MemoryIdentity(*r.Value());
+    vase::Result<vase::detail::ImageIdentity> m = vase::detail::Loader::MemoryIdentity(*r.Value());
     ASSERT_TRUE(m.IsOk()) << m.GetError().Message();
-    vase::Result<vase::detail::ImageIdentity> f = loader.FileIdentity(FixturePath(VASE_FIXTURE_LOADPROBE));
+    vase::Result<vase::detail::ImageIdentity> f =
+        vase::detail::Loader::FileIdentity(FixturePath(VASE_FIXTURE_LOADPROBE));
     ASSERT_TRUE(f.IsOk()) << f.GetError().Message();
     EXPECT_EQ(m.Value(), f.Value());
     loader.Unload(*r.Value());
@@ -2747,10 +3287,12 @@ TEST(Loader, ProbeImportsVasePod)
     vase::detail::Loader loader;
     vase::Result<vase::detail::BinaryRecord*> r = loader.EnsureResident(FixturePath(VASE_FIXTURE_LOADPROBE));
     ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
-    vase::Result<std::vector<std::string>> names = loader.ImportedLibraryNamesFromFile(r.Value()->Path);
+    vase::Result<std::vector<std::string>> names = vase::detail::Loader::ImportedLibraryNamesFromFile(r.Value()->Path);
     ASSERT_TRUE(names.IsOk()) << names.GetError().Message();
 #ifdef _WIN32
-    const std::string expected = "VasePod.dll";
+    // 计划原文这里写的是 expected = "VasePod.dll"，却拿**已小写化**的 lowered 去比——
+    // 那一比恒假（"vasepod.dll" != "VasePod.dll"），断言无从成立。expected 直接取小写形。
+    const std::string expected = "vasepod.dll";
     const std::string found = [&]
     {
         for (const auto& n : names.Value())
@@ -2784,8 +3326,8 @@ TEST(Loader, UnloadEvidencePerPlatform)
     vase::detail::Loader loader;
     vase::Result<vase::detail::BinaryRecord*> r = loader.EnsureResident(FixturePath(VASE_FIXTURE_UNLOADPROBE));
     ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
-    vase::detail::BinaryRecord copy = *r.Value(); // 先复制：Unload 会摘表（r.Value() 失效）
-    vase::detail::UnloadEvidence ev = loader.Unload(copy);
+    const vase::detail::BinaryRecord copy = *r.Value(); // 先复制：Unload 会摘表（r.Value() 失效）
+    const vase::detail::UnloadEvidence ev = loader.Unload(copy);
     EXPECT_EQ(loader.ResidentBinaryCount(), 0U);
 #ifdef _WIN32
     EXPECT_TRUE(ev.ReopenWritableIsMeaningful);
@@ -2803,16 +3345,14 @@ TEST(Loader, UnloadEvidencePerPlatform)
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 38
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 41
 wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug -N'
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T6：身份特征构建标志落三个工具链 + Loader/镜像解析器（档二档三地基）
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T6：身份特征构建标志落三个工具链 + Loader/镜像解析器（档二档三地基）"
 ```
 
-（**本桩欠 cl.exe 线一次全量**：下一条 debug 桩必须带上 `win-x64-msvc-debug` 跑 configure+build+ctest——Global Constraints 的「不许连欠两桩」。）
+（**本桩起 cl.exe 线为常规**：T4/T5 已把它纳入每桩验收；T3 的 C4251 教训证明只有这条线会报导出类的 STL 成员问题。）
 
 ---
 ## Task 7: 最小闭环——`PluginHost` / `CreatePod` / `DestroyPod` / Embedding
@@ -2899,8 +3439,10 @@ struct PodOptions
 #include "Vase/Detail/Result.h"
 #include "Vase/Effect/EffectScope.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/PluginDescriptor.h"
 #include "Vase/Pod/Context.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -2953,11 +3495,16 @@ struct PodReport
     DiagnosticSnapshot CountersDiff;          // 相对基线的差分（基线 = 本 Pod 创建时）
     std::vector<ResidualEntry> Residuals;     // #10 归属（M1 形态见类内注释）
 
-    [[nodiscard]] bool Clean() const; // 差分五项全零且无 Residuals
+    // VASE_POD_API 只加在这个成员函数上，不给整个 struct 加：定义在 VasePod 里，
+    // 本库外调用不导出即 lld-link undefined symbol（与 EffectHandle 同一笔账）；
+    // 而 struct 级别的导出会把 STL 成员带进 C4251 的射程。
+    [[nodiscard]] VASE_POD_API bool Clean() const; // 差分五项全零且无 Residuals
 };
 
 struct PodHandle
 {
+    // Generation 从 1 起（见 PluginHost.cpp 的槽分配）：0 是默认构造的句柄，
+    // 它不该解析到任何槽——否则 `PodHandle{}` 会冒充第一个 Pod。
     std::uint32_t Index = 0;
     std::uint32_t Generation = 0;
 
@@ -2967,6 +3514,7 @@ struct PodHandle
 class PluginHost;
 class PodTestPeer;
 
+VASE_MSVC_DLL_WARNINGS_BEGIN
 class VASE_POD_API Pod
 {
 public:
@@ -2974,7 +3522,11 @@ public:
     Pod& operator=(const Pod&) = delete;
     Pod(Pod&&) = delete;
     Pod& operator=(Pod&&) = delete;
-    ~Pod() = default;
+    // 析构**声明在这里、定义在 Pod.cpp**：默认在类内会让每个用到 unique_ptr<Pod> 的 TU
+    // 都实例化 Pod 的成员析构，而它们要 ServiceRegistry / EventBus 的完整类型——
+    // Host 侧于是被迫包含对它无用的 Vase/Detail/RegistryBus.h（实测 clang-cl:
+    // invalid application of 'sizeof' to an incomplete type 'vase::detail::ServiceRegistry'）。
+    ~Pod();
 
     Context& Root(); // 宿主 stage-0 与运行期入口（§1.3 推论：宿主服务每局重注册）
 
@@ -3029,6 +3581,7 @@ private:
     // 「报告要点名残留归属」的机制立住（PodTestPeer 注入，正常装配路径永不写入）。
     std::vector<std::unique_ptr<EffectScope>> LeakedScopesForTest;
 };
+VASE_MSVC_DLL_WARNINGS_END
 
 } // namespace vase
 ```
@@ -3044,8 +3597,9 @@ private:
 
 // PluginHost——进程级二进制层（§1、§1.4）：进程唯一、绑定创建线程、
 // 拥有 Loader / ScopePool / 诊断计数 / 依赖账本（T9）/ 活 Pod 表。
-// 铁律 §1.2 在本类的三个进程级容器上执法：二进制表只存 path+句柄；
-// 账本只存实例指针（非拥有）；池只存空闲内存。插入点 Debug 断言。
+// 铁律 §1.2 在本类持有的三个进程级容器上成立，且是**结构性**的——容器存的类型本身
+// 就装不下实例级对象：二进制表只存 path+句柄（T6 的 Loader）、账本只存非拥有指针（T9）、
+// 池只存空闲内存（T3）。**不是靠插入点断言拦住的**，别把这里读成「有断言兜底」。
 
 #include "Vase/Detail/Counters.h"
 #include "Vase/Detail/Export.h"
@@ -3070,6 +3624,7 @@ namespace vase
 // 全部定义在 Vase/Pod/Pod.h（T7 Step 2）——它们要能被下层的 Pod 存储，链接方向不允许
 // 它们定义在本头文件里。本头文件只加 using 级别的引用都不需要：include 已到位。
 
+VASE_MSVC_DLL_WARNINGS_BEGIN
 class VASE_HOST_API PluginHost
 {
 public:
@@ -3087,8 +3642,9 @@ public:
     Pod* Resolve(PodHandle handle);         // 失效 → nullptr（预期内）
 
     detail::DiagnosticCounters& ForTestCounters() { return Counters; } // 测试缝：
-    // Lifecycle 判据直接读五项计数。**公开 API 不提供绕过 Effect 渠道的注册入口**——
-    // 这个缝只暴露只读观察，不暴露修改（#10/D14 用）。
+    // Lifecycle 判据直接读五项计数。交出去的是**可写引用**——测试要能读，也要能构造残留
+    // 来验报告（#10/D14）。公开 API 保证的是另一件事：**不提供绕过 Effect 渠道的注册入口**，
+    // 账本只由 Context 的 Provide/On 与 Effect 回收改。
 
 private:
     struct PodSlot
@@ -3101,8 +3657,10 @@ private:
                                              // Failed 记录由 Pod::FailureRecords 自持（§5.2「保留记录不保留实例」）
     };
 
-    void AssertBoundThread(const char* api) const; // 非绑定线程 → 终止（§1.4/#16）
-    Result<PodHandle> CreatePodImpl(const LoadPlan&, const PodOptions&);
+    // 非绑定线程 → 终止（§1.4/#16）。**消息必须含子串 `not the bound thread`**——
+    // T8 的 death test 按它匹配（见计划 T8 的 Interfaces 行），漏了这句 T8 必红。
+    void AssertBoundThread(const char* api) const;
+    Result<PodHandle> CreatePodImpl(const LoadPlan& plan, const PodOptions& options);
 
     std::thread::id ThreadId;
     detail::ScopePool CountersPool; // **池与计数分开**：池是内存机器，计数是账本
@@ -3112,6 +3670,7 @@ private:
     std::unordered_map<std::string, std::filesystem::path> KnownBinaries; // Id→path：
     // CreatePod 注册、Adopt 查用（T11；§5.6「M1 无清单，以计划登记代替」）。
 };
+VASE_MSVC_DLL_WARNINGS_END
 
 } // namespace vase
 ```
@@ -3122,7 +3681,11 @@ private:
 
 ```text
 ① AssertBoundThread；分配/复用槽（FreeList 复用 Index 时 ++Generation——#15 的检出机制）。
-② Pod + 基线快照（Counters 五项）。
+   **新槽的 Generation 从 1 起**，不是 0：0 要留给默认构造的 `PodHandle{}`——否则 `{0, 0}`
+   会解析到第一个槽，而「失效句柄返回 nullptr」是 §5.1 的预期行为（实测踩到）。
+② **基线快照（Counters 五项）先取，再建 Pod**——顺序不能反：根 Scope 属于本 Pod，
+   它的 +1 必须落进差分；先建 Pod 再取快照，拆局归零时 `Scopes` 差分成 −1
+   （无符号回绕成 18446744073709551615，实测）。
 ③ options.Stage0 → Root() 上注册宿主服务（kHost 来源由此判定，§6.1；根 Provide 不落边——T9）。
 ④ 逐 entry（数组序=拓扑序）：
    KnownBinaries[Id] = path；
@@ -3303,21 +3866,22 @@ add_test(NAME EmbeddingLoop20 COMMAND VaseEmbedding loop 20)
 - [ ] **Step 7: 全绿**
 
 ```bash
-cmake --build --preset win-x64-msvc-debug   # 本桩补 cl.exe 线（T6 欠的全量，见其尾注）
+# cl.exe 线现已常规纳入每桩验收。**这条线必跑**：`Pod` / `PluginHost` 都是带
+# STL 成员的导出类，漏包 VASE_MSVC_DLL_WARNINGS_BEGIN/END 就会因 C4251 整条编不过——
+# 而这个雷只有 cl.exe 线报（clang-cl 与 Linux 都不报），T3 已经因此断过两桩。
+cmake --build --preset win-x64-msvc-debug
 ctest --preset win-x64-msvc-debug
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 41（38 + 2 gtest + 1 add_test）
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 44（41 + 2 gtest + 1 add_test）
 wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug -N'
 ```
 
 - [ ] **Step 8: 门禁 + Commit**
 
 ```bash
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T7：CreatePod/DestroyPod 最小闭环 + HelloPlugin/Embedding + 计数归零与句柄代际
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T7：CreatePod/DestroyPod 最小闭环 + HelloPlugin/Embedding + 计数归零与句柄代际"
 ```
 
 ---
@@ -3405,15 +3969,32 @@ public:
 ```cpp
 #include "PodTestPeer.h"
 
+#include "Vase/Effect/EffectScope.h"
 #include "Vase/Effect/IEffect.h"
+#include "Vase/Pod/Pod.h"
+
+#include <cstddef>
+#include <memory>
 
 namespace
 {
 
-class Noop : public vase::IEffect
+// 只在本 TU 内构造，故留匿名命名空间（misc-use-internal-linkage）。
+// 带一个负载：零参形态会让 EffectScope::Create<T> 实例化出 std::tuple<>，那是
+// EffectScope 的 Create 唯一会被 misc-const-correctness 报的形状（实测：EffectTests 的
+// 每次 Create 都带参，所以那里从没报过）。
+class Noop final : public vase::IEffect
 {
 public:
-    void Recycle() override {}
+    explicit Noop(std::size_t ordinal)
+        : Ordinal(ordinal)
+    {
+    }
+
+    void Recycle() override { static_cast<void>(Ordinal); } // 读一下就够：负载没有语义
+
+private:
+    std::size_t Ordinal;
 };
 
 } // namespace
@@ -3423,11 +4004,11 @@ namespace vase
 
 EffectScope& PodTestPeer::InjectLeakedScope(Pod& pod, const char* ownerLabel, std::size_t effectCount)
 {
-    pod.LeakedScopesForTest.push_back(std::make_unique<EffectScope>(pod.Pool, pod.Counters, ownerLabel));
+    pod.LeakedScopesForTest.push_back(std::make_unique<EffectScope>(pod.Pool, &pod.Counters, ownerLabel));
     EffectScope& scope = *pod.LeakedScopesForTest.back();
     for (std::size_t i = 0; i < effectCount; ++i)
     {
-        scope.Create<Noop>();
+        scope.Create<Noop>(i);
     }
     return scope;
 }
@@ -3440,9 +4021,17 @@ EffectScope& PodTestPeer::InjectLeakedScope(Pod& pod, const char* ownerLabel, st
 `Tests/Integration/FailureSemanticsTests.cpp`：
 
 ```cpp
+#include "Vase/Detail/Result.h"
+#include "Vase/Host/LoadPlan.h"
 #include "Vase/Host/PluginHost.h"
+#include "Vase/Pod/Pod.h"
 
+#include <filesystem>
 #include <gtest/gtest.h>
+#include <initializer_list>
+#include <string>
+#include <string_view>
+#include <utility>
 
 namespace
 {
@@ -3452,7 +4041,7 @@ vase::LoadPlan Plan(std::initializer_list<std::pair<std::string_view, std::files
     vase::LoadPlan plan;
     for (const auto& [id, path] : items)
     {
-        plan.Ordered.push_back({id, path});
+        plan.Ordered.push_back({.Id = id, .BinaryPath = path});
     }
     return plan;
 }
@@ -3461,29 +4050,34 @@ TEST(FailureSemantics, StaleHeaderPluginRejectedAndRecorded)
 {
     // 12 节 #12（承重）：HeaderVersion 不匹配 → 拒绝加载并报告，不是崩溃、不是静默。
     vase::PluginHost host;
-    vase::Result<vase::PodHandle> r = host.CreatePod(Plan({{"Vase.StaleHeader", VASE_FIXTURE_STALEHEADER}}));
+    const vase::Result<vase::PodHandle> r = host.CreatePod(Plan({{"Vase.StaleHeader", VASE_FIXTURE_STALEHEADER}}));
     ASSERT_TRUE(r.IsOk()); // 宽容模式：失败记在案，局照开
-    vase::Pod* pod = host.Resolve(*r.Value());
+    const vase::Pod* pod = host.Resolve(r.Value());
     ASSERT_NE(pod, nullptr);
     EXPECT_EQ(pod->PluginCount(), 0U);
     ASSERT_EQ(pod->Failures().size(), 1U);
-    EXPECT_EQ(pod->Failures()[0].Stage, vase::Phase::kLoad);
-    EXPECT_NE(pod->Failures()[0].Message.find("HeaderVersion"), std::string::npos);
-    EXPECT_TRUE(host.DestroyPod(*r.Value()).Clean()); // 被拒的插件没留任何计数
+    // 取首条用迭代器而非 operator[]：后者过不了 cppcoreguidelines-pro-bounds-*，
+    // 而本任务三处都就地抑制会越出全仓同类 NOLINT 的额度（2 + 3 > 4）——写法同 T3 的 MetaArray 用例。
+    const vase::FailedPluginRecord& failure = *pod->Failures().begin();
+    EXPECT_EQ(failure.Id, "Vase.StaleHeader"); // 记录点名到计划里的那个 Id，而不是空/占位
+    EXPECT_EQ(failure.Stage, vase::Phase::kLoad);
+    EXPECT_NE(failure.Message.find("HeaderVersion"), std::string::npos);
+    EXPECT_TRUE(host.DestroyPod(r.Value()).Clean()); // 被拒的插件没留任何计数
 }
 
 TEST(FailureSemantics, FailingPluginRecordedNeighborsUnharmed)
 {
     // §0.3-4 失败不致命：坏插件 Failed 记录在案，好插件照常 Started。
     vase::PluginHost host;
-    vase::LoadPlan plan = Plan({{"Vase.FailingLoad", VASE_FIXTURE_FAILINGLOAD}, {"Vase.Hello", VASE_FIXTURE_HELLO}});
-    vase::Result<vase::PodHandle> r = host.CreatePod(plan);
+    const vase::LoadPlan plan =
+        Plan({{"Vase.FailingLoad", VASE_FIXTURE_FAILINGLOAD}, {"Vase.Hello", VASE_FIXTURE_HELLO}});
+    const vase::Result<vase::PodHandle> r = host.CreatePod(plan);
     ASSERT_TRUE(r.IsOk());
-    vase::Pod* pod = host.Resolve(*r.Value());
+    const vase::Pod* pod = host.Resolve(r.Value());
     EXPECT_EQ(pod->PluginCount(), 1U); // Hello 活着
-    EXPECT_EQ(pod->Failures().size(), 1U);
-    EXPECT_EQ(pod->Failures()[0].Id, "Vase.FailingLoad");
-    const vase::PodReport report = host.DestroyPod(*r.Value());
+    ASSERT_EQ(pod->Failures().size(), 1U);
+    EXPECT_EQ(pod->Failures().begin()->Id, "Vase.FailingLoad");
+    const vase::PodReport report = host.DestroyPod(r.Value());
     EXPECT_TRUE(report.Clean()); // OnLoad 当场回收（§5.2），不留半个 Scope
 }
 
@@ -3493,13 +4087,31 @@ TEST(FailureSemantics, StrictModeDestroysHalfBuiltPod)
     vase::PluginHost host;
     vase::PodOptions options;
     options.Strict = true;
-    vase::LoadPlan plan = Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}, {"Vase.FailingStart", VASE_FIXTURE_FAILINGSTART}});
-    vase::Result<vase::PodHandle> r = host.CreatePod(plan, options);
+    const vase::LoadPlan plan =
+        Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}, {"Vase.FailingStart", VASE_FIXTURE_FAILINGSTART}});
+    const vase::Result<vase::PodHandle> r = host.CreatePod(plan, options);
     EXPECT_FALSE(r.IsOk());
     EXPECT_NE(r.GetError().Message().find("start failure"), std::string::npos);
     const auto& counters = host.ForTestCounters();
     EXPECT_EQ(counters.PluginInstances, 0U); // 半个局也没留下
     EXPECT_EQ(counters.Effects, 0U);
+}
+
+TEST(FailureSemantics, TolerantModeReclaimsFailedStartScopeImmediately)
+{
+    // §5.2：OnStart 失败要**当场**回收自己的 Scope。判据必须落在宽容模式：Strict 会
+    // 整拆半成品，~Pod 的兜底 Dispose 同样抹平计数，分不出「当场回收」与「拆局时顺手
+    // 回收」。宽容模式不整拆，而 CountersDiff 在 Pod 析构**之前**算——失败 Scope 若还
+    // 活着，Scopes/Effects 必然非零。这条因此只有真的做了即时回收才会绿。
+    vase::PluginHost host;
+    const vase::Result<vase::PodHandle> r = host.CreatePod(Plan({{"Vase.FailingStart", VASE_FIXTURE_FAILINGSTART}}));
+    ASSERT_TRUE(r.IsOk()); // 宽容模式：失败记在案，局照开
+    const vase::Pod* pod = host.Resolve(r.Value());
+    ASSERT_NE(pod, nullptr);
+    ASSERT_EQ(pod->Failures().size(), 1U);
+    EXPECT_EQ(pod->Failures().begin()->Stage, vase::Phase::kStart);
+    EXPECT_EQ(pod->PluginCount(), 0U);               // 失败实例不在活集合里
+    EXPECT_TRUE(host.DestroyPod(r.Value()).Clean()); // 只有即时回收才会绿
 }
 
 TEST(FailureSemantics, MissingDeclaredServiceTerminatesWithFullIdentity)
@@ -3509,9 +4121,9 @@ TEST(FailureSemantics, MissingDeclaredServiceTerminatesWithFullIdentity)
     EXPECT_DEATH(
         {
             vase::PluginHost host;
-            host.CreatePod(Plan({{"Vase.RequiresMissingConsumer", VASE_FIXTURE_MISSINGCONSUMER}}));
+            static_cast<void>(host.CreatePod(Plan({{"Vase.RequiresMissingConsumer", VASE_FIXTURE_MISSINGCONSUMER}})));
         },
-        "Vase\\.RequiresMissingConsumer.*Vase\\.Ghost.*1");
+        "Vase\\.RequiresMissingConsumer.*Vase\\.Ghost' v1 ");
 }
 
 } // namespace
@@ -3520,7 +4132,9 @@ TEST(FailureSemantics, MissingDeclaredServiceTerminatesWithFullIdentity)
 `Tests/Integration/ThreadGuardTests.cpp`：
 
 ```cpp
+#include "Vase/Host/LoadPlan.h"
 #include "Vase/Host/PluginHost.h"
+#include "Vase/Pod/Pod.h"
 
 #include <gtest/gtest.h>
 #include <thread>
@@ -3534,7 +4148,7 @@ TEST(ThreadGuard, VaseApiFromForeignThreadTerminates)
     EXPECT_DEATH(
         {
             vase::PluginHost host; // 绑定在 death-test 子进程的主线程
-            std::thread foreign([&host] { host.CreatePod(vase::LoadPlan{}); });
+            std::thread foreign([&host] { static_cast<void>(host.CreatePod(vase::LoadPlan{})); });
             foreign.join();
         },
         "not the bound thread");
@@ -3560,7 +4174,9 @@ TEST(ThreadGuard, SameThreadSequentialHostsAllowed)
 
 ```cpp
 #include "PodTestPeer.h" // Tests/TestingSupport 进 include 路径
+#include "Vase/Host/LoadPlan.h"
 #include "Vase/Host/PluginHost.h"
+#include "Vase/Pod/Pod.h"
 
 #include <gtest/gtest.h>
 
@@ -3570,22 +4186,24 @@ namespace
 vase::LoadPlan HelloPlan()
 {
     vase::LoadPlan plan;
-    plan.Ordered.push_back({"Vase.Hello", VASE_FIXTURE_HELLO});
+    plan.Ordered.push_back({.Id = "Vase.Hello", .BinaryPath = VASE_FIXTURE_HELLO});
     return plan;
 }
 
 TEST(DiagnosticAttribution, ResidualScopeIsNamedByOwnerLabel)
 {
     vase::PluginHost host;
-    vase::PodHandle h = host.CreatePod(HelloPlan()).Value();
+    const vase::PodHandle h = host.CreatePod(HelloPlan()).Value();
     vase::Pod* pod = host.Resolve(h);
     vase::PodTestPeer::InjectLeakedScope(*pod, "Vase.Test.LeakProbe", 2); // 2 个未回收 Effect
 
     const vase::PodReport report = host.DestroyPod(h);
     EXPECT_FALSE(report.Clean()); // 报告如实说不干净
     ASSERT_EQ(report.Residuals.size(), 1U);
-    EXPECT_EQ(report.Residuals[0].OwnerLabel, "Vase.Test.LeakProbe"); // #10 的点名机制
-    EXPECT_EQ(report.Residuals[0].Count, 2U);
+    // 取首条用迭代器而非 operator[]（同 T3 的 MetaArray 用例写法）。
+    const vase::ResidualEntry& residual = *report.Residuals.begin();
+    EXPECT_EQ(residual.OwnerLabel, "Vase.Test.LeakProbe"); // #10 的点名机制
+    EXPECT_EQ(residual.Count, 2U);
     EXPECT_EQ(report.CountersDiff.Effects, 2U);
 
     // 注入 Scope 随 Pod 析构被兜底 Dispose（T3 的析构设计）——计数回基线：
@@ -3597,7 +4215,7 @@ TEST(DiagnosticAttribution, DestroyPodOnLeakedPodStillReturnsReport)
 {
     // 12 节 #18（承重）：Destroy 永不失败——泄漏的局也拿得到报告，而不是 abort/半个局。
     vase::PluginHost host;
-    vase::PodHandle h = host.CreatePod(HelloPlan()).Value();
+    const vase::PodHandle h = host.CreatePod(HelloPlan()).Value();
     vase::PodTestPeer::InjectLeakedScope(*host.Resolve(h), "Vase.Test.LeakProbe2", 3);
     vase::PodReport report;
     ASSERT_NO_FATAL_FAILURE(report = host.DestroyPod(h)); // 「永不失败」的形态验证
@@ -3615,7 +4233,7 @@ TEST(DiagnosticAttribution, DestroyPodOnLeakedPodStillReturnsReport)
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 49（T7 收 41 + 本任务 4+2+2）
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 53（T7 收 44 + 本任务 4+2+2 = 52，R85 补的那条宽容模式用例再 +1）
 ```
 （death test 在 release 线同样成立（`ProgrammerError` 两态都终止），但 `#ifndef NDEBUG` 门只适用 T3 那条——本任务三条 death 测试**不加** NDEBUG 门。若 release 线下 `EXPECT_DEATH` 因优化把 `CreatePod` 整调用抹掉（空 plan + 未用返回值），把语句包成 `volatile` 持有或 `asm` 屏障——先跑再谈，别预防性地写丑。）
 
@@ -3627,12 +4245,10 @@ wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x6
 - [ ] **Step 5: 门禁 + Commit**
 
 ```bash
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 run-clang-tidy -p build-win/win-x64-clang-debug 2>&1 | tail -4
 git add -A
-git commit -m "M1-T8：HeaderVersion 拒绝/失败语义/线程守卫/诊断归属（12 节 #12 #16 #18 #10 与 §6.2 报错内容）
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T8：HeaderVersion 拒绝/失败语义/线程守卫/诊断归属（12 节 #12 #16 #18 #10 与 §6.2 报错内容）"
 ```
 
 ---
@@ -3729,7 +4345,7 @@ if (Ledger != nullptr && SelfMeta != nullptr && ConsumerCookie != nullptr && ent
 
 `Include/Vase/Pod/Pod.h`：T7 的 `detail::DependencyLedger*` 前向声明改真 include（同 target，无环）。
 
-- [ ] **Step 3: 三个 fixture + 测试（6 个 TEST）**
+- [ ] **Step 3: 三个 fixture + 测试（7 个 TEST）**
 
 `SharedProviderPlugin.cpp`：提供 `ISharedService`（kName `"Vase.Test.Shared"` v1，接口在文件内定义，成员实现一个 `int Value()`）；`OnLoad` 里 `ctx.Provide<ISharedService>(Shared)`。
 `EdgeConsumerPlugin.cpp`：`.Requires = {{"Vase.Test.Shared",1},{"Vase.Test.HostOnly",1}}`；文件内定义 `IHostOnlyService`（kName `"Vase.Test.HostOnly"`——接口**标识一致即可跨模块匹配**（§6.1 字符串标识的兑现点），宿主在 Stage0 注册同名服务）。`OnLoad`：
@@ -3745,7 +4361,7 @@ return vase::Result<void>::Ok();
 ```
 `UndeclaredGetConsumer.cpp`：`.Requires = {}`，`OnLoad` 里 `ctx.Get<ISharedService>()`——**没声明就取**：§5.6 规则① + §6.2 编程错误路径。
 
-测试文件与用例（Unit 3 + Integration 3；Integration 的 Stage0 用 lambda 注册宿主标记服务——`PodOptions.Stage0`）：
+测试文件与用例（Unit 3 + Integration 4；Integration 的 Stage0 用 lambda 注册宿主标记服务——`PodOptions.Stage0`）：
 
 ```cpp
 // Tests/Unit/LedgerTests.cpp
@@ -3763,12 +4379,35 @@ TEST(LedgerSemantics, PluginResolutionRecordsHostResolutionDoesNot)
     vase::PodOptions options;
     HostMarker marker; // 测试内实现的 IHostOnlyService（与 fixture 同名同版本标识）
     options.Stage0 = [&](vase::Context& root) { root.Provide<samples_fixture::IHostOnlyService>(marker); };
-    // ↑ 跨模块类型访问靠标识匹配：marker 的类型与 fixture 里的声明是两个 C++ 类型、
-    //   同一个 kName——这同时是 §6.1「不用 type_index」的活体证明（测试注释写明）。
+    // ↑ 解析走字符串 kName、不走 type_index（§6.1）。注：`IHostOnlyService` 提到
+    //   SharedCommon.h 之后，两侧包含的是**同一份定义**——这条用例证明的是标识匹配，
+    //   不是「两个 C++ 类型也能对上」。
     ... EXPECT_EQ(host.ForTestLedgerEdgeCount(), 1U); // 只有 plugin→plugin 那一条
 }
 
 TEST(LedgerSemantics, DestroyPodClearsLedger) { /* 接上局：DestroyPod 后 EdgeCount()==0 */ }
+
+TEST(LedgerSemantics, FailedConsumerDropsItsEdgesImmediately)
+{
+    // §5.2 即时回收 × §5.6 规则②：失败实例的边当场摘净。判据必须在 **DestroyPod 之前**
+    // 取——ClearPod 到拆局才生效，兜不住这一条（T9 实施者用临时探针实测：摘掉那处
+    // RemoveByInstance，这里的 count 停在 1）。死边不摘会以「还有消费者指着你」的
+    // 形态拦住 T10 的 Eject 反查，所以这是承重覆盖，不是补白。
+    vase::PluginHost host;
+    vase::LoadPlan plan;
+    plan.Ordered.push_back({"Vase.SharedProvider", VASE_FIXTURE_SHAREDPROVIDER});
+    plan.Ordered.push_back({"Vase.EdgeConsumer", VASE_FIXTURE_EDGECONSUMER});
+    const vase::Result<vase::PodHandle> created = host.CreatePod(plan); // 无 Stage0 → HostOnly 缺席
+    ASSERT_TRUE(created.IsOk());
+    const vase::Pod* pod = host.Resolve(created.Value());
+    ASSERT_NE(pod, nullptr);
+    EXPECT_EQ(pod->Failures().size(), 1U);        // 消费者 OnLoad 失败（§5.2 记录保留）
+    EXPECT_EQ(pod->PluginCount(), 1U);            // 提供方仍在
+    EXPECT_EQ(host.ForTestLedgerEdgeCount(), 0U); // 那条 consumer→provider 边随实例一起死
+}
+// 覆盖的是 OnLoad 失败那处；OnStart 失败那处（PluginHost.cpp 阶段 2）是同一形状的镜像，
+// 要单独覆盖得再加一个「先解析成功、再 OnStart 失败」的 fixture——M1 不做，登记在案。
+
 TEST(LedgerSemanticsDeath, UndeclaredResolutionTerminates)
 {
     EXPECT_DEATH(
@@ -3778,7 +4417,9 @@ TEST(LedgerSemanticsDeath, UndeclaredResolutionTerminates)
             plan.Ordered.push_back({"Vase.UndeclaredGet", VASE_FIXTURE_UNDECLAREDGET});
             host.CreatePod(plan);
         },
-        "undeclared service resolution"); // 消息含插件 Id 与服务名（§6.2）——matcher 至少匹配机制短语
+        // 锚 T5 的实发消息（Context.cpp ReportUndeclaredResolution）：三要素齐全，且尾部
+        // 留一个空格——否则 `.*1` 那类松尾会命中 ProgrammerError 追加的行号（R86 教训）。
+        "plugin 'Vase\\.UndeclaredGet' resolved service 'Vase\\.Test\\.Shared' v1 ");
 }
 ```
 
@@ -3788,13 +4429,11 @@ TEST(LedgerSemanticsDeath, UndeclaredResolutionTerminates)
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 55
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 60（T8 收 53 + 本任务 3 Unit + 4 Integration）
 wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug'
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T9：依赖账本最小形——解析落账、宿主不落、边随实例死、ClearPod 整批清零
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T9：依赖账本最小形——解析落账、宿主不落、边随实例死、ClearPod 整批清零"
 ```
 
 ---
@@ -3900,7 +4539,7 @@ EjectPlugin(handle, id):
 
 `CreatePodImpl` 同步改动：`LiveInstance::Binary = br.Value()`（EnsureResident 的返回记录）；HeaderVersion/工厂任一步失败时**除了**记 `FailureRecords` 还要 `pod->FailedBinaries[id] = *br.Value()`（镜像已驻留这一条要在注释里写明：拒的是实例，不是文件——§8.1 的进/出表里没有「HeaderVersion 不匹配就把文件踢出去」这一行）。
 
-- [ ] **Step 3: 测试 `Tests/HotSwap/EjectTests.cpp`（5 个 TEST）**
+- [ ] **Step 3: 测试 `Tests/HotSwap/EjectTests.cpp`（7 个 TEST，后两条评审期补）**
 
 ```cpp
 #include "Vase/Host/PluginHost.h"
@@ -4002,6 +4641,29 @@ TEST(Eject, FailedRecordCanBeEjectedAndBinaryReleased)
     EXPECT_TRUE(host.DestroyPod(h).Clean());
 }
 
+// —— 以下两条**评审期补**（不是首轮 brief 的内容，计数已全链重编）——
+
+TEST(Eject, OtherPodFailedRecordKeepsBinaryResident)
+{
+    // §8.1 + 补角：局 A 的**失败记录**（FailedBinaries）也是一类持有者——局 B 先卸，
+    // 货必须留在架上；只剩 A 时才是真卸。这条证的是「这一支存在、且会让闸走 kept」。
+    // 同一 fixture 两局各失败一次 → 两局的 FailedBinaries 都指着同一个记录。
+    两局 CreatePod（Vase.StaleHeader）→ EjectPlugin(b, id) 应 BinaryActuallyUnloaded==false
+      且 HotSwapNote 点到 "other pod" → 再从 a 卸 → 应 true。
+}
+
+TEST(Eject, SameFileUnderTwoIdsKeepsRecordAlive)
+{
+    // 闸的持有者判定按**记录指针**、不按 id——这条是 record-vs-id 唯一的常驻守卫
+    // （实测：其余 6 条在「按 id 判」的旧实现下全绿）。同一文件两条 plan 条目，
+    // 第二条 id 对不上 → 普通加载失败 → 却留下指向**同一记录**的 FailedBinaries；
+    // 按 id 判会误判「无人持有」→ Unload 掉记录 → 那条条目悬垂（UAF）。
+    plan = [("Vase.Hello", HELLO), ("Vase.HelloX", HELLO)] → CreatePod
+      → Failures().size()==1
+      → EjectPlugin(h, "Vase.Hello") 应 Ok 且 BinaryActuallyUnloaded==false（按 id 判这里会错成 true）
+      → EjectPlugin(h, "Vase.HelloX") 应 Ok 且 true（真没人持有了才卸）
+}
+
 } // namespace
 ```
 
@@ -4009,13 +4671,11 @@ TEST(Eject, FailedRecordCanBeEjectedAndBinaryReleased)
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 60
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 67（T9 收 60 + 本任务 5 + 评审补的 2 条：跨局失败记录保持驻留、同文件两 id）
 wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug'
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T10：EjectPlugin——账本反查执法（点名消费者）+ 全局实例闸 + 档二证据留账
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T10：EjectPlugin——账本反查执法（点名消费者）+ 全局实例闸 + 档二证据留账"
 ```
 
 ---
@@ -4074,7 +4734,7 @@ AdoptPlugin(handle, id):
 
 `Tests/HotSwap/CMakeLists.txt` 里 `if(NOT WIN32)` 包：`vase_add_plugin_fixture(NoBuildIdPlugin SOURCES NoBuildIdPlugin.cpp LINK_LIBRARIES VasePod)`（源码同 LoadProbe 换 Id `"Vase.NoBuildId"`）+ 上节的 `target_link_options`。**先跑实验**钉死 flag 顺序（Interfaces 里写的那条），再进测试。
 
-- [ ] **Step 3: 测试 `Tests/HotSwap/AdoptTests.cpp`（5 个 TEST，两个 Linux-only）**
+- [ ] **Step 3: 测试 `Tests/HotSwap/AdoptTests.cpp`（6 个 TEST，其中 2 个 Linux-only）**
 
 ```cpp
 #include "Vase/Host/PluginHost.h"
@@ -4098,9 +4758,14 @@ TEST(Adopt, UnknownIdAndAlreadyInPodRejected)
 {
     vase::PluginHost host;
     vase::PodHandle h = host.CreatePod(Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}})).Value();
-    EXPECT_NE(host.AdoptPlugin(h, "Vase.NeverRegistered").GetError().Message().find("unknown plugin id"),
-              std::string::npos);
-    EXPECT_NE(host.AdoptPlugin(h, "Vase.Hello").GetError().Message().find("already in pod"), std::string::npos);
+    // 先 IsOk() 再 GetError()：在未检查的临时 Result 上直接取错误，真回归时
+    // GetError() 自己会走 ProgrammerError 终止进程，测试从「断言失败」变成「整条挂掉」。
+    const vase::Result<vase::AdoptReport> unknown = host.AdoptPlugin(h, "Vase.NeverRegistered");
+    ASSERT_FALSE(unknown.IsOk());
+    EXPECT_NE(unknown.GetError().Message().find("unknown plugin id"), std::string::npos);
+    const vase::Result<vase::AdoptReport> already = host.AdoptPlugin(h, "Vase.Hello");
+    ASSERT_FALSE(already.IsOk());
+    EXPECT_NE(already.GetError().Message().find("already in pod"), std::string::npos);
     host.DestroyPod(h);
 }
 
@@ -4143,7 +4808,7 @@ TEST(Adopt, RequiresMustBindFullyOrNothing)
 
     vase::PodHandle h = host.CreatePod(Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}})).Value();
     vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, "Vase.EdgeConsumer");
-    EXPECT_FALSE(r.IsOk());
+    ASSERT_FALSE(r.IsOk());
     EXPECT_NE(r.GetError().Message().find("Vase.Test.Shared"), std::string::npos); // 报告缺哪条
     EXPECT_NE(r.GetError().Message().find("Vase.Test.HostOnly"), std::string::npos);
     EXPECT_EQ(host.Resolve(h)->PluginCount(), 1U); // Hello 无恙
@@ -4170,12 +4835,15 @@ TEST(Adopt, RenameReplacementCaughtByTierThree)
 
     vase::PodHandle h = host.CreatePod(vase::LoadPlan{}).Value();
     vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, "Vase.LoadProbe");
-    EXPECT_FALSE(r.IsOk());
+    ASSERT_FALSE(r.IsOk());
     EXPECT_NE(r.GetError().Message().find("differ"), std::string::npos);
     EXPECT_NE(r.GetError().Message().find("rebuild"), std::string::npos); // 逃生门写明（§8.2 政策）
     host.DestroyPod(h);
-    std::filesystem::copy_file(VASE_FIXTURE_LOADPROBE, probe, std::filesystem::copy_options::overwrite_existing,
-                               ec); // 复原（此时未映射，可覆盖）
+    // **复原走 RAII 守卫，不是这行末尾的一次 copy_file**（T11 实测：brief 原稿把复原写成
+    // `copy_file(VASE_FIXTURE_LOADPROBE, probe)`，而 `probe` 就是它自己——自我拷贝，什么
+    // 都没复原）。`ProbeSwapGuard` 构造时把原文件备份到 `<probe>.orig`，析构时原子 rename
+    // 回位并在早退路径上也清掉 `.swap` 暂存；`guard` 必须声明在 `host` **之前**，好让它
+    // 先于 `~PluginHost` 的卸货跑完。
 }
 
 TEST(Adopt, MissingIdentityFeatureRejectedWithPointer)
@@ -4185,7 +4853,7 @@ TEST(Adopt, MissingIdentityFeatureRejectedWithPointer)
     host.DestroyPod(host.CreatePod(plan).Value()); // CreatePod 不设身份闸（v2 语义）——先进过一回拿登记
     vase::PodHandle h = host.CreatePod(vase::LoadPlan{}).Value();
     vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, "Vase.NoBuildId");
-    EXPECT_FALSE(r.IsOk());
+    ASSERT_FALSE(r.IsOk());
     EXPECT_NE(r.GetError().Message().find("--build-id"), std::string::npos); // 报告指路补链接标志
     host.DestroyPod(h);
 }
@@ -4212,13 +4880,11 @@ TEST(Adopt, FreshLoadBranchAlsoVerifiesAndRecordsEdges)
 ```bash
 cmake --build --preset win-x64-msvc-debug && ctest --preset win-x64-msvc-debug   # Windows 线不编译 #ifndef _WIN32 用例 → -N 比 Linux 少 2
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 64（60 + 本任务非 Linux-only 的 4 条）
-wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug -N'   # Linux 线: 66（64 + 2 条 Linux-only）
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 71（67 + 本任务非 Linux-only 的 4 条）
+wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug -N'   # Linux 线: 73（71 + 2 条 Linux-only）
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T11：AdoptPlugin——驻留复用分支档三比对、导入表执法、声明全绑或整体拒绝
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T11：AdoptPlugin——驻留复用分支档三比对、导入表执法、声明全绑或整体拒绝"
 ```
 
 （本行起 ctest 基数**按平台分账**：Windows/Linux 编译到的 TEST 集合从 T11 起不再相同。T14 的验收表按「线 × 基数」写，`CLAUDE.md` 同步登记。）
@@ -4413,19 +5079,24 @@ TEST(HotSwap, FullLoopFlipsBehaviorAndNeverTouchesNeighbor)
     {
         pod->Root().Emit(samples_fixture::TickEvent{i}); // B 心跳正常
     }
-    EXPECT_GE(heart1->Beats(), 5);
+    EXPECT_EQ(heart1->Beats(), 5); // 切换前恰好 5 次 tick（精确等式免费，且能最早抓住丢事件）
 
     ASSERT_TRUE(host.EjectPlugin(h, "Vase.VersionedA").IsOk()); // 三档之档一、档二在报告里结算
     ws.InstallPrime();                                          // A′ 覆盖 A 的位置
     vase::Result<vase::AdoptReport> adopt = host.AdoptPlugin(h, "Vase.VersionedA");
     ASSERT_TRUE(adopt.IsOk()) << adopt.GetError().Message();
-    EXPECT_TRUE(adopt.Value().IdentityVerified); // 档三：新镜像 == 新磁盘
+    // 要证伪得挑**会变**的字段：真 Eject 之后必须走**全新装载**分支。
+    // `IdentityVerified` 在成功路径上**恒真**（`AdoptPlugin` 两分支都置 true），拿它当判据等于没断
+    // ——它是报告字段，不是检查。这条由评审在 T12 标为 Important 后改的。
+    EXPECT_FALSE(adopt.Value().ReusedResidentImage);
 
     EXPECT_EQ(CounterValue(pod), 2); // 行为 == A′（不是 A！）
     auto* heart2 = pod->Root().Get<samples_fixture::IHeart>();
-    EXPECT_EQ(heart1, heart2); // B 的实例指针：从第一步起没被碰过
+    // B 的实例指针**此处不判**：新对象会落回被释放的那块堆内存，实测同一二进制时红时绿
+    // （3 次运行里 2 红 1 绿）——一行读起来像守卫、实际时红时绿的断言比明摆着的洞更坏。
+    // 「B 从第一步起没被碰过」由下面那条精确计数承担。
     pod->Root().Emit(samples_fixture::TickEvent{99});
-    EXPECT_GT(heart2->Beats(), 5); // B 还活着且在跳
+    EXPECT_EQ(heart2->Beats(), 6); // 5 次 + 第 99 号那次：计数只能连续累加，B 被重建就归零
 
     const vase::PodReport report = host.DestroyPod(h);
     EXPECT_TRUE(report.Clean());
@@ -4466,13 +5137,11 @@ TEST(HotSwap, FiveRoundsBehaveLikeFirstTime)
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug -R HotSwap --output-on-failure
 ctest --preset win-x64-clang-debug   # 全量回归
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 66
-wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug -R HotSwap --output-on-failure && ctest --preset linux-x64-clang-debug -N'   # Linux 线: 68
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 73
+wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug -R HotSwap --output-on-failure && ctest --preset linux-x64-clang-debug -N'   # Linux 线: 75
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T12：Tests/HotSwap 主循环（12.1 端到端：Eject→覆盖→Adopt→行为翻面、邻居零扰动）
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T12：Tests/HotSwap 主循环（12.1 端到端：Eject→覆盖→Adopt→行为翻面、邻居零扰动）"
 ```
 
 （若 Windows 上 `copy_file(overwrite_existing)` 在 Eject 之后仍报 sharing violation：档二判据就是红的——**先修卸载路径再谈测试**，别放宽断言；这正是 12.1 存在的意义。Linux 上如遇覆盖成功但档三仍拒：检查 inode 语义——`copy_file` 是 truncate-in-place（同 inode！内存映射会看见新内容——**这里必须用 `rename` 换 inode 才能构造「A 还驻留」场景**？不：Eject 后 A 已不驻留，`copy_file` 原地覆盖完全正确；rename 换血场景只在 T11 的 mismatch 测试里需要。两种手法各归其位，别混。）
@@ -4624,13 +5293,11 @@ TEST(Abi, AdoptRejectsBinaryThatImportsSiblingPlugin)
 
 ```bash
 cmake --build --preset win-x64-clang-debug && ctest --preset win-x64-clang-debug
-ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 68
-wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug -N'   # Linux 线: 70
-git ls-files -z '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
+ctest --preset win-x64-clang-debug -N   # Expected: Total Tests: 75
+wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && cmake --build --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug && ctest --preset linux-x64-clang-debug -N'   # Linux 线: 77
+git ls-files -z --cached --others --exclude-standard '*.h' '*.cpp' | xargs -0 clang-format --dry-run --Werror
 git add -A
-git commit -m "M1-T13：Eject 后事件风暴零命中（3c）+ 兄弟导入拒进 Adopt（3e）
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+git commit -m "M1-T13：Eject 后事件风暴零命中（3c）+ 兄弟导入拒进 Adopt（3e）"
 ```
 
 ---
@@ -4665,19 +5332,22 @@ Expected 基数表（`ctest -N`，**每线单独记**）：
 
 | preset | 预期 Total Tests |
 |---|---|
-| `win-x64-{clang,msvc}-debug` | 68 |
-| `win-x64-{clang,msvc}-release` | 67（`EffectScopeDeath` 有 `#ifndef NDEBUG` 门） |
-| `linux-x64-clang-debug` | 70（多 2 条 T11 的 Linux-only） |
-| `linux-x64-clang-release` | 69 |
+| `win-x64-{clang,msvc}-debug` | 75 |
+| `win-x64-{clang,msvc}-release` | 74（`EffectScopeDeath` 有 `#ifndef NDEBUG` 门） |
+| `linux-x64-clang-debug` | 77（多 2 条 T11 的 Linux-only） |
+| `linux-x64-clang-release` | 76 |
 
 - [ ] **Step 2: 门禁全量**
 
 ```bash
 run-clang-tidy -p build-win/win-x64-clang-debug          # 三条判据一起看（CLAUDE.md）：退出0+正文error 0+正文warning 0
 run-clang-tidy -p build-win/win-x64-msvc-debug -extra-arg=-Wno-unused-command-line-argument
-git ls-files -z '*.h' '*.hpp' '*.cpp' '*.cc' '*.ixx' | xargs -0 clang-format --dry-run --Werror
+git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc' '*.ixx' | xargs -0 clang-format --dry-run --Werror
 ```
 Linux tidy 照 M0 口径再跑一棵。tidy 基数（Suppressed 数）会变——**看它变在哪一类**（新增的多是 gtest/STL 模板实例化，我们自己的代码必须仍零正文 warning）。
+
+> **Linux 线必须单独看正文告警，别用「Windows 两条线绿」推它绿。** T11 实测：**同一份源码、同一版 clang-tidy（两侧均 23.1.0）**，Linux 线报 9 条正文 warning 而 Windows 线 0 条——其中两条 `modernize-loop-convert` 落在**两侧都编译的共享文件**（`Pod.cpp` / `PluginHost.cpp`）上。成因是 STL 不同（MSVC STL vs libc++），不是版本差。
+> 所以 `CLAUDE.md` 那句「两侧 LLVM 必须同版本——判据一致性依赖这一条」**是必要条件而非充分条件**，刷新时要写准；平台专属 TU（`*Posix.cpp` / `*Windows.cpp`）**天然只在一条线上被检查**，这条也要写明。
 
 - [ ] **Step 3: `CLAUDE.md` 全量刷新（逐项清单，措辞对齐现有风格）**
 
@@ -4685,10 +5355,11 @@ Linux tidy 照 M0 口径再跑一棵。tidy 基数（Suppressed 数）会变—�
 2. 「构建与测试」节：`ctest` 基数说明改为**按线分账的表**（Step 1 的六行）；加一句「T3 的 death test 受 `#ifndef NDEBUG` 门、T11 两条 Linux-only——基数差是设计不是漏注册」。
 3. 「在这个仓库里干活要知道的规矩」增两条（编号续 5、6）：
    - **5. 插件形态（含测试 fixture）一律经 `Cmake/VasePluginHelpers.cmake` 的 `vase_add_plugin_fixture` 立 target**——它承载 D11（只链 VasePod）与可见性收紧；手搭 `add_library(SHARED)` 的插件 target 视为违规。
-   - **6. `Tests/HotSwap` 按主干对待（v3 §12.2）**：任何改动 Loader、账本、Eject/Adopt 路径、描述符布局或 `HeaderVersion` 的提交必须跑 `-R HotSwap`，双平台各自留证据。
-4. 「工具链 flag 是承重的」注记：在「静态检查与格式」前加一小节，写明三个工具链文件里的 `/DEBUG:FULL`、`-Wl,--build-id=sha1`、`-fno-gnu-unique` 是 §8.2 档三的**构建要求**（摘掉它们 = Adopt 全线拒绝，症状是运行期响的失败而非编译失败），摘除/改动需重跑 T12 主循环。
+   - **6. `Tests/HotSwap` 按主干对待（v3 §12.2）**：任何改动 Loader、账本、Eject/Adopt 路径、描述符布局或 `HeaderVersion` 的提交必须跑**该目录的全部用例**（`-R 'HotSwap|Eject|Adopt'`——**不是** `-R HotSwap`：后者只选到 3 条 `HotSwap.*`，把 `Eject.*` 与 `Adopt.*` 整套漏掉，而那两套才是守 Eject/Adopt 路径的；T14 实测：新选择子 Win 15 / Linux 17，旧选择子两侧都是 3），双平台各自留证据。**别在文档里写死条数**——条数随用例增删漂移，写「该目录全部用例」。
+4. 「工具链 flag 是承重的」注记：在「静态检查与格式」前加一小节，写明三个工具链文件里的 `/DEBUG:FULL`、`-Wl,--build-id=sha1` 是 §8.2 档三的**构建要求**（摘掉它们 = Adopt 全线拒绝，症状是运行期响的失败而非编译失败），摘除/改动需重跑 T12 主循环。
 5. 「尚未确定的事项」表：「插件接口 / ABI 约定」行 → 「**已落地最小形**（§3.1 宏/基类/描述符 + HeaderVersion 在 M1；清单与 Catalog 在 M2）」；「测试框架与运行方式」行 → 分层已落成 Unit/Integration/Lifecycle/HotSwap/Abi（各线基数见表）；目录布局行 → 含 Samples/Tests 新目录的最终形态。
 6. 「配套文件」节 wiki 条目的注意句：M1 落地进度一句话（接口/文件格式仍是提案的措辞**保留**——`LoadPlan` 手写形就是 M1 的实现选择，不是 §5.1 提案的全量兑现；Catalog 接入时回归提案形）。
+7. **「静态检查与格式」节改写 tidy 的判据口径**（T11 实测，见本节 Step 2 的注）：(a) 「两侧 LLVM 同版本」是必要条件、**不是充分条件**——同版本 + 不同 STL 会让同一条检查在同一份源码上给出不同结果，实测 `Pod.cpp` / `PluginHost.cpp` 各一条 `modernize-loop-convert` 只在 Linux 报；(b) 平台专属 TU（`*Posix.cpp` / `*Windows.cpp`）**天然只被一条线检查**，所以「Windows 两条线绿」不能推 Linux 绿，**三条 debug 线要各自跑、各自看正文告警**；(c) 相应地，「ctest 基数」也要按线分账（本条与第 2 项同源）。
 
 `README.md`：目录树、`VaseEmbedding` 用法、新增的 ctest 基数说明（与 CLAUDE.md 表同源）。
 
@@ -4711,9 +5382,7 @@ Linux tidy 照 M0 口径再跑一棵。tidy 基数（Suppressed 数）会变—�
 git add -A
 git commit -m "M1-T14：六 preset 全量验收、HotSwap 主干规矩与 CLAUDE.md/README 同步
 
-M1 完成。下一步按 v3 12.3 的 M2 行开 Catalog/求解/清单链路的计划（依赖账本执法 3b 补全）。
-
-Co-Authored-By: Claude Code <noreply@anthropic.com>"
+M1 完成。下一步按 v3 12.3 的 M2 行开 Catalog/求解/清单链路的计划（依赖账本执法 3b 补全）。"
 ```
 
 **然后停。** M2 另起计划（`writing-plans` 重新走一遍），不要顺手把 Catalog 写了。
