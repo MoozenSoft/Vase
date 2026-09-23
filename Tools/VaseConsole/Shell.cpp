@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-namespace samples::shell
+namespace tools::console
 {
 namespace
 {
@@ -122,4 +122,4 @@ ShellStop RunShell(const std::vector<CommandSpec>& commands, std::istream& in, s
     return stop;
 }
 
-} // namespace samples::shell
+} // namespace tools::console

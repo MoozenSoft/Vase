@@ -13,21 +13,21 @@
 #include <utility>
 #include <vector>
 
-namespace samples::bench
+namespace tools::console
 {
 
-class Bench
+class Console
 {
 public:
-    Bench() = default;
-    Bench(const Bench&) = delete;
-    Bench& operator=(const Bench&) = delete;
-    Bench(Bench&&) = delete;
-    Bench& operator=(Bench&&) = delete;
-    ~Bench() = default;
+    Console() = default;
+    Console(const Console&) = delete;
+    Console& operator=(const Console&) = delete;
+    Console(Console&&) = delete;
+    Console& operator=(Console&&) = delete;
+    ~Console() = default;
 
-    [[nodiscard]] std::vector<shell::CommandSpec> Commands();
-    [[nodiscard]] int Verdict(shell::ShellStop stop) const;
+    [[nodiscard]] std::vector<CommandSpec> Commands();
+    [[nodiscard]] int Verdict(ShellStop stop) const;
 
     // 拆净所有活局（spec §3.3「exit 拆净所有局」+ ~PluginHost 的 Debug 断言要求「宿主析构无活局」）：
     // main 在 RunShell 之后、Verdict 之前无条件调用；逐局 DestroyPod + 打完整报告，Clean 照常走规则 ②。
@@ -42,7 +42,7 @@ private:
     {
         vase::PodHandle Handle;
         std::filesystem::path PlanPath;
-        std::vector<plan::Entry> Entries;
+        std::vector<Entry> Entries;
     };
 
     void CmdPodNew(std::ostream& out, const std::vector<std::string>& args);
@@ -71,7 +71,7 @@ private:
     // handleOut 只在返回非空时被写——所有 Eject/Adopt 调用用的都是它，**不从 Pod* 反推句柄**
     // （Pod 没有公开的 Handle() 访问器，也不该有：句柄是宿主的账）。
     [[nodiscard]] vase::Pod* ResolveActivePod(std::ostream& out, vase::PodHandle& handleOut);
-    [[nodiscard]] const plan::Entry* FindEntry(std::string_view id); // 在 Active()->Entries 里按 Id 找
+    [[nodiscard]] const Entry* FindEntry(std::string_view id); // 在 Active()->Entries 里按 Id 找
 
     vase::PluginHost Host;
     std::unordered_map<std::uint32_t, LivePod> Pods; // key = PodHandle::Index（销毁时擦除）
@@ -80,4 +80,4 @@ private:
     bool Failed = false;
 };
 
-} // namespace samples::bench
+} // namespace tools::console

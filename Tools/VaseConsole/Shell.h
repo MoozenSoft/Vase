@@ -1,7 +1,7 @@
 #pragma once
 
 // 命令表 ↔ ThirdParty/cli 的桥。本头文件**不出现任何 cli 类型**：认识 cli 的只有
-// Shell.cpp，Commands 那一侧只看见 CommandSpec。
+// Shell.cpp，Console 那一侧只看见 CommandSpec。
 
 #include <cstddef>
 #include <cstdint>
@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace samples::shell
+namespace tools::console
 {
 
 struct CommandSpec
@@ -37,4 +37,4 @@ enum class ShellStop : std::uint8_t
 ShellStop RunShell(const std::vector<CommandSpec>& commands, std::istream& in, std::ostream& out,
                    const std::function<void(std::ostream&, const std::string&)>& onUnmatched);
 
-} // namespace samples::shell
+} // namespace tools::console

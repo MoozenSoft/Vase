@@ -1,4 +1,4 @@
-add_executable(VaseConsole main.cpp Shell.cpp Commands.cpp PlanFile.cpp)
+add_executable(VaseConsole main.cpp Shell.cpp Console.cpp PlanFile.cpp)
 
 # 宿主侧只链 VaseHost（它 PUBLIC 带 VasePod）。VaseThirdPartyCli 的接入方式与
 # 「为什么不是 add_subdirectory / vcpkg」写在 Cmake/VaseThirdParty.cmake。

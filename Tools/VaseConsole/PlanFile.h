@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace samples::plan
+namespace tools::console
 {
 
 struct Entry
@@ -22,4 +22,4 @@ struct Entry
 // `#` 起始行与空行忽略。数组序 = 文件序 = LoadPlan::Ordered 序。
 vase::Result<std::vector<Entry>> ParsePlanFile(const std::filesystem::path& file);
 
-} // namespace samples::plan
+} // namespace tools::console

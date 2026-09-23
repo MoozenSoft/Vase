@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace samples::plan
+namespace tools::console
 {
 namespace
 {
@@ -82,4 +82,4 @@ vase::Result<std::vector<Entry>> ParsePlanFile(const std::filesystem::path& file
     return Outcome::Ok(std::move(entries));
 }
 
-} // namespace samples::plan
+} // namespace tools::console

@@ -1,4 +1,4 @@
-#include "Commands.h"
+#include "Console.h"
 
 #include "Greeter.h"
 #include "PlanFile.h"
@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-namespace samples::bench
+namespace tools::console
 {
 namespace
 {
@@ -125,13 +125,13 @@ void PrintAdoptReport(std::ostream& out, const vase::AdoptReport& report)
 
 } // namespace
 
-std::vector<shell::CommandSpec> Bench::Commands()
+std::vector<CommandSpec> Console::Commands()
 {
-    std::vector<shell::CommandSpec> commands;
+    std::vector<CommandSpec> commands;
     const auto add = [&commands](std::string group, std::string name, std::vector<std::string> params, std::string help,
                                  std::function<void(std::ostream&, const std::vector<std::string>&)> handler)
     {
-        commands.push_back(shell::CommandSpec{
+        commands.push_back(CommandSpec{
             .Group = std::move(group),
             .Name = std::move(name),
             .Params = std::move(params),
@@ -172,7 +172,7 @@ std::vector<shell::CommandSpec> Bench::Commands()
     return commands;
 }
 
-bool Bench::ParseIndex(std::string_view text, std::uint32_t& out)
+bool Console::ParseIndex(std::string_view text, std::uint32_t& out)
 {
     std::uint32_t value = 0;
     const char* const begin = text.data();
@@ -186,7 +186,7 @@ bool Bench::ParseIndex(std::string_view text, std::uint32_t& out)
     return true;
 }
 
-void Bench::CmdPodNew(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdPodNew(std::ostream& out, const std::vector<std::string>& args)
 {
     if (!CheckArity(out, args, 1, "pod new <planFile>"))
     {
@@ -194,17 +194,17 @@ void Bench::CmdPodNew(std::ostream& out, const std::vector<std::string>& args)
         return;
     }
     // *begin() 而非 args[0]：非常量下标的 operator[] 过不了 cppcoreguidelines-pro-bounds-*。
-    auto parsed = plan::ParsePlanFile(std::filesystem::path{*args.begin()});
+    auto parsed = ParsePlanFile(std::filesystem::path{*args.begin()});
     if (!parsed.IsOk())
     {
         out << "pod new: " << parsed.GetError().Message() << '\n';
         MarkFailed();
         return;
     }
-    std::vector<plan::Entry> entries = std::move(parsed.Value());
+    std::vector<Entry> entries = std::move(parsed.Value());
 
     vase::LoadPlan plan2;
-    for (const plan::Entry& entry : entries)
+    for (const Entry& entry : entries)
     {
         // LoadPlanEntry::Id 是 string_view，**只在这次 CreatePod 调用期间有效**：
         // entries 之后会被移进 Pods，届时地址变（SSO），那些 view 就都不能再用了。
@@ -246,7 +246,7 @@ void Bench::CmdPodNew(std::ostream& out, const std::vector<std::string>& args)
     // created 分支承担）。
 }
 
-void Bench::CmdPodDestroy(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdPodDestroy(std::ostream& out, const std::vector<std::string>& args)
 {
     if (!CheckArity(out, args, 0, "pod destroy"))
     {
@@ -271,7 +271,7 @@ void Bench::CmdPodDestroy(std::ostream& out, const std::vector<std::string>& arg
     HasActive = false;
 }
 
-void Bench::CmdPodList(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdPodList(std::ostream& out, const std::vector<std::string>& args)
 {
     static_cast<void>(args); // 本命令不吃参数，签名由 CommandSpec 的 handler 形状定死。
     out << "pods: " << Pods.size() << '\n';
@@ -284,7 +284,7 @@ void Bench::CmdPodList(std::ostream& out, const std::vector<std::string>& args)
     }
 }
 
-void Bench::CmdPodUse(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdPodUse(std::ostream& out, const std::vector<std::string>& args)
 {
     if (!CheckArity(out, args, 1, "pod use <index>"))
     {
@@ -304,7 +304,7 @@ void Bench::CmdPodUse(std::ostream& out, const std::vector<std::string>& args)
     out << "active pod: index=" << ActiveIndex << " generation=" << found->second.Handle.Generation << '\n';
 }
 
-vase::Pod* Bench::ResolveActivePod(std::ostream& out, vase::PodHandle& handleOut)
+vase::Pod* Console::ResolveActivePod(std::ostream& out, vase::PodHandle& handleOut)
 {
     const LivePod* slot = Active();
     if (slot == nullptr)
@@ -322,14 +322,14 @@ vase::Pod* Bench::ResolveActivePod(std::ostream& out, vase::PodHandle& handleOut
     return pod;
 }
 
-const plan::Entry* Bench::FindEntry(std::string_view id)
+const Entry* Console::FindEntry(std::string_view id)
 {
     const LivePod* slot = Active();
     if (slot == nullptr)
     {
         return nullptr;
     }
-    for (const plan::Entry& entry : slot->Entries)
+    for (const Entry& entry : slot->Entries)
     {
         if (entry.Id == id)
         {
@@ -339,7 +339,7 @@ const plan::Entry* Bench::FindEntry(std::string_view id)
     return nullptr;
 }
 
-void Bench::CmdEject(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdEject(std::ostream& out, const std::vector<std::string>& args)
 {
     vase::PodHandle handle;
     const vase::Pod* pod = ResolveActivePod(out, handle);
@@ -361,7 +361,7 @@ void Bench::CmdEject(std::ostream& out, const std::vector<std::string>& args)
     PrintEjectReport(out, result.Value());
 }
 
-void Bench::CmdAdopt(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdAdopt(std::ostream& out, const std::vector<std::string>& args)
 {
     vase::PodHandle handle;
     const vase::Pod* pod = ResolveActivePod(out, handle);
@@ -372,7 +372,7 @@ void Bench::CmdAdopt(std::ostream& out, const std::vector<std::string>& args)
     }
     // 先把「这个 Id 登记自哪份 plan」打出来：M1 的 KnownBinaries 是 Host 级、不按局分账
     // （spec §8.1），多局并存时它是用户最容易撞到的东西，报告里必须看得见来源。
-    const plan::Entry* entry = FindEntry(*args.begin());
+    const Entry* entry = FindEntry(*args.begin());
     out << "adopt " << *args.begin()
         << " registeredBy=" << (entry == nullptr ? "not-in-active-plan" : Active()->PlanPath.string()) << '\n';
 
@@ -386,7 +386,7 @@ void Bench::CmdAdopt(std::ostream& out, const std::vector<std::string>& args)
     PrintAdoptReport(out, result.Value());
 }
 
-void Bench::CmdSwap(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdSwap(std::ostream& out, const std::vector<std::string>& args)
 {
     vase::PodHandle handle;
     if (!CheckArity(out, args, 2, "swap <id> <rounds>") || ResolveActivePod(out, handle) == nullptr)
@@ -429,7 +429,7 @@ void Bench::CmdSwap(std::ostream& out, const std::vector<std::string>& args)
     }
 }
 
-void Bench::CmdFileStage(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdFileStage(std::ostream& out, const std::vector<std::string>& args)
 {
     if (!CheckArity(out, args, 2, "file stage <id> <srcPath>") || Active() == nullptr)
     {
@@ -462,7 +462,7 @@ void Bench::CmdFileStage(std::ostream& out, const std::vector<std::string>& args
     out << "staged " << Staged->second.size() << " bytes for " << Staged->first << " (not written yet)\n";
 }
 
-void Bench::CmdFileInstall(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdFileInstall(std::ostream& out, const std::vector<std::string>& args)
 {
     if (!CheckArity(out, args, 1, "file install <id>") || Active() == nullptr)
     {
@@ -479,7 +479,7 @@ void Bench::CmdFileInstall(std::ostream& out, const std::vector<std::string>& ar
     // 本地引用紧贴校验点取：中间夹一次 FindEntry（非常量成员调用）之后，
     // bugprone-unchecked-optional-access 不再认「Staged 有值」这份事实。
     const std::vector<std::uint8_t>& staged = Staged->second;
-    const plan::Entry* entry = FindEntry(id);
+    const Entry* entry = FindEntry(id);
     if (entry == nullptr)
     {
         out << "file install: " << id << " is not in the active pod's plan\n";
@@ -526,7 +526,7 @@ void Bench::CmdFileInstall(std::ostream& out, const std::vector<std::string>& ar
 #endif
 }
 
-void Bench::CmdFileShow(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdFileShow(std::ostream& out, const std::vector<std::string>& args)
 {
     if (!CheckArity(out, args, 1, "file show <id>"))
     {
@@ -534,7 +534,7 @@ void Bench::CmdFileShow(std::ostream& out, const std::vector<std::string>& args)
         return;
     }
     const std::string& id = *args.begin();
-    const plan::Entry* entry = FindEntry(id);
+    const Entry* entry = FindEntry(id);
     if (entry == nullptr)
     {
         out << "file show: " << id << " is not in the active pod's plan\n";
@@ -576,7 +576,7 @@ void Bench::CmdFileShow(std::ostream& out, const std::vector<std::string>& args)
     out << std::dec << '\n';
 }
 
-void Bench::CmdGet(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdGet(std::ostream& out, const std::vector<std::string>& args)
 {
     static_cast<void>(args); // 本命令不吃参数，签名由 CommandSpec 的 handler 形状定死。
     vase::PodHandle handle;
@@ -597,7 +597,7 @@ void Bench::CmdGet(std::ostream& out, const std::vector<std::string>& args)
     out << "get: " << greeter->Greet() << '\n';
 }
 
-void Bench::CmdEmit(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdEmit(std::ostream& out, const std::vector<std::string>& args)
 {
     vase::PodHandle handle;
     vase::Pod* pod = ResolveActivePod(out, handle);
@@ -623,7 +623,7 @@ void Bench::CmdEmit(std::ostream& out, const std::vector<std::string>& args)
     out << "emitted GreetEvent seq=" << seq << '\n';
 }
 
-void Bench::CmdPlugins(std::ostream& out, const std::vector<std::string>& args)
+void Console::CmdPlugins(std::ostream& out, const std::vector<std::string>& args)
 {
     static_cast<void>(args); // 本命令不吃参数，签名由 CommandSpec 的 handler 形状定死。
     vase::PodHandle handle;
@@ -647,7 +647,7 @@ void Bench::CmdPlugins(std::ostream& out, const std::vector<std::string>& args)
     }
 }
 
-Bench::LivePod* Bench::Active()
+Console::LivePod* Console::Active()
 {
     if (!HasActive)
     {
@@ -657,15 +657,15 @@ Bench::LivePod* Bench::Active()
     return found == Pods.end() ? nullptr : &found->second;
 }
 
-void Bench::MarkFailed() { Failed = true; }
+void Console::MarkFailed() { Failed = true; }
 
-void Bench::UnmatchedCommand(std::ostream& out, const std::string& cmd)
+void Console::UnmatchedCommand(std::ostream& out, const std::string& cmd)
 {
     out << "wrong command: " << cmd << '\n'; // 文案是契约：VaseConsoleUnknownCommandReason 按子串匹配。
     MarkFailed();                            // 规则 ① 后半：根本没匹配上，与收到 Err 同判
 }
 
-void Bench::TearDownAll(std::ostream& out)
+void Console::TearDownAll(std::ostream& out)
 {
     // 升序拆，回放输出才稳定（unordered_map 本身无序）；~PluginHost 的 Debug 计数/活局断言
     // 吃的正是「宿主析构时有没有把局拆平」，漏一支就是 rc=3 崩溃而不是干净的非零。
@@ -695,7 +695,7 @@ void Bench::TearDownAll(std::ostream& out)
     HasActive = false;
 }
 
-int Bench::Verdict(shell::ShellStop stop) const
+int Console::Verdict(ShellStop stop) const
 {
     // ① 任何命令收到 Err、或根本没匹配上  ② 任何一次 destroy（含收尾拆局）不 Clean → 都记在 Failed 上
     // ③ 脚本结尾没走 exit  ④ 输入流出错
@@ -704,11 +704,11 @@ int Bench::Verdict(shell::ShellStop stop) const
     {
         return 1;
     }
-    if (stop != shell::ShellStop::kByExitCommand)
+    if (stop != ShellStop::kByExitCommand)
     {
         return 1; // ③ 与 ④：判定从未发生，或这次运行本身不完整
     }
     return 0;
 }
 
-} // namespace samples::bench
+} // namespace tools::console
