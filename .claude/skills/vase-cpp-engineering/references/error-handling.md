@@ -1,6 +1,6 @@
 # 错误处理
 
-**全项目以关闭异常的方式编译。** 这不是风格偏好，是硬事实：`VaseBuildOptions` 在 Windows 侧带 `/EHs-c-`、Linux 侧带 `-fno-exceptions`，且 MSVC 侧显式定义 `_HAS_EXCEPTIONS=0`。所以：
+**全项目以关闭异常的方式编译。** 这不是风格偏好，是硬事实：`VaseBuildOptions` 在 Windows 侧带 `/EHs-c-`、Linux 侧带 `-fno-exceptions`，且 MSVC 侧显式定义 `_HAS_EXCEPTIONS=0`（flag 的完整清单与挂载 target 以根 `CLAUDE.md` 规矩 1 为准）。所以：
 
 - **不写 `throw` / `try` / `catch`**；
 - **不写任何指望"抛出后有人接住"的代码**；
@@ -101,7 +101,7 @@ ASSERT_FALSE(result.IsOk());
 EXPECT_NE(result.GetError().Message().find("is provided by"), std::string::npos);
 ```
 
-测"必须终止"的场景用 **death test**（`ASSERT_DEATH` / `EXPECT_DEATH`），比如 `ProgrammerError` 与线程断言那两条。注意它受 `#ifndef NDEBUG` 门保护，所以 release 线的测试基数比 debug 少 1 条——这是设计，不是漏注册。
+测"必须终止"的场景用 **death test**（`ASSERT_DEATH` / `EXPECT_DEATH`），比如 `ProgrammerError` 与线程断言那两条。注意它受 `#ifndef NDEBUG` 门保护，在 release 线上根本不注册——按线基数表里 release 低于 debug 的差值来自这里，是设计不是漏注册（数字以根 `CLAUDE.md`「构建与测试」的表为准）。
 
 ---
 

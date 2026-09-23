@@ -27,22 +27,13 @@ else()     ImageInspectPosix.cpp    LoaderPosix.cpp
 
 **Windows 上支持两个编译器，正是为了让"宿主与插件可以各用一个"不只是纸面约定。** 但注意它们**不等价**——见第 5 节。
 
-三个工具链文件 + 一个 triplet：
-
-```
-Cmake/Toolchains/windows-x64-clangcl.cmake
-Cmake/Toolchains/windows-x64-msvc.cmake
-Cmake/Toolchains/linux-x64-clang-libcxx.cmake
-Cmake/Triplets/x64-linux-libcxx.cmake      ← vcpkg 依赖的 STL 选型
-```
-
-**这四份文件只讲编译器定位、vcvars 与 STL 选型，不涉及异常设置**（异常在根 `CMakeLists.txt` 的 `VaseBuildOptions` 里）。别去那里找 `/EHs-c-`。
+工具链文件与 triplet 的清单以根 `CLAUDE.md`「构建与测试」与「工具链 flag 是承重的」两节为准（后者还写明每条承重 flag 落在哪个文件上）。**要记住的是这个判断**：这些文件只讲编译器定位、vcvars 与 STL 选型（triplet 管 vcpkg 侧的 STL 选型），**不涉及异常设置**——异常在根 `CMakeLists.txt` 的 `VaseBuildOptions` 里，清单见规矩 1。别去工具链文件里找异常 flag。
 
 ### 版本由 configure 守，但守不全
 
-`CMakeLists.txt` 校验 **CXX 编译器**是 clang **23.x**；`cl.exe` 分支只查平台、**不查版本**。
+`CMakeLists.txt` 只校验 **CXX 编译器**的 clang **主版本**（钉的是哪个主版本，以根 `CLAUDE.md`「静态检查与格式」为准）；`cl.exe` 分支只查平台、**不查版本**。
 
-> **它管不到 `clang-format` / `clang-tidy` 这两个独立可执行文件。** "CXX 编译器的 clang 是 23.x"不等于"tidy / format 也是 23.x"——后者由环境（PATH 最前）保证，不是 configure 保证的。
+> **它管不到 `clang-format` / `clang-tidy` 这两个独立可执行文件。** "CXX 编译器的 clang 落在被钉的那个主版本"不等于"tidy / format 也同版本"——后者由环境（PATH 最前）保证，不是 configure 保证的。
 
 ---
 

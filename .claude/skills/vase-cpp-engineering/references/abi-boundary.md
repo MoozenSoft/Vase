@@ -130,7 +130,7 @@ struct DamageEvent {
 
 **特征缺失 = Adopt 直接拒绝**，报告指路补链接标志——**响亮的失败，不做"跳过验新"的静默降级**。内存哈希兜底记在 §13.1，暂不设计。
 
-另一个 configure 期的坑：`CMAKE_*_FLAGS_INIT` **只在工具链首次 configure 时进入缓存**。工具链后来才加上 `/DEBUG:FULL` 而某棵树在那之前就配过，那棵树的 `CMAKE_SHARED_LINKER_FLAGS` 就是空的。**修法是删掉那棵树重新 configure**，不是用 `-D` 钉一个永久的手工 override——后者会把后续所有工具链改动一起遮住。
+另一个 configure 期的坑：`CMAKE_*_FLAGS_INIT` **只在工具链首次 configure 时进入缓存**。工具链后来才加上承重 flag 而某棵树在那之前就配过，那棵树的 `CMAKE_SHARED_LINKER_FLAGS` 就是空的。**修法是删掉那棵树重新 configure**，不是用 `-D` 钉一个永久的手工 override——后者会把后续所有工具链改动一起遮住。
 
 ---
 

@@ -109,7 +109,7 @@ description: Vase 插件框架的 C++ 工程约束。在 Vase 仓库里设计、
 
 ### 4. 无异常
 
-`VaseBuildOptions` 全局带 `/EHs-c-` / `-fno-exceptions`。连带约束不是"风格建议"，是硬事实：
+`VaseBuildOptions` 全局带 `/EHs-c-` / `-fno-exceptions`（flag 全清单见根 `CLAUDE.md` 规矩 1）。连带约束不是"风格建议"，是硬事实：
 
 - 可恢复失败 → `Result<T>` / `Error`；编程错误 → `detail::ProgrammerError()`（两个构建都终止）。
 - **不要用裸 `assert` 表达运行期错误**：它会让 Debug 终止、Release 静默走过，两个构建行为分叉。
