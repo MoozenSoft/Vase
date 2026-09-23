@@ -187,7 +187,13 @@ if(WIN32)
         #           gtest 的 printer 一旦实例化 `std::operator<<` 就把它拉进 TU；
         #           实测「加上 /external:anglebrackets /external:W0、且不加 /WX 也不加
         #           /we4530」时，C4530 仍照样从 `__msvc_ostream.hpp` 打印出来。
-        #           故本开关**不能**用来把 STL 的 try/catch 从 /we4530 的射程里摘出去。
+        #
+        #   **但上面那句结论原先写得太宽，已按新实测收窄**（见 Cmake/VaseThirdParty.cmake）：
+        #   对**我们自己在 -I 目录里、又以尖括号包含的第三方头**，本开关**摘得动**。实测同一份
+        #   含 throw 的头在 cl.exe 线上：`<cli/cli.h>` → **0 条诊断**，`"cli/cli.h"` →
+        #   **5 条 error C4530**。STL 那一支之所以不受影响，是因为它本来就走编译器自己的系统头
+        #   处理，不在 anglebrackets 这条规则的射程里——所以原结论只对 STL 成立，不是一条普遍事实。
+        #   实际后果：那条"try/catch 一定会被 /we4530 抓到"的保证，**对尖括号包含的第三方头不成立**。
         #
         # 不变式（实测复核，改动这一带时必须重跑）：**我们自己的代码不受影响**。
         # 仓库源码一律用引号包含（`#include "Vase/..."`），且编译的是自己的 .cpp；
@@ -223,8 +229,10 @@ endif()
 #   clang-cl —— 那处 try 不报错（**已实测**：同一 TU、同一组 flag，clang-cl 绿）。
 #               至于**为什么**不报，未孤立验证，推测是 clang 把 MSVC STL 当系统头
 #               抑制了诊断——但这是推测，不是结论，别当依据用。
-#   cl.exe   —— 报 C4530；而 `/external:W0` 管不到 C4530（实测：它能挡住外部头里的
-#               C4189、连模板实例化出来的也挡，唯独 C4530 不受管辖），
+#   cl.exe   —— 报 C4530；而 `/external:W0` 压不住这条 C4530（实测：它能挡住外部头里的
+#               C4189、连模板实例化出来的也挡，唯独 MSVC STL 自己走编译器系统头处理、
+#               不在 anglebrackets 射程里，故它那条 C4530 不受管辖。**注意范围**：对 `-I` 的
+#               尖括号第三方头，本开关**压得住** C4530——实测与机制见 Cmake/VaseThirdParty.cmake），
 #               `/we4530` 又是全局开关，无法只豁免 STL
 #
 # 显式置 0 之后两侧行为一致，并且顺带消掉「STL 内部仍会抛、穿过无异常栈帧」这条残余
@@ -248,6 +256,11 @@ endif()
 # 故在 add_subdirectory 之前就位。
 include(Cmake/VasePluginHelpers.cmake)
 
+# 第三方「只有头文件」依赖（VaseThirdPartyCli → ThirdParty/cli）的编译面。
+# 走自立 INTERFACE target 而非 add_subdirectory / vcpkg，理由与「不得标成 system 头」那条
+# 禁令都在文件里——它关乎异常不变式能否被编译期把守，不是风格选择。
+include(Cmake/VaseThirdParty.cmake)
+
 enable_testing()
 
 add_subdirectory(Source/Pod)
@@ -256,6 +269,10 @@ add_subdirectory(Source/Host)
 # Samples 在 Tests 之前：Tests 与 VaseEmbedding 都要用 $<TARGET_FILE:HelloPlugin>，
 # 生成器表达式求值时该 target 必须已存在。
 add_subdirectory(Samples/HelloPlugin)
+# 换件材料要在 Tools/VaseConsole **之前**：VaseConsole 的 file(GENERATE) 里有
+# $<TARGET_FILE:HelloPluginPrime>，求值时该 target 必须已存在。
+add_subdirectory(Samples/HelloPluginPrime)
 add_subdirectory(Samples/Embedding)
+add_subdirectory(Tools/VaseConsole)
 
 add_subdirectory(Tests)

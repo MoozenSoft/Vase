@@ -1402,6 +1402,10 @@ Vase/
 ├── Cmake/
 │   └── Toolchains/           每个平台一份构建工具链文件（见 8.5 的矩阵）
 │
+├── ThirdParty/               第三方「源码」依赖——目前只有一项，且**不走 vcpkg**
+│   └── cli/                  MoozenSoft/cli（daniele77/cli 的无异常 fork，BSL-1.0）的 git submodule，
+│                             经 Cmake/VaseThirdParty.cmake 的自立 INTERFACE target 消费
+│
 ├── Tools/
 │   ├── VaseCli/              清单扫描、校验、索引生成
 │   └── VasePack/             把散落的插件组合编译成一个库（见 8.6）

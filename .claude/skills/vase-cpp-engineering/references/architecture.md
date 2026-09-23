@@ -44,8 +44,13 @@
 | `Include/Vase/Pod/` | 实例层 | `Pod` / `Context` / `DependencyLedger` |
 | `Include/Vase/Host/` | 进程层 | `PluginHost` / `Loader` / `LoadPlan` / `Evidence` |
 | `Include/Vase/Detail/` | 实现内部 | 上文两者都要见到的共享件：`Result` / `Fail` / `Export` / `Counters` / `ScopePool` / `RegistryBus` / `MetaArray` / `ImageInspect` |
+| `ThirdParty/` | 第三方（**不在 Vase 分层内**） | 目前只有 `cli/`——`MoozenSoft/cli` 的 git submodule，经 `Cmake/VaseThirdParty.cmake` 的自立 INTERFACE target 消费。**不是 Vase 的一层**，也不得给它标 `SYSTEM` / `/external:I`（见下） |
 
 `Detail/` 的存在理由是"**两个层都要见同一份布局，而它们都不该包含对方的头**"——`Counters.h` 与 `RegistryBus.h` 的注释就写明了这一点。往里加东西前先问：真的两边都要见吗？
+
+**`ThirdParty/` 为什么不只是"一个依赖"。** 本仓库的第三方入口只有两条：要编译的走 vcpkg manifest（目前只有 `gtest`），只有头文件的走 submodule + 自立 INTERFACE target（目前只有 `cli`）。后者之所以是**我们 own 的 fork**、而不是自写或 vcpkg 端口，是因为它的 core 路径**必须无异常**（`include/` 树里不出现 `throw` / `try` / `catch`），而这条不变式在消费侧做不到：`-isystem` / 标成 system 头会把诊断吞掉，于是"坏参数 → 打用法提示"静默退化成 `terminate`（假绿）；靠端口给 header-only 库加编译 flag 同样是空转。出路只剩改库本身——代价是长期承诺：上游的 bug 修要手工挑、接口变更要我们判断是否跟。
+
+由此派生两条**写在现场**的规则（命令与完整清单见根 `CLAUDE.md`「构建与测试」的「第三方依赖有两条入口」）：① `VaseThirdPartyCli` 的 include **不得**标 `SYSTEM` / 不得 `/external:I`；② **包含 cli 的头一律用引号**——这是规矩 3 的**反方向**应用：规矩 3 要引号是"别放过我们自己头的警告"，这里要引号是"别放过第三方头的异常"。
 
 ---
 

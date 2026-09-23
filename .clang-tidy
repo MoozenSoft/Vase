@@ -18,6 +18,12 @@
 #                            这两项的禁用**已落实进下方 Checks**（原先只写在本说明里，列表漏了，
 #                            导致 M0 的 0x56415345U 探针常量被报出来）。若日后要改为强制，
 #                            正确做法是给常量起名（constexpr kCamelCase），而不是删这两条。
+#   -clang-analyzer-optin.core.EnumCastOutOfRange
+#                            本仓库首次用 <filesystem> 的取尺寸/时间（Tools/VaseConsole/Commands.cpp:540）
+#                            后被触发，诊断位置在 **MSVC 自己的 xfilesystem_abi.h:134**，不在我们的
+#                            代码上。出路逐条试尽：任何走 `_Stat` 的 size/mtime 都触发；位置在厂商头里，
+#                            就地 NOLINT 够不着；改用 directory_entry 更差（3 条）；ExcludeHeaderFilterRegex
+#                            对正文诊断无效。既无代码级出路，整条关掉；本仓库其余地方不因此松口径。
 #   -portability-avoid-pragma-once  本仓库头文件统一用 `#pragma once`（计划里的片段即如此），
 #                            而目标编译器矩阵（clang-cl / cl.exe / clang / Apple clang）全都支持它。
 #                            该检查针对的是矩阵之外的编译器，对本项目只产生噪声。
@@ -44,6 +50,7 @@ Checks: >
   -bugprone-easily-swappable-parameters,
 
   clang-analyzer-*,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
 
   concurrency-*,
 
@@ -77,6 +84,19 @@ Checks: >
 # 保持为空：作为提示而非阻断。接 CI 后再决定哪些检查升级为 error
 WarningsAsErrors: ''
 HeaderFilterRegex: '.*'
+# ThirdParty/ 下的第三方源码**不进**本仓库的检查口径。
+#
+# 为什么需要这一条：上面的 HeaderFilterRegex 是 `.*`，即"被包含进来的头也算正文"。
+# ThirdParty/cli 是本仓库第一个**以普通 -I（而非 -isystem）进入编译的第三方头**——-I 是
+# 故意的（它让"fork 不得带回 throw"这件事由编译器响亮报错，见 Cmake/VaseThirdParty.cmake），
+# 代价就是这些头会吃到我们的 readability-identifier-naming 等检查（上游写的是 snake_case
+# 与自由风格），Tools/VaseConsole/Shell.cpp 一进编译数据库，门禁就会破在第三方代码上。
+#
+# 写法用 `.*ThirdParty.*` 而不是 `ThirdParty/.*`：Windows 下 clang-tidy 拿到的路径分隔符
+# 可能是反斜杠，带斜杠的字面量会不匹配。两边都要成立，所以不押分隔符。
+# 已验（2026-09-22）：三条 tidy 线（clang-cl / cl.exe / Linux）的正文里 `ThirdParty/` 路径的
+# diagnostic 均为 **0 条**，即本排除如期生效。
+ExcludeHeaderFilterRegex: '.*ThirdParty.*'
 # 让 clang-tidy --fix 使用本仓库的 .clang-format
 FormatStyle: file
 

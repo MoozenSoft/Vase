@@ -146,6 +146,7 @@ description: Vase 插件框架的 C++ 工程约束。在 Vase 仓库里设计、
 C++ 与边界：
 
 - [ ] Vase 自己的头一律**引号**包含（`#include "Vase/Plugin.h"`，不是尖括号）——尖括号会被 `/external:anglebrackets` 标记为外部头，警告静默绕过 `/W4 /WX`（机制与那条例外见根 `CLAUDE.md` 规矩 3）
+- [ ] **第三方 fork（`ThirdParty/cli`）的头同样引号包含**（`#include "cli/cli.h"`，不是尖括号）——同一个 `/external:anglebrackets` 的反方向后果：尖括号包含会让"fork 不得带回 `throw`"这条不变式**静默**失效（现场见 `Cmake/VaseThirdParty.cmake`；规矩见根 `CLAUDE.md` 规矩 3，判据见 `references/architecture.md` §2）
 - [ ] 新 target 链了 `VaseBuildOptions`；新插件 target 经 `vase_add_plugin_fixture`
 - [ ] 跨 DLL 面没有 `type_index` / `dynamic_cast` / `typeid`
 - [ ] 改了任何跨 DLL 可见的布局或签名 → 递增 `kHeaderVersion` 并说明理由

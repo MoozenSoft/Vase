@@ -1,0 +1,3 @@
+[submodule "ThirdParty/cli"]
+	path = ThirdParty/cli
+	url = git@github.com:MoozenSoft/cli.git
