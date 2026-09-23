@@ -84,6 +84,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
   注意：文档中的**接口签名与文件格式**仍为提议；**目录布局已确认**（第 10 节）。M1 已按其中的**最小形**落地（描述符宏与基类 + `HeaderVersion`、效果与作用域、服务与事件、依赖账本、Pod / PluginHost、Adopt / Eject 与三档证据），但**落地的是最小形，不等于提案的全量兑现**——例如 `LoadPlan` 就是手写形（D12），不是 §5.1 的清单格式；Catalog 接入时回归提案形。凡未落成代码的，仍按本文件「尚未确定的事项」处理——**先询问，不要假设**。
 
+- [`wiki/vase-console-use.md`](wiki/vase-console-use.md) —— **`Tools/VaseConsole` 的使用文档**：两种运行方式、命令一览、plan 格式、报告字段读法、退出码规则与回放资产清单。与上面那份不同，它描述的是**实有工具**，输出示例均为实测截取；命令与退出码行为以磁盘上的 `Tools/VaseConsole/` 为准，构建命令与测试基数仍以本文件为准（它不复制）。
+
 - [`.claude/skills/vase-cpp-engineering/`](.claude/skills/vase-cpp-engineering/) —— **本仓库的 C++ 工程约束技能**：`SKILL.md` 给工程权重、五条不可违反、干活流程、提交前自查与「改什么必须验什么」矩阵；`references/` 按 architecture / ownership-lifetime / error-handling / abi-boundary / plugin-lifecycle / concurrency / performance / portability / verification 分面，另附一份通用 C++20 写法参考。设计、实现或评审任何 C++ 之前先读它。
 
   **与本文件的关系**：本文件是命令、构建规矩与测试基数的**唯一真值来源**。技能该给的是「什么边界不能跨、该读哪一份、某类改动必须验到哪一档」这一层判断，而不是把本文件的话在远处再说一遍——门禁阈值抄进第二处必腐：M2 每加一条用例，本文件改、技能不改，拿技能当准的人会算出「少了几条」，把健康的构建判成漏注册。
