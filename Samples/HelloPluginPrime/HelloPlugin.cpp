@@ -4,15 +4,25 @@
 #include "Greeter.h"
 #include "Vase/Plugin.h"
 
+#include <cstdint>
+#include <string>
 #include <string_view>
+#include <utility>
 
 namespace
 {
 
+// 与 HelloPlugin 的结构体**逐字段一致**——swapdemo 的前提：换件后布局校验要过（D25）。
+VASE_CONFIG(HelloConfig, (std::int32_t, Repeats, 1, vase::Meta{.Label = "问候次数"}));
+
 class GreeterImpl final : public samples::IGreeter
 {
 public:
-    [[nodiscard]] std::string_view Greet() const override { return "hello from Vase.Hello prime v2"; }
+    void SetGreeting(std::string text) { Greeting = std::move(text); }
+    [[nodiscard]] std::string_view Greet() const override { return Greeting; }
+
+private:
+    std::string Greeting = "hello from Vase.Hello prime v2 x0"; // OnLoad 立刻被配置真值覆写
 };
 
 class HelloPluginPrime final : public vase::Plugin
@@ -20,6 +30,8 @@ class HelloPluginPrime final : public vase::Plugin
 public:
     vase::Result<void> OnLoad(vase::Context& ctx) override
     {
+        const auto& cfg = ctx.Config<HelloConfig>();
+        Greeter.SetGreeting("hello from Vase.Hello prime v2 x" + std::to_string(cfg.Repeats));
         ctx.Provide<samples::IGreeter>(Greeter);
         ctx.On<samples::GreetEvent>(&HelloPluginPrime::OnGreet, this);
         return vase::Result<void>::Ok();
@@ -49,5 +61,7 @@ VASE_PLUGIN(HelloPluginPrime){
     .DisplayName = "示例插件（prime 版）",
     .Version = "0.1.0",
     .Requires = {},
+    .OptionalRequires = {}, // 与 HelloPlugin 同形（§3.4 作者侧证人）
     .Provides = {{.Name = "Vase.Hello.Greeter", .Version = 1}},
+    .Config = vase::FieldsOf<HelloConfig>(),
 };

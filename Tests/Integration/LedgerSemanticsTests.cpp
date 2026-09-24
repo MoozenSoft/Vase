@@ -75,7 +75,12 @@ TEST(LedgerSemantics, FailedConsumerDropsItsEdgesImmediately)
     // RemoveByInstance，这里的 count 停在 1）。死边不摘会以「还有消费者指着你」的
     // 形态拦住 T10 的 Eject 反查，所以这是承重覆盖，不是补白。
     vase::PluginHost host;
-    const vase::Result<vase::PodHandle> created = host.CreatePod(SharedAndConsumerPlan()); // 无 Stage0 → HostOnly 缺席
+    // 消费者换成落边即败探针（R5-2）：T5 预检后，HostOnly 缺席的形态在 OnLoad 之前就被拦成跳过，
+    // 造不出「边已落、随后败」的现场——这根证桩必须自带这条路径。
+    vase::LoadPlan plan;
+    plan.Ordered.push_back({.Id = "Vase.SharedProvider", .BinaryPath = VASE_FIXTURE_SHAREDPROVIDER});
+    plan.Ordered.push_back({.Id = "Vase.FailingEdgeConsumer", .BinaryPath = VASE_FIXTURE_FAILINGEDGECONSUMER});
+    const vase::Result<vase::PodHandle> created = host.CreatePod(plan);
     ASSERT_TRUE(created.IsOk()) << created.GetError().Message();
     const vase::Pod* pod = host.Resolve(created.Value());
     ASSERT_NE(pod, nullptr);

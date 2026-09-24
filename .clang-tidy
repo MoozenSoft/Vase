@@ -19,7 +19,7 @@
 #                            导致 M0 的 0x56415345U 探针常量被报出来）。若日后要改为强制，
 #                            正确做法是给常量起名（constexpr kCamelCase），而不是删这两条。
 #   -clang-analyzer-optin.core.EnumCastOutOfRange
-#                            本仓库首次用 <filesystem> 的取尺寸/时间（Tools/VaseConsole/Commands.cpp:540）
+#                            本仓库首次用 <filesystem> 的取尺寸/时间（Tools/VaseConsole/Console.cpp:547）
 #                            后被触发，诊断位置在 **MSVC 自己的 xfilesystem_abi.h:134**，不在我们的
 #                            代码上。出路逐条试尽：任何走 `_Stat` 的 size/mtime 都触发；位置在厂商头里，
 #                            就地 NOLINT 够不着；改用 directory_entry 更差（3 条）；ExcludeHeaderFilterRegex

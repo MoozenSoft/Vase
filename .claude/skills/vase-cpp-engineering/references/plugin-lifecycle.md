@@ -148,7 +148,7 @@ EjectPlugin(pod, T)                        AdoptPlugin(pod, X)
                                                         （①-④ 任一步失败 → X 干净退出，无人受累）
 ```
 
-**M1 落地形态**：拒绝只在 `Error::Message` 里（子串是契约），**报告只在成功时存在**。`EjectReport` / `AdoptReport` 的字段定义在 `Include/Vase/Host/Evidence.h`。
+**落地形态（M2a/D21 起两侧同形）**：执法拒绝走 Ok + `Status` + 逐条点名——Eject 是 `Consumers`，Adopt 是 `Missing` / `Collisions`（D43 双向执法，T10 补上 Adopt 半）；成功侧各带解析记录（`RemovedEdges` / `Outgoing`）。`Err` 只剩误用与环境/身份类。字段与枚举以 `Include/Vase/Host/Evidence.h` 磁盘定义为准。
 
 ### 四条规则
 

@@ -53,13 +53,12 @@ enum class Phase : std::uint8_t { kLoad, kStart, kAdopt, kEject, kUnload };
 
 ## 3. 错误消息里的判据子串是契约
 
-`EjectPlugin` / `AdoptPlugin` 是 `Result<T>`：**失败 = 拒绝（`Err`），报告只在成功时存在**。拒绝的点名信息在 `Error::Message()` 里，形如：
+`EjectPlugin` / `AdoptPlugin` 是 `Result<T>`，两侧拒绝通道自 M2a/D21 起**同形**（枚举与字段以 `Include/Vase/Host/Evidence.h` 磁盘定义为准）：执法拒绝走 **Ok + Status + 逐条点名**，`Err` 只剩误用与环境/身份类。
 
-```
-eject refused: <id> is provided by [c1, c2]
-```
+- `EjectPlugin`：有消费者即 `kRejectedConsumers` + `Consumers` 点名；`eject refused: <id> is provided by [c1, c2]` 话术从字段现拼、住进了 console 侧。Host 的 `Err` 只剩 stale handle / not-in-pod 一类**误用**。
+- `AdoptPlugin`（M2a-T10 起）：声明不齐 = `kRejectedDependencies` + `Missing`、Provides 碰撞 = `kRejectedCollision` + `Collisions`（D43，带现提供者归因）点名；成功带 `Outgoing` 解析记录。`Err` 剩环境/身份类与误用——未知 Id / 身份不符 / 特征缺失 / 兄弟导入 / already in pod，判据子串仍是契约。
 
-**这些子串是被测试匹配的契约**，不是随便写的话术。改动它们等于改接口。同类还有 `PluginHost::AssertBoundThread` 的消息——**必须含子串 `not the bound thread`**，T8 的 death test 按它匹配。
+**被测试匹配的子串是契约**，不是随便写的话术。改动它们等于改接口。同类还有 `PluginHost::AssertBoundThread` 的消息——**必须含子串 `not the bound thread`**，T8 的 death test 按它匹配。
 
 新增拒绝路径时：写清"谁拒绝的、为什么、受影响的都有谁"，并同步更新匹配它的测试。
 
@@ -96,10 +95,12 @@ eject refused: <id> is provided by [c1, c2]
 **正确写法**：断言 `Result<T>` 的显式返回值。
 
 ```cpp
-const auto result = host.EjectPlugin(handle, "Vase.Test.Provider");
+const auto result = host.EjectPlugin(handle, "Vase.Test.Nowhere"); // 误用族仍走 Err
 ASSERT_FALSE(result.IsOk());
-EXPECT_NE(result.GetError().Message().find("is provided by"), std::string::npos);
+EXPECT_NE(result.GetError().Message().find("plugin not in pod"), std::string::npos);
 ```
+
+执法性拒绝（Eject 的有消费者一支）已不是 Err——测它断报告字段（Status + 逐条点名），别再匹配消息子串。
 
 测"必须终止"的场景用 **death test**（`ASSERT_DEATH` / `EXPECT_DEATH`），比如 `ProgrammerError` 与线程断言那两条。注意它受 `#ifndef NDEBUG` 门保护，在 release 线上根本不注册——按线基数表里 release 低于 debug 的差值来自这里，是设计不是漏注册（数字以根 `CLAUDE.md`「构建与测试」的表为准）。
 

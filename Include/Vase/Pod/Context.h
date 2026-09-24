@@ -3,7 +3,8 @@
 // Context——Pod 内的服务访问入口（§2.1/§2.3/§6.2）。四条边界（§2.3）在类型上的
 // 投影：无 Proxy、无惰性解析（Get 是显式的）、查找是**一张扁平面**（子 Context
 // 不是查找链的一环——它只记录 Effect 归属与诊断说话的身份）、一个服务标识
-// 一个实现（重复 Provide 在 M1 运行期就终止、两个构建一致；M2 把它提前到求解期硬拒）。
+// 一个实现（重复 Provide 在 M1 运行期就终止、两个构建一致；M2a 已把它提前到装配层硬拒——
+// CreatePod 结构性校验 + Adopt 双向执法，求解期那一半随 M2b 清单到位）。
 //
 // 堆壳的所有权写法：make_unique 造壳 + release() 显式移交，销毁端用 unique_ptr<Cell>
 // 接住再析构——全程不出现裸 new/delete 表达式。
@@ -114,6 +115,22 @@ public:
         EmitRaw(EventKey{E::kName, E::kVersion}, &event);
     }
 
+    // 配置读取端（spec 3.2/D25）：T 必须是作者侧 VASE_CONFIG 的那个结构体。
+    // 校验只到布局（Size/Align）：跨 DLL 没有可信的类型身份，同布局张冠李戴是作者契约。
+    template <typename T>
+    [[nodiscard]] const T& Config() const
+    {
+        if (ConfigStore == nullptr || ConfigMeta == nullptr)
+        {
+            detail::ProgrammerError("ctx.Config<T>(): plugin declares no config (.Config = FieldsOf<T> missing?)");
+        }
+        if (sizeof(T) != ConfigMeta->StructSize || alignof(T) != ConfigMeta->StructAlign)
+        {
+            detail::ProgrammerError("ctx.Config<T>(): layout mismatch with declared config struct");
+        }
+        return *static_cast<const T*>(ConfigStore);
+    }
+
     EffectScope& GetScope() { return *Scope; }
     [[nodiscard]] std::string_view OwnerId() const { return SelfMeta == nullptr ? std::string_view{} : SelfMeta->Id; }
 
@@ -161,6 +178,10 @@ private:
     detail::DependencyLedger* Ledger = nullptr; // 账本（Host 持有实例）
     const void* ConsumerCookie = nullptr;       // 本 Context 所属插件实例（根 = nullptr）
     std::uint32_t PodIndex = 0;
+
+    // —— M2a（T6 填充）：配置对象的镜像内所有权在 LiveInstance::ConfigObject，这里只借读 ——
+    void* ConfigStore = nullptr;
+    const ConfigInfo* ConfigMeta = nullptr;
 };
 
 } // namespace vase

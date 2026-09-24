@@ -169,6 +169,13 @@ if(WIN32)
         # clang-cl 连裸 throw 都拒。只跑 cl.exe 构建时它是漏网的，记在 spec 第 9 节。
         target_compile_options(VaseBuildOptions INTERFACE /we4530)
 
+        # /Zc:preprocessor = MSVC 的 conforming 预处理器。VASE_CONFIG 的字段计数要把
+        # __VA_ARGS__ 整串转发进另一个宏再按逗号重分裂，而旧版预处理器不重分裂（实测
+        # 症状：struct 展开残缺、kFields 干脆不存在）；加上本 flag 后整条线绿。
+        # 安全性：全仓库既有宏（VASE_PLUGIN 等）均固定 arity、不用 __VA_ARGS__ 一族，
+        # 没有依赖旧版特殊行为的代码；msvc 两条 preset 实测复核。
+        target_compile_options(VaseBuildOptions INTERFACE /Zc:preprocessor)
+
         # 导出类带 STL 成员（池、槽表、账本）时 cl.exe 报 C4251，/WX 下即 error；本项目有意
         # 这么写，前提由 §8.5 的工具链与 STL 矩阵钉死、D13 的 HeaderVersion 兜着。用全局豁免
         # 而不是头文件里的逐类 #pragma 区域，代价两条，都要如实接受：

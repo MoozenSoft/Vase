@@ -38,6 +38,8 @@ class VASE_HOST_API PluginHost
 public:
     PluginHost(); // §1.4：绑定当前线程；进程内同时只允许一个存活实例（守卫为全局标志，
                   // 析构释放——测试间串行重建合法，「两个 Host 同时在世」才是要拒的形态）
+    // 活局未拆 → Debug 终止（§1.4/9.2 断言）；驻留镜像统一在此卸下；
+    // 宿主契约「先 DestroyPod 后毁 Host」（R6-1 可见性，终审修复波补记）。
     ~PluginHost();
 
     PluginHost(const PluginHost&) = delete;
@@ -49,14 +51,15 @@ public:
     PodReport DestroyPod(PodHandle handle); // 永不失败（§5.1）
     Pod* Resolve(PodHandle handle);         // 失效 → nullptr（预期内）
 
-    // §5.6 判定流左列：**Eject 失败 = 拒绝 = Err**，报告只在成功时存在。拒绝的点名信息
-    // 在 `Error::Message` 里（`eject refused: <id> is provided by [c1, c2]`）——3b
-    // 「拒绝报告点名消费者」的 M1 形态；M2 要结构化再开 EjectRejection 类型，M1 不镀金。
+    // §5.6 判定流左列：执法拒绝（有消费者）= **Ok + Status=kRejectedConsumers + Consumers 逐条点名**
+    // （D21，3b 兑现）；成功拆除 = Ok + Status=kEjected + RemovedEdges。Err 只剩误用：
+    // stale handle / not-in-pod——只有后者的子串是契约（回放证人钉它，前者无匹配方）。
     Result<EjectReport> EjectPlugin(PodHandle handle, std::string_view pluginId);
 
-    // §5.6 判定流右列：Adopt——「就地重读清单 → 档三验新 → 声明全绑 → 装配」。
-    // 与 EjectPlugin 同形（拒绝只在 Error::Message 里，报告只在成功时存在），判据子串
-    // 是契约：未知 Id / 身份不符 / 特征缺失（T6 原文）/ 兄弟导入 / 声明不齐 / already in pod。
+    // §5.6 判定流右列：Adopt——「就地重读清单 → 档三验新 → 声明全绑 / Provides 不碰 → 装配」。
+    // 执法拒绝（声明不齐 / Provides 碰撞，D21/D43）= Ok + Status + Missing / Collisions 逐条点名，
+    // 成功 = kAdopted + Outgoing 解析记录；Err 只剩误用与环境/身份类，判据子串是契约：
+    // 未知 Id / 身份不符 / 特征缺失（T6 原文）/ 兄弟导入 / already in pod。
     Result<AdoptReport> AdoptPlugin(PodHandle handle, std::string_view pluginId);
 
     detail::DiagnosticCounters& ForTestCounters() { return Counters; } // 测试缝：
@@ -76,6 +79,7 @@ private:
         DiagnosticSnapshot Baseline;         // §9.2：基线是「Pod 创建时」快照，不是进程启动值
         std::vector<std::string> HotSwapLog; // §9.2 v3 进出事件流（T10/T11）；
                                              // Failed 记录由 Pod::FailureRecords 自持（§5.2「保留记录不保留实例」）
+        std::unordered_map<std::string, ConfigBlob> Replays; // D34：计划灌入的 Id→ResolvedConfig，Adopt 回放
     };
 
     // 非绑定线程 → 终止（§1.4/#16）。**消息必须含子串 `not the bound thread`**——
@@ -85,11 +89,20 @@ private:
 
     // CreatePod 与 Adopt 共用的装配件（§5.3 的两阶段机器本身不在这里——**回调留在调用方**：
     // CreatePod 必须「先全 OnLoad 再全 OnStart」，合并进 helper 会把那个序压掉）。
-    [[nodiscard]] std::unique_ptr<Pod::LiveInstance> MakeInstance(Pod& pod, detail::BinaryRecord& record,
-                                                                  const PluginDescriptor* desc);
+    // 装配件：造配置对象 → Apply → 建实例挂 Context。配置键/类型不匹配 = 宿主给的数据错，
+    // 可恢复 → Err（D32；不走 ProgrammerError）。blob 由调用方给，但供给单源 = slot->Replays
+    // （R-F1）：CreatePod 条目在装配前灌表、Adopt 按 Id 查表（D34），查无 = 空 blob = 全默认。
+    [[nodiscard]] Result<std::unique_ptr<Pod::LiveInstance>> MakeInstance(Pod& pod, detail::BinaryRecord& record,
+                                                                          const PluginDescriptor* desc,
+                                                                          const ConfigBlob& resolvedConfig);
     // 失败即时回收（§5.6 规则②：边先死 → Scope 逆序 → 实例销毁）。不碰 pod.Instances——
     // 残留条目的去留由调用方定：CreatePod 留作 Failed 证据，Adopt 直接丢弃。
     void DiscardInstance(Pod& pod, Pod::LiveInstance& live);
+
+    // §5.2 判据 5：OnStart 失败的递归拆除。波及 = strict 声明边 ∪ 账本实边的传递闭包（D28），
+    // 闭包在**拆之前**一次算全（拆除会改账本，判定必须看完整初始态）；拆按数组序倒序 = 逆拓扑序。
+    [[nodiscard]] static std::vector<Pod::LiveInstance*> ComputeDownstreamClosure(Pod& pod, Pod::LiveInstance& origin);
+    void TearDownLiveInstances(Pod& pod, const std::vector<Pod::LiveInstance*>& doomed, std::string_view causedById);
 
     // 句柄 → 槽（失效 = nullptr）。DestroyPod / Resolve / EjectPlugin 共用一份：
     // 这段「索引范围 + Alive + 代际相等」的校验写三遍就是漏一处的温床，而漏掉代际

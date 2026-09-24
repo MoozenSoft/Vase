@@ -392,6 +392,8 @@ Windows 是 `pdbCodeView`、Linux 是 `elfBuildId`。指纹缺失（`identity: u
 | `swap_plan.txt` / `swap_target.dll` / `hotswap.txt` | 磁盘真换件全流程（第 7 节那段的来源） |
 | `behaviour.txt` | `emit` / `plugins` / eject 后 `get` 拿不到提供方 |
 | `unknown_id.txt` | eject 一个不存在的 Id → `plugin not in pod` → 非零 |
+| `blocked_plan.txt` / `eject_blocked.txt` | 提供方+消费者一局，eject 提供方被账本拦下 → `eject refused:` 点名 → 非零（D21 执法拒绝走 Ok+Status 的 console 形） |
+| `collision_reg_plan.txt` / `adopt_blocked_plan.txt` / `adopt_blocked.txt` | 注册局拆掉后在另一局 adopt 碰撞者 → `adopt refused: provides collision [...] by ...` 点名 → 非零（③'/D43 的 console 形；两 plan 分开是因为同 plan 会被 T8 计划级执法整局拒） |
 
 对应地，ctest 里有一族 `VaseConsole*` 前缀的用例把这些脚本钉成回归基线（条数见
 CLAUDE.md「构建与测试」的基数表，此处不复制）。窄跑用 `-R VaseConsole`；换件一族
@@ -411,8 +413,10 @@ CLAUDE.md「构建与测试」的基数表，此处不复制）。窄跑用 `-R 
   之后某局的路径上——`file stage` 与 `file install` 之间的局切换要自己心里有数。
 - **建局走 `Strict=true`**：带失败记录的局根本建不出来（一局要么完整要么失败），
   所以 `failed:` 行实践中为空。框架默认是宽容模式，这里只是不开放它。
-- **`eject` 的拒绝文案前缀不齐**：`plugin not in pod: <id>` 一类是光秃的，
-  `adopt refused: …` 一类自带前缀。CLI 侧统一用 `eject failed: ` / `adopt failed: ` 冠词包住。
+- **拒绝文案自 D21/T10 起有两个来源**：执法拒绝（被消费者挡 / 声明不齐 / Provides 碰撞）走
+  Ok+Status，`eject refused: ` / `adopt refused: ` 行由 CLI 从报告字段现拼；误用与环境/身份类走
+  Err，由 `eject failed: ` / `adopt failed: ` 冠词包住（内文前缀不齐：`plugin not in pod: <id>` 光秃，
+  `adopt refused: … is already in pod` 自带前缀）。
 - **`help <词>` 也算错命令**（内建 `help` 不吃参数），会判非零——想查子菜单在根提示符下敲
   `help`，它会连子菜单一起列。
 - **中文输出行（如 `file install` 的「判据力：…」声明）要求终端按 UTF-8 解码**：全仓库以

@@ -1,3 +1,6 @@
+#include "Vase/Config/ConfigInfo.h"
+#include "Vase/Config/ConfigMacros.h"
+#include "Vase/Config/FieldInfo.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/PluginDescriptor.h"
 
@@ -7,9 +10,12 @@
 
 // 探针类放匿名命名空间：tidy 的 misc-use-internal-linkage 要求「只在本 TU 使用的类型」
 // 就该有内部链接。类的名字只在 VASE_PLUGIN 展开里用一次，放进匿名命名空间不改变任何语义
-// （全局作用域的非限定查找仍能找到它），却省掉一条 NOLINT。
+// （全局作用域的非限定查找仍能找到它），却省掉一条 NOLINT。ProbeConfig 同此处置。
 namespace
 {
+
+VASE_CONFIG(ProbeConfig, (float, Volume, 2.5F, vase::Meta{.Label = "音量"}));
+
 class DescriptorProbePlugin final : public vase::Plugin
 {
 public:
@@ -26,7 +32,9 @@ VASE_PLUGIN(DescriptorProbePlugin){
     .DisplayName = "描述符探针",
     .Version = "0.0.1",
     .Requires = {{.Name = "Vase.World", .Version = 1}, {.Name = "Vase.Audio", .Version = 2}},
+    .OptionalRequires = {{.Name = "Vase.Optional", .Version = 1}},
     .Provides = {{.Name = "Vase.Probe.Service", .Version = 1}},
+    .Config = vase::FieldsOf<ProbeConfig>(),
 };
 
 namespace
@@ -36,6 +44,7 @@ TEST(Descriptor, MetaPopulatedThroughBraceBlock)
 {
     const vase::PluginDescriptor* d = VasePluginDesc_DescriptorProbePlugin();
     EXPECT_EQ(d->HeaderVersion, vase::kHeaderVersion);
+    EXPECT_EQ(vase::kHeaderVersion, 2U); // 钉字面值：自比对拦不住常量被误改，而它是 §8.3 的描述符 ABI 闸
     EXPECT_EQ(d->Meta->Id, "Vase.DescriptorProbe");
     ASSERT_EQ(d->Meta->Requires.Size(), 2U);
     // 迭代器而非 operator[]：非常量下标过不了 cppcoreguidelines-pro-bounds-*（计划「tidy 形态约束」）。
@@ -43,6 +52,12 @@ TEST(Descriptor, MetaPopulatedThroughBraceBlock)
     EXPECT_EQ(std::next(d->Meta->Requires.Begin())->Version, 2U);
     ASSERT_EQ(d->Meta->Provides.Size(), 1U);
     EXPECT_EQ(d->Meta->Provides.Begin()->Name, "Vase.Probe.Service");
+    ASSERT_EQ(d->Meta->OptionalRequires.Size(), 1U);
+    EXPECT_EQ(d->Meta->OptionalRequires.Begin()->Name, "Vase.Optional");
+    EXPECT_EQ(d->Meta->Config.Count, 1U);
+    EXPECT_EQ(d->Meta->Config.StructSize, sizeof(ProbeConfig));
+    ASSERT_NE(d->Meta->Config.Fields, nullptr);
+    EXPECT_STREQ(d->Meta->Config.Fields->Name, "Volume");
 }
 
 TEST(Descriptor, GetPluginRoutesByIdentity)

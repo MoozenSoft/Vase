@@ -415,6 +415,8 @@ public:
 
 配置在代码里是**有类型的结构体**（插件直接成员访问，不做字符串查表），同时又要能被宿主反射出来生成界面。C++20 没有原生反射，所以用宏：**字段列表只写一次，展开两次**——一次生成结构体成员，一次生成元信息表。展开由库内部的 `VASE_FOR_EACH` 完成，用户看不见。
 
+> **[M2a 落地勘误（2026-09-24，spec `docs/superpowers/specs/2026-09-23-vase-m2a-assembly-foundation-design.md` 3.2/D22/D24）]** 落地值为**六型**：`bool` / `std::int32_t` / `std::int64_t` / `float` / `double` / `const char*`（`ValueKind` 标签 + 64 位位形存储；string 走同宽的借用指针）；`enum` 本节暂不提供，与 choices schema 同留 M2b 定案。宏名实为 `VASE_CONFIG`（机制宏在 `Include/Vase/Config/ConfigMacros.h`），`VASE_FOR_EACH` 以 `VASE_CONFIG_DETAIL_FOR_EACH` 的形态存在、住库内。
+
 ```cpp
 // ===== 作者写的（唯一一处）=====
 VASE_CONFIG(CombatConfig,
@@ -766,6 +768,8 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle, const PluginId&);
 // EjectReport：被拒时点名每个消费者；成功时载明三档证据与重置了哪些进程级状态（9.1）
 ```
 
+> **[M2a 落地勘误（2026-09-24，同上 spec 3.1/D23）]** `Entry` 的实形是平铺的 `vase::LoadPlanEntry`（住 `Include/Vase/Host/LoadPlan.h`，非嵌套），多一个提议形没给的字段：`BinaryPath`——M2a 手写计划必填（绝对或相对 CWD，Host 内部绝对化），M2b 由 `Solve` 从清单 stem + 目录填。`ResolvedConfig` 的「默认值已经并进去」的运行期形态 = **缺字段回退 `kFields` 默认**（手写计划只给增量也合法；空 blob = 全默认）。
+
 求解失败（循环依赖、同一服务被两个插件提供、清单损坏、插件 `Id` 重复）返回错误，不产生计划。
 
 **注意两个签名的不对称：`CreatePod` 可能失败，`DestroyPod` 永不失败。**
@@ -918,6 +922,8 @@ EjectPlugin(pod, T)                        AdoptPlugin(pod, X)
                                                    ④ X 装配进当前 Pod，其出边落账
                                                         （①-④ 任一步失败 → X 干净退出，无人受累）
 ```
+
+> **[M2a 落地勘误（2026-09-24，同上 spec 5.1–5.3/D20/D21）]** 报告字段已结构化：`EjectReport.Status` / `AdoptReport.Status` 为枚举——**执法拒绝走 Ok+Status**（被消费者挡 / 声明不齐 / Provides 碰撞，调用方按字段分支），误用与环境/身份类走 `Err`（D21 通道边界）；`provided by [ … ]` 与 `unresolved declarations` 两族子串契约自 M2a 起改按字段断言。`EjectReport.RemovedEdges` 实为被拆实例的**出边**清单——「有入边即拒」的执法在 `kRejectedConsumers` 分支点名消费者，故成功分支的入边清单可证为空。
 
 **四条规则**：
 
@@ -1390,6 +1396,8 @@ Vase/
 │       ├── Catalog/          清单解析、依赖求解、加载计划
 │       ├── Host/             PluginHost、二进制表、依赖账本、诊断
 │       ├── Pod/          Pod、Context
+│       ├── Config/           配置 POD 面（Value / FieldInfo / ConfigInfo / ConfigMacros）
+│       │                     ——M2a 落地增补（spec 3.5/D31）：header-only，Source/ 无对称实体
 │       ├── Service/          服务标识、注册表、Provide / Get
 │       ├── Event/            EventBus、Emit / Waterfall
 │       ├── Effect/           Effect、EffectScope、EffectHandle

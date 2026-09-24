@@ -91,16 +91,22 @@ TEST(FailureSemantics, TolerantModeReclaimsFailedStartScopeImmediately)
     EXPECT_TRUE(host.DestroyPod(r.Value()).Clean()); // 只有即时回收才会绿
 }
 
-TEST(FailureSemantics, MissingDeclaredServiceTerminatesWithFullIdentity)
+TEST(FailureSemantics, MissingDeclaredServiceNowSkippedAtAssembly)
 {
-    // §6.2：required 解析失败 = 编程错误 → 终止，消息含插件 Id + 服务名 + 版本。
-    // （M1 无求解器兜底，这条证明运行期最后一道墙是响的。）
-    EXPECT_DEATH(
-        {
-            vase::PluginHost host;
-            static_cast<void>(host.CreatePod(Plan({{"Vase.RequiresMissingConsumer", VASE_FIXTURE_MISSINGCONSUMER}})));
-        },
-        "Vase\\.RequiresMissingConsumer.*Vase\\.Ghost' v1 ");
+    // M1 形态（Get 撞终止）在 M2a 被装配预检提前拦下（D27）：ghost 从未在计划里，
+    // 归因空（D41「不在计划」态）。运行期那道墙仍守着 Adopt⑤ 与运行中违约（D37 注记）。
+    vase::PluginHost host;
+    const vase::Result<vase::PodHandle> r =
+        host.CreatePod(Plan({{"Vase.RequiresMissingConsumer", VASE_FIXTURE_MISSINGCONSUMER}}));
+    ASSERT_TRUE(r.IsOk()); // 宽容模式照开
+    const vase::Pod* pod = host.Resolve(r.Value());
+    EXPECT_EQ(pod->PluginCount(), 0U);
+    EXPECT_TRUE(pod->Failures().empty()); // 它不是 Failed——是运行时跳过
+    ASSERT_EQ(pod->Skips().size(), 1U);
+    EXPECT_EQ(pod->Skips().begin()->Class, vase::SkipClass::kRuntime);
+    EXPECT_NE(pod->Skips().begin()->Cause.find("Vase.Ghost@1"), std::string::npos);
+    EXPECT_TRUE(pod->Skips().begin()->CausedBy.empty());
+    EXPECT_TRUE(host.DestroyPod(r.Value()).Clean());
 }
 
 } // namespace

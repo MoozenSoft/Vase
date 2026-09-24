@@ -36,6 +36,48 @@ namespace
 
 const char* BoolText(bool value) { return value ? "true" : "false"; }
 
+std::string JoinConsumerIds(const std::vector<vase::LedgerEdgeRef>& refs)
+{
+    std::string text;
+    for (const vase::LedgerEdgeRef& ref : refs)
+    {
+        if (!text.empty())
+        {
+            text.append(", ");
+        }
+        text.append(ref.ConsumerId);
+    }
+    return text;
+}
+
+std::string JoinRequirements(const std::vector<vase::RequirementRef>& refs) // "name@v, name@v"
+{
+    std::string text;
+    for (const vase::RequirementRef& ref : refs)
+    {
+        if (!text.empty())
+        {
+            text.append(", ");
+        }
+        text.append(ref.Service).append("@").append(std::to_string(ref.Version));
+    }
+    return text;
+}
+
+std::string JoinRequirementsForCollision(const std::vector<vase::CollisionRef>& refs) // 上者加 " by <who>" 尾
+{
+    std::string text;
+    for (const vase::CollisionRef& ref : refs)
+    {
+        if (!text.empty())
+        {
+            text.append(", ");
+        }
+        text.append(ref.Service).append("@").append(std::to_string(ref.Version)).append(" by ").append(ref.ProvidedBy);
+    }
+    return text;
+}
+
 const char* PhaseText(vase::Phase phase)
 {
     switch (phase)
@@ -348,13 +390,20 @@ void Console::CmdEject(std::ostream& out, const std::vector<std::string>& args)
         MarkFailed();
         return;
     }
-    // §5.6：Eject 失败即拒绝，拒绝的点名信息在 Error::Message 里（M1 不镀金成结构化拒绝类型）。
-    // 冠词用 failed 不用 refused：Host 的 Err 文本前缀**不齐**——`plugin not in pod: <id>` 一类是
-    // 光秃的（不加冠词则上下文全丢），而 `adopt refused: …` 一类自带前缀（照抄即叠成双前缀）。
+    // D21 之后两条通道各司其职：Err 只剩 not-in-pod / stale handle 一类误用（前缀 failed——
+    // 其文本不齐，不照抄）；执法拒绝走 Ok + Status，点名单由 Consumers 字段现拼。
     auto result = Host.EjectPlugin(handle, std::string_view{*args.begin()});
     if (!result.IsOk())
     {
         out << "eject failed: " << result.GetError().Message() << '\n';
+        MarkFailed();
+        return;
+    }
+    // Ok 不等于成功——不看 Status 就把拒绝报成通过，是本任务要拆掉的假账（R9-1）。
+    if (result.Value().Status == vase::EjectStatus::kRejectedConsumers)
+    {
+        out << "eject refused: " << *args.begin() << " is provided by [" << JoinConsumerIds(result.Value().Consumers)
+            << "]\n";
         MarkFailed();
         return;
     }
@@ -379,7 +428,22 @@ void Console::CmdAdopt(std::ostream& out, const std::vector<std::string>& args)
     auto result = Host.AdoptPlugin(handle, std::string_view{*args.begin()});
     if (!result.IsOk())
     {
-        out << "adopt failed: " << result.GetError().Message() << '\n';
+        out << "adopt failed: " << result.GetError().Message() << '\n'; // 环境/身份类与误用仍走 Err（§5.3 边界）
+        MarkFailed();
+        return;
+    }
+    // Ok ≠ 成功（同 CmdEject 的 R9-1 裁定）：声明不齐 / Provides 碰撞两类执法走 Status，
+    // 名单从 Missing / Collisions 字段现拼，话术沿用 M1 前缀。
+    if (result.Value().Status == vase::AdoptStatus::kRejectedDependencies)
+    {
+        out << "adopt refused: unresolved declarations [" << JoinRequirements(result.Value().Missing) << "]\n";
+        MarkFailed();
+        return;
+    }
+    if (result.Value().Status == vase::AdoptStatus::kRejectedCollision)
+    {
+        out << "adopt refused: provides collision [" << JoinRequirementsForCollision(result.Value().Collisions)
+            << "]\n";
         MarkFailed();
         return;
     }
@@ -417,11 +481,33 @@ void Console::CmdSwap(std::ostream& out, const std::vector<std::string>& args)
             MarkFailed();
             return;
         }
+        if (ejected.Value().Status == vase::EjectStatus::kRejectedConsumers)
+        {
+            // 拒绝即停环的形状与 M1 的 Err 版一致（执法 Ok 化只换通道，不换循环语义）。
+            out << "eject refused: " << *args.begin() << " is provided by ["
+                << JoinConsumerIds(ejected.Value().Consumers) << "]\n";
+            MarkFailed();
+            return;
+        }
         PrintEjectReport(out, ejected.Value());
         auto adopted = Host.AdoptPlugin(handle, std::string_view{*args.begin()});
         if (!adopted.IsOk())
         {
             out << "adopt failed: " << adopted.GetError().Message() << '\n';
+            MarkFailed();
+            return;
+        }
+        // 与 eject 侧同形：执法拒绝即停环（M1 的 Err 版语义只换通道，不换循环形状）。
+        if (adopted.Value().Status == vase::AdoptStatus::kRejectedDependencies)
+        {
+            out << "adopt refused: unresolved declarations [" << JoinRequirements(adopted.Value().Missing) << "]\n";
+            MarkFailed();
+            return;
+        }
+        if (adopted.Value().Status == vase::AdoptStatus::kRejectedCollision)
+        {
+            out << "adopt refused: provides collision [" << JoinRequirementsForCollision(adopted.Value().Collisions)
+                << "]\n";
             MarkFailed();
             return;
         }

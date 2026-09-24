@@ -16,6 +16,7 @@ add_library(VaseHost SHARED
     ImageInspectCommon.cpp
     Loader.cpp
     PluginHost.cpp
+    ConfigBlob.cpp
     ${VASE_HOST_PLATFORM_SOURCES})
 
 target_include_directories(VaseHost

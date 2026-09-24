@@ -5,14 +5,21 @@ add_executable(VaseTests
     Unit/DetailTests.cpp
     Unit/DescriptorTests.cpp
     Unit/EffectTests.cpp
+    Unit/ConfigValueTests.cpp
+    Unit/ConfigBlobTests.cpp
+    Unit/ConfigMacroTests.cpp
     Unit/LoaderTests.cpp
     Unit/RegistryBusTests.cpp
     Unit/LedgerTests.cpp
     Lifecycle/LifecycleTests.cpp
     Lifecycle/DiagnosticAttributionTests.cpp
+    Lifecycle/MultiPluginCycleTests.cpp
     Integration/FailureSemanticsTests.cpp
     Integration/LedgerSemanticsTests.cpp
     Integration/ThreadGuardTests.cpp
+    Integration/MultiPluginAssemblyTests.cpp
+    Integration/RecursiveTeardownTests.cpp
+    Integration/ConfigApplyTests.cpp
     HotSwap/EjectTests.cpp
     HotSwap/AdoptTests.cpp
     HotSwap/HotSwapLoopTests.cpp
@@ -52,7 +59,23 @@ target_compile_definitions(VaseTests PRIVATE
     VASE_FIXTURE_MISSINGCONSUMER="$<PATH:CMAKE_PATH,$<TARGET_FILE:RequiresMissingConsumer>>"
     VASE_FIXTURE_SHAREDPROVIDER="$<PATH:CMAKE_PATH,$<TARGET_FILE:SharedProviderPlugin>>"
     VASE_FIXTURE_EDGECONSUMER="$<PATH:CMAKE_PATH,$<TARGET_FILE:EdgeConsumerPlugin>>"
+    VASE_FIXTURE_SHAREDCONSUMER2="$<PATH:CMAKE_PATH,$<TARGET_FILE:SharedConsumer2Plugin>>"
+    VASE_FIXTURE_FAILINGEDGECONSUMER="$<PATH:CMAKE_PATH,$<TARGET_FILE:FailingEdgeConsumerPlugin>>"
     VASE_FIXTURE_UNDECLAREDGET="$<PATH:CMAKE_PATH,$<TARGET_FILE:UndeclaredGetConsumer>>"
+    VASE_FIXTURE_DEADPROVIDER="$<PATH:CMAKE_PATH,$<TARGET_FILE:DeadProviderPlugin>>"
+    VASE_FIXTURE_DEADCONSUMER="$<PATH:CMAKE_PATH,$<TARGET_FILE:DeadConsumerPlugin>>"
+    VASE_FIXTURE_CYCLEA="$<PATH:CMAKE_PATH,$<TARGET_FILE:CycleAPlugin>>"
+    VASE_FIXTURE_CYCLEB="$<PATH:CMAKE_PATH,$<TARGET_FILE:CycleBPlugin>>"
+    VASE_FIXTURE_CONFIGCONSUMER="$<PATH:CMAKE_PATH,$<TARGET_FILE:ConfigConsumerPlugin>>"
+    VASE_FIXTURE_CONFIGLAYOUTMISUSE="$<PATH:CMAKE_PATH,$<TARGET_FILE:ConfigLayoutMisusePlugin>>"
+    VASE_FIXTURE_STARTFAILPROVIDER="$<PATH:CMAKE_PATH,$<TARGET_FILE:StartFailProviderPlugin>>"
+    VASE_FIXTURE_BEHINDSTRICTUSED="$<PATH:CMAKE_PATH,$<TARGET_FILE:BehindStrictUsedPlugin>>"
+    VASE_FIXTURE_BEHINDSTRICTUNUSED="$<PATH:CMAKE_PATH,$<TARGET_FILE:BehindStrictUnusedPlugin>>"
+    VASE_FIXTURE_BEHINDOPTUSED="$<PATH:CMAKE_PATH,$<TARGET_FILE:BehindOptUsedPlugin>>"
+    VASE_FIXTURE_BEHINDOPTUNUSED="$<PATH:CMAKE_PATH,$<TARGET_FILE:BehindOptUnusedPlugin>>"
+    VASE_FIXTURE_BEHINDFAR="$<PATH:CMAKE_PATH,$<TARGET_FILE:BehindFarPlugin>>"
+    VASE_FIXTURE_COLLISIONPROVIDER="$<PATH:CMAKE_PATH,$<TARGET_FILE:CollisionProviderPlugin>>"
+    VASE_FIXTURE_DEADPROVIDER2="$<PATH:CMAKE_PATH,$<TARGET_FILE:DeadProvider2Plugin>>"
     VASE_FIXTURE_VERSIONEDA="$<PATH:CMAKE_PATH,$<TARGET_FILE:VersionedA>>"
     VASE_FIXTURE_VERSIONEDAPRIME="$<PATH:CMAKE_PATH,$<TARGET_FILE:VersionedAPrime>>"
     VASE_FIXTURE_NEIGHBORB="$<PATH:CMAKE_PATH,$<TARGET_FILE:NeighborB>>"

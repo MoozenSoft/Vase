@@ -9,6 +9,7 @@
 // 聚合里时花括号放不进去——所以宏的最后一行恰好是 `const PluginMeta kVaseMeta_X = PluginMeta`，
 // 用户写的 `{...}` 直接落在它身上。作者仍只写一处（§3.1「只有第一项需要手写」）。
 
+#include "Vase/Config/ConfigInfo.h"
 #include "Vase/Detail/Export.h"
 #include "Vase/Detail/MetaArray.h"
 #include "Vase/Detail/Result.h"
@@ -26,7 +27,8 @@ class Plugin;  // 同上：PluginDescriptor 的两个函数指针按名引用它
 
 // §8.3：「插件与宿主包含同一份 Vase 头文件」这条前提唯一的执行点（§3.1）。
 // 每次不兼容改动递增；插件作者不需要知道它的存在。
-inline constexpr std::uint32_t kHeaderVersion = 1U;
+// 1 → 2（M2a-T3）：PluginMeta 布局变更——新增 OptionalRequires 与 Config 两槽（D26）。
+inline constexpr std::uint32_t kHeaderVersion = 2U;
 
 struct ServiceRef
 {
@@ -34,7 +36,7 @@ struct ServiceRef
     std::uint32_t Version = 0;
 };
 
-// 作者写的部分：纯数据、可平凡拷贝。Requires/Provides 各 16 条上限是编译错误，
+// 作者写的部分：纯数据、可平凡拷贝。三个服务数组各 16 条上限是编译错误，
 // 不静默截断（spec 3.3(2)；上限值随真实插件调整时改这一个常量）。
 struct PluginMeta
 {
@@ -42,8 +44,12 @@ struct PluginMeta
     std::string_view DisplayName;
     std::string_view Version;
     MetaArray<ServiceRef, 16> Requires;
+    // NSDMI `{}` 是刻意的：clang 的 -Wmissing-designated-field-initializers（默认开）会把
+    // 省略中间字段判成 error，带 NSDMI 才豁免——bump 的「既有站点零改动」靠它成立。
+    // NOLINTNEXTLINE(readability-redundant-member-init) NSDMI 为刻意，理由见上条注释。
+    MetaArray<ServiceRef, 16> OptionalRequires{}; // 缺失不跳过（§3.3）；凭声明执法覆盖它（spec 3.4）
     MetaArray<ServiceRef, 16> Provides;
-    // M2 补 Config，M3 补 ProcessState（spec 3.2；v3 §9.1 的 Eject 自动重置依赖后者）
+    ConfigInfo Config{}; // .Config = vase::FieldsOf<T>() 显式引用；忘写的静默点照旧（§13.3）
 };
 
 // 二进制契约：HeaderVersion 必须是**第一个**字段——加载路径先读它再读其余（§3.1）。

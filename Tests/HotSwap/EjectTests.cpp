@@ -56,9 +56,43 @@ TEST(Eject, LeafPluginLeavesWithFullEvidence)
     EXPECT_NE(podReport.HotSwapLog.front().find("eject:Vase.Hello"), std::string::npos);
 }
 
-TEST(Eject, RefusedWithConsumersNamed)
+TEST(Eject, RefusedWithConsumersNamedInStructuredReport)
 {
-    // 12 节 #6 的账本面 + 3b「拒绝报告点名消费者」最小形。
+    // 3b 的 M2a 兑现（D21）：执法拒绝走 Ok + Status + 逐条点名，两个消费者都要出现。
+    vase::PluginHost host;
+    vase::LoadPlan plan;
+    plan.Ordered.push_back({.Id = "Vase.SharedProvider", .BinaryPath = VASE_FIXTURE_SHAREDPROVIDER});
+    plan.Ordered.push_back({.Id = "Vase.EdgeConsumer", .BinaryPath = VASE_FIXTURE_EDGECONSUMER});
+    plan.Ordered.push_back({.Id = "Vase.SharedConsumer2", .BinaryPath = VASE_FIXTURE_SHAREDCONSUMER2});
+    vase::PodOptions options;
+    HostMarker marker;
+    options.Stage0 = [&](vase::Context& root) { root.Provide<samples_fixture::IHostOnlyService>(marker); };
+    const vase::PodHandle h = host.CreatePod(plan, options).Value();
+
+    const vase::Result<vase::EjectReport> r = host.EjectPlugin(h, "Vase.SharedProvider");
+    ASSERT_TRUE(r.IsOk()); // 执法拒绝从此不是 Err（D21）；bad handle / not-in-pod 那族留在 Err
+    const vase::EjectReport& report = r.Value();
+    EXPECT_EQ(report.Status, vase::EjectStatus::kRejectedConsumers);
+    ASSERT_EQ(report.Consumers.size(), 2U);
+    bool seenEdge = false;
+    bool seenSecond = false;
+    for (const vase::LedgerEdgeRef& consumer : report.Consumers)
+    {
+        EXPECT_EQ(consumer.ProviderId, "Vase.SharedProvider");
+        EXPECT_EQ(consumer.Service, "Vase.Test.Shared");
+        EXPECT_EQ(consumer.Version, 1U);
+        seenEdge = seenEdge || consumer.ConsumerId == "Vase.EdgeConsumer";
+        seenSecond = seenSecond || consumer.ConsumerId == "Vase.SharedConsumer2";
+    }
+    EXPECT_TRUE(seenEdge);
+    EXPECT_TRUE(seenSecond);
+    EXPECT_EQ(host.Resolve(h)->PluginCount(), 3U); // 被拒 = 什么都没发生
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+TEST(Eject, RemovedEdgesSnapshotRecordsLedgerTruth)
+{
+    // 「解析记录」Eject 侧：拆 EdgeConsumer，出边（Edge→Shared）逐条进报告。
     vase::PluginHost host;
     vase::LoadPlan plan;
     plan.Ordered.push_back({.Id = "Vase.SharedProvider", .BinaryPath = VASE_FIXTURE_SHAREDPROVIDER});
@@ -67,15 +101,12 @@ TEST(Eject, RefusedWithConsumersNamed)
     HostMarker marker;
     options.Stage0 = [&](vase::Context& root) { root.Provide<samples_fixture::IHostOnlyService>(marker); };
     const vase::PodHandle h = host.CreatePod(plan, options).Value();
-
-    const vase::Result<vase::EjectReport> r = host.EjectPlugin(h, "Vase.SharedProvider");
-    ASSERT_FALSE(r.IsOk());
-    EXPECT_NE(r.GetError().Message().find("Vase.EdgeConsumer"), std::string::npos); // 点名
-    // §0.2 的账要报对阶段与主体——拒绝点必须按语义传 ErrorContext，否则停在下层默认的 kLoad。
-    EXPECT_EQ(r.GetError().Context().Stage, vase::Phase::kEject);
-    EXPECT_EQ(r.GetError().Context().PluginId, "Vase.SharedProvider");
-    EXPECT_EQ(host.Resolve(h)->PluginCount(), 2U);                // 被拒 = 什么都没发生
-    EXPECT_TRUE(host.EjectPlugin(h, "Vase.EdgeConsumer").IsOk()); // 消费方自己是叶
+    const vase::Result<vase::EjectReport> r = host.EjectPlugin(h, "Vase.EdgeConsumer");
+    ASSERT_TRUE(r.IsOk());
+    EXPECT_EQ(r.Value().Status, vase::EjectStatus::kEjected);
+    ASSERT_EQ(r.Value().RemovedEdges.size(), 1U);
+    EXPECT_EQ(r.Value().RemovedEdges.begin()->ConsumerId, "Vase.EdgeConsumer");
+    EXPECT_EQ(r.Value().RemovedEdges.begin()->ProviderId, "Vase.SharedProvider");
     host.DestroyPod(h);
 }
 

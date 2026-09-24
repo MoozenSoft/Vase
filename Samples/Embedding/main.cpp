@@ -230,6 +230,8 @@ int SwapDemo()
     running.Root().Emit(samples::GreetEvent{1});
     Out(std::string{"play: IGreeter says "} + std::string{running.Root().Get<samples::IGreeter>().Greet()} + "\n");
 
+    // D21 后 Ok ≠ 拆净/入净：执法拒绝走 Status。本演示的局只有 Vase.Hello——无消费者
+    // （宿主侧解析不落边）也无同名提供方，拒绝支结构性不可达，故不展开 Status 检查。
     const vase::Result<vase::EjectReport> ejected = host.EjectPlugin(pod, "Vase.Hello");
     if (!ejected.IsOk())
     {

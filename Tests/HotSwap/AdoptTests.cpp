@@ -93,12 +93,65 @@ TEST(Adopt, RequiresMustBindFullyOrNothing)
 
     const vase::PodHandle h = host.CreatePod(Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}})).Value();
     const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, "Vase.EdgeConsumer");
-    ASSERT_FALSE(r.IsOk()); // ASSERT_：下面立刻取 GetError()，Ok 上取会终止进程
-    EXPECT_NE(r.GetError().Message().find("Vase.Test.Shared"), std::string::npos); // 报告缺哪条
-    EXPECT_NE(r.GetError().Message().find("Vase.Test.HostOnly"), std::string::npos);
+    ASSERT_TRUE(r.IsOk()); // 自 D21 起执法拒绝走 Ok + Status（不再是 Err）
+    EXPECT_EQ(r.Value().Status, vase::AdoptStatus::kRejectedDependencies);
+    ASSERT_EQ(r.Value().Missing.size(), 2U); // 报告缺哪条：从 Err 文本搬进字段
+    bool seenShared = false;
+    bool seenHostOnly = false;
+    for (const vase::RequirementRef& miss : r.Value().Missing)
+    {
+        seenShared = seenShared || miss.Service == "Vase.Test.Shared";
+        seenHostOnly = seenHostOnly || miss.Service == "Vase.Test.HostOnly";
+    }
+    EXPECT_TRUE(seenShared);
+    EXPECT_TRUE(seenHostOnly);
     EXPECT_EQ(host.Resolve(h)->PluginCount(), 1U); // Hello 无恙
     EXPECT_EQ(host.ForTestLedgerEdgeCount(), 0U);  // 没留半条边
     EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+TEST(Adopt, StructuredRefusalsAndOutgoingRecord)
+{
+    // D21/D43/解析记录 Adopt 侧：三类判定各走各的通道，字段可枚举报。
+    // 前置：EdgeConsumer / CollisionProvider 的路径都要先在某个成功局里注册过（D30）——用 kSkip 白拿注册。
+    vase::PluginHost host;
+    vase::LoadPlan barePlan = Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}});
+    barePlan.Ordered.push_back(
+        {.Id = "Vase.EdgeConsumer", .BinaryPath = VASE_FIXTURE_EDGECONSUMER, .Decision = vase::LoadDecision::kSkip});
+    barePlan.Ordered.push_back({
+        .Id = "Vase.CollisionProvider",
+        .BinaryPath = VASE_FIXTURE_COLLISIONPROVIDER,
+        .Decision = vase::LoadDecision::kSkip,
+    });
+    const vase::PodHandle bare = host.CreatePod(barePlan).Value();
+
+    const vase::Result<vase::AdoptReport> deps = host.AdoptPlugin(bare, "Vase.EdgeConsumer");
+    ASSERT_TRUE(deps.IsOk()); // 执法拒绝不是 Err（D21）
+    EXPECT_EQ(deps.Value().Status, vase::AdoptStatus::kRejectedDependencies);
+    EXPECT_EQ(deps.Value().Missing.size(), 2U); // 无 Stage0：Test.Shared 与 Test.HostOnly 都没注册
+    host.DestroyPod(bare);
+
+    const vase::PodHandle withShared =
+        host.CreatePod(Plan({{"Vase.SharedProvider", VASE_FIXTURE_SHAREDPROVIDER}})).Value();
+    const vase::Result<vase::AdoptReport> collision = host.AdoptPlugin(withShared, "Vase.CollisionProvider");
+    ASSERT_TRUE(collision.IsOk());
+    EXPECT_EQ(collision.Value().Status, vase::AdoptStatus::kRejectedCollision);
+    ASSERT_EQ(collision.Value().Collisions.size(), 1U);
+    EXPECT_EQ(collision.Value().Collisions.begin()->Service, "Vase.Test.Shared");
+    EXPECT_EQ(collision.Value().Collisions.begin()->ProvidedBy, "Vase.SharedProvider");
+    host.DestroyPod(withShared);
+
+    HostMarker marker;
+    vase::PodOptions fullOptions;
+    fullOptions.Stage0 = [&](vase::Context& root) { root.Provide<samples_fixture::IHostOnlyService>(marker); };
+    const vase::PodHandle full =
+        host.CreatePod(Plan({{"Vase.SharedProvider", VASE_FIXTURE_SHAREDPROVIDER}}), fullOptions).Value();
+    const vase::Result<vase::AdoptReport> ok = host.AdoptPlugin(full, "Vase.EdgeConsumer");
+    ASSERT_TRUE(ok.IsOk());
+    EXPECT_EQ(ok.Value().Status, vase::AdoptStatus::kAdopted);
+    ASSERT_EQ(ok.Value().Outgoing.size(), 1U); // Edge→Shared 一条（宿主提供方不落边，§5.6）
+    EXPECT_EQ(ok.Value().OutgoingEdges, 1U);
+    host.DestroyPod(full);
 }
 
 #ifndef _WIN32

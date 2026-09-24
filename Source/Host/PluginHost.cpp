@@ -1,11 +1,15 @@
 #include "Vase/Host/PluginHost.h"
 
+#include "Vase/Config/ConfigInfo.h"
+#include "Vase/Config/FieldInfo.h"
+#include "Vase/Config/Value.h"
 #include "Vase/Detail/Counters.h"
 #include "Vase/Detail/Fail.h"
 #include "Vase/Detail/ImageInspect.h"
 #include "Vase/Detail/RegistryBus.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Effect/EffectScope.h"
+#include "Vase/Host/ConfigBlob.h"
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
 #include "Vase/Host/Loader.h"
@@ -16,12 +20,14 @@
 #include "Vase/Service/Service.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -132,6 +138,30 @@ vase::DiagnosticSnapshot Difference(const vase::detail::DiagnosticCounters& coun
     };
 }
 
+// D32 消息里的 Kind 名逐字对齐 ValueKind 枚举（spec §6「消息含两侧 Kind」；
+// ConfigApply 的 kind-mismatch 用例按这两个 token 钉，漂移要响）。
+const char* ValueKindName(vase::ValueKind kind)
+{
+    switch (kind)
+    {
+    case vase::ValueKind::kNone:
+        return "kNone";
+    case vase::ValueKind::kBool:
+        return "kBool";
+    case vase::ValueKind::kInt32:
+        return "kInt32";
+    case vase::ValueKind::kInt64:
+        return "kInt64";
+    case vase::ValueKind::kFloat:
+        return "kFloat";
+    case vase::ValueKind::kDouble:
+        return "kDouble";
+    case vase::ValueKind::kString:
+        return "kString";
+    }
+    return "kOutOfRange";
+}
+
 } // namespace
 
 namespace vase
@@ -221,6 +251,23 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
     // ① 绑定线程 + 槽：优先复用空闲槽，复用即推进代际——旧句柄从此解不开新 Pod（#15）
     AssertBoundThread("CreatePod");
 
+    // ①' 结构性校验·Id 唯一（D33 ①/D39：含 kSkip——同 Id 两次 = 路径覆盖 + 反查歧义）。
+    for (std::size_t first = 0; first < plan.Ordered.size(); ++first)
+    {
+        const LoadPlanEntry& outer = *std::next(plan.Ordered.begin(), static_cast<std::ptrdiff_t>(first));
+        for (std::size_t second = first + 1; second < plan.Ordered.size(); ++second)
+        {
+            const LoadPlanEntry& inner = *std::next(plan.Ordered.begin(), static_cast<std::ptrdiff_t>(second));
+            if (outer.Id == inner.Id)
+            {
+                return Result<PodHandle>::Err(Refusal(outer.Id, Phase::kLoad,
+                                                      "plan rejected: duplicate plugin id " + std::string(outer.Id) +
+                                                          " (entry order " + std::to_string(first) + " and " +
+                                                          std::to_string(second) + ")"));
+            }
+        }
+    }
+
     std::uint32_t index = 0;
     PodSlot* slot = nullptr;
     for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(Slots.size()); ++i)
@@ -254,6 +301,14 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
     slot->Inner = std::unique_ptr<Pod>{new Pod(CountersPool, Counters, &Ledger, index)};
     slot->Alive = true;
     slot->HotSwapLog.clear();
+    slot->Replays.clear();
+    // R-F1（终审修复）：两条路径（装配与 Adopt）的配置供给单源 = slot->Replays——整表在装配
+    // 循环之前灌入，kString 借用视图随来源 blob 存续（ConfigBlob.h 头注）。灌表后本函数不再
+    // 写这张 map，后续只读，条目引用稳定到函数结束。
+    for (const LoadPlanEntry& entry : plan.Ordered)
+    {
+        slot->Replays[std::string(entry.Id)] = entry.ResolvedConfig;
+    }
 
     Pod& pod = *slot->Inner;
     const auto recordFailure = [&pod](std::string_view pluginId, Phase stage, std::string_view message)
@@ -278,16 +333,46 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
         options.Stage0(pod.Root());
     }
 
-    // ④ 阶段 1（§5.3）：逐条目按数组序（= 拓扑序）装载。宽容语义：单条失败只落记录（§0.3-4）
+    struct DeclaredProvider
+    {
+        std::string Service;
+        std::uint32_t Version = 0;
+        std::string ProviderId; // 已 inspect 的 kLoad 条目（Loaded/Failed/Skipped 都在账上）
+    };
+    std::vector<DeclaredProvider> declaredProviders;
+
+    // ④ 阶段 1（§5.3）：逐条目按数组序（= 拓扑序）装载。宽容语义：单条失败只落记录（§0.3-4）。
+    // M2a 形状（D27/D33 ②）：声明住二进制里，预检只能在 InspectBinary 之后——镜像驻留是读声明的代价，
+    // M2b 清单到位后本段整体提前，此注释随之删。
     for (const LoadPlanEntry& entry : plan.Ordered)
     {
-        KnownBinaries[std::string(entry.Id)] = entry.BinaryPath; // §5.6：M1 无清单，以计划登记代替
+        if (entry.Decision == LoadDecision::kSkip)
+        {
+            // §5.1：计划里只有静态跳过；Host 的职责是把它们如实记进报告，不参与即不加载。
+            static constexpr std::array<std::string_view, 3> kReasonText{
+                "disabled",
+                "missing dependency",
+                "version mismatch",
+            };
+            const auto reasonIndex = static_cast<std::size_t>(entry.Reason);
+            const std::string_view reason =
+                reasonIndex < kReasonText.size()
+                    ? *std::next(kReasonText.begin(), static_cast<std::ptrdiff_t>(reasonIndex))
+                    : std::string_view{"unknown"};
+            pod.SkipRecords.push_back(SkippedRecord{
+                .Id = std::string(entry.Id),
+                .Class = SkipClass::kStatic,
+                .Cause = std::string("static skip: ") + std::string(reason),
+                .CausedBy = {},
+            });
+            continue;
+        }
 
         const Result<detail::BinaryRecord*> resident = Loader.EnsureResident(entry.BinaryPath);
         if (!resident.IsOk())
         {
             recordFailure(entry.Id, Phase::kLoad, resident.GetError().Message());
-            continue;
+            continue; // 无镜像可记（M1 原语义）；其声明不在账上 = D41/碰撞的已知失明面
         }
 
         const Result<const PluginDescriptor*> inspected = InspectBinary(*resident.Value(), entry.Id);
@@ -297,40 +382,130 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
             recordFailedBinary(entry.Id, resident.Value());
             continue;
         }
+        const PluginDescriptor* desc = inspected.Value();
 
-        std::unique_ptr<Pod::LiveInstance> live = MakeInstance(pod, *resident.Value(), inspected.Value());
-        const Result<void> loaded = live->Instance->OnLoad(*live->Ctx);
-        if (!loaded.IsOk())
+        // (a') Provides 碰撞（D33 ②，M2a 两态形：声明要读镜像才看得见，检出必在 inspect 后）。
+        // 查两处：声明登记账（Loaded/Failed/Skipped 都算——「一服务一实现」是声明级不变量，
+        // 不豁免「他者反正倒了」）∪ 注册表（宿主 Stage0 也算）。记账仍先于预检（D41 归因要用）。
+        for (std::size_t providedIndex = 0; providedIndex < desc->Meta->Provides.Size(); ++providedIndex)
         {
-            // §5.2 失败即时回收：Scope 先撤、实例后销毁；下游级联等 M2 依赖图。
-            // 账本同样先摘（§5.6 规则②）：失败实例在 OnLoad 半途可能已落过边（Get 成功、
-            // 随后才返回 Err 的形态）。它的 Instances 条目在 teardown 里被 continue 跳过，
-            // 不在这里摘就只剩 DestroyPod 的 ClearPod 兜底——局内任何反查都会看见死边的 cookie。
-            DiscardInstance(pod, *live);
-            recordFailure(entry.Id, Phase::kLoad, loaded.GetError().Message());
-            recordFailedBinary(entry.Id, live->Binary);
-            // 失败**残留条目**留在 Instances 里（Instance 已置空）：§5.2 的「保留记录」在
-            // 装配点上的形态，也是 Eject ②' 要摘的那条空壳（见 EjectPlugin 的注释）。
-            pod.Instances.push_back(std::move(live));
+            const ServiceRef& provided =
+                *std::next(desc->Meta->Provides.Begin(), static_cast<std::ptrdiff_t>(providedIndex));
+            std::string otherProvider;
+            for (const DeclaredProvider& declared : declaredProviders)
+            {
+                if (declared.Service == std::string(provided.Name) && declared.Version == provided.Version &&
+                    declared.ProviderId != std::string(entry.Id))
+                {
+                    otherProvider = declared.ProviderId;
+                    break;
+                }
+            }
+            if (otherProvider.empty())
+            {
+                // 注册表命中者未必是宿主：「插件注册了未声明的服务」也在册（FailingStart 先例），
+                // kPlugin 带真名——归因照 ServiceEntry 取，与 T10 adopt 碰撞的 ProvidedBy 同法。
+                const detail::ServiceEntry* registered =
+                    pod.Registry->Find(ServiceKey{.Name = provided.Name, .Version = provided.Version});
+                if (registered != nullptr)
+                {
+                    otherProvider =
+                        registered->Origin == ServiceOrigin::kHost ? "host" : std::string(registered->ProviderId);
+                }
+            }
+            if (!otherProvider.empty())
+            {
+                // 计划级缺陷：整局 Err，半成品按 Strict 同形拆。镜像驻留残留同 M1 先例（宿主退出收）。
+                pod.TeardownInstancesAndRoot();
+                slot->Alive = false;
+                slot->Inner.reset();
+                return Result<PodHandle>::Err(
+                    Refusal(entry.Id, Phase::kLoad,
+                            "plan rejected: provides collision " + std::string(provided.Name) + "@" +
+                                std::to_string(provided.Version) + " claimed by " + otherProvider));
+            }
+            declaredProviders.push_back(DeclaredProvider{
+                .Service = std::string(provided.Name),
+                .Version = provided.Version,
+                .ProviderId = std::string(entry.Id),
+            });
+        }
+
+        // (b) 装配预检（D27）：每条 strict Requires 必须已在**服务注册表**可查（宿主 Stage0 ∪
+        //     已 OnLoad 成功者）。查不到 → 运行时跳过：不建实例、不跑 OnLoad（镜像留架，宿主退出收）。
+        std::string missName;
+        std::uint32_t missVersion = 0;
+        for (std::size_t requiredIndex = 0; requiredIndex < desc->Meta->Requires.Size(); ++requiredIndex)
+        {
+            const ServiceRef& required =
+                *std::next(desc->Meta->Requires.Begin(), static_cast<std::ptrdiff_t>(requiredIndex));
+            if (pod.Registry->Find(ServiceKey{.Name = required.Name, .Version = required.Version}) == nullptr)
+            {
+                missName = std::string(required.Name);
+                missVersion = required.Version;
+                break;
+            }
+        }
+        if (!missName.empty())
+        {
+            // D41 归因：点名 = 账上任一已处理的非自身提供者（Failed 与跳过都算——环形态里
+            // 点到的就是跳过态）；账里没有或只剩自己 → ""（序缺陷/计划外/自豁免）。
+            std::string causedBy;
+            for (const DeclaredProvider& provider : declaredProviders)
+            {
+                if (provider.Service == missName && provider.Version == missVersion &&
+                    provider.ProviderId != std::string(entry.Id))
+                {
+                    causedBy = provider.ProviderId;
+                    break;
+                }
+            }
+            pod.SkipRecords.push_back(SkippedRecord{
+                .Id = std::string(entry.Id),
+                .Class = SkipClass::kRuntime,
+                .Cause = "missing service " + missName + "@" + std::to_string(missVersion),
+                .CausedBy = std::move(causedBy),
+            });
             continue;
         }
 
+        // 供给取回放表项而非计划条目（R-F1）；存在性由 loop 前的整表灌入构造保证（全条目）。
+        const ConfigBlob& config = slot->Replays.find(std::string(entry.Id))->second;
+        Result<std::unique_ptr<Pod::LiveInstance>> built = MakeInstance(pod, *resident.Value(), desc, config);
+        if (!built.IsOk())
+        {
+            recordFailure(entry.Id, Phase::kLoad, built.GetError().Message());
+            recordFailedBinary(entry.Id, resident.Value());
+            continue; // 镜像留架、实例没造（与 InspectBinary 失败同形）
+        }
+        std::unique_ptr<Pod::LiveInstance> live = std::move(built.Value());
+        const Result<void> loaded = live->Instance->OnLoad(*live->Ctx);
+        if (!loaded.IsOk())
+        {
+            // §5.2 失败即时回收 + 下游被预检接住（级联 = 本循环的重复应用，D27）——T8 之前这段原样保留。
+            DiscardInstance(pod, *live);
+            recordFailure(entry.Id, Phase::kLoad, loaded.GetError().Message());
+            recordFailedBinary(entry.Id, live->Binary);
+            pod.Instances.push_back(std::move(live));
+            continue;
+        }
         live->State = Pod::LiveInstance::InstanceState::kLoaded;
         pod.Instances.push_back(std::move(live));
     }
 
-    // ⑤ 阶段 2（§5.3）：仅对已 Loaded 的实例跑 OnStart，仍按数组序；失败同败同治
-    for (const std::unique_ptr<Pod::LiveInstance>& live : pod.Instances)
+    // ⑤ 阶段 2（§5.3）：仅对已 Loaded 的实例跑 OnStart，仍按数组序；失败 = Failed + 递归拆除（§5.2）。
+    for (const std::unique_ptr<Pod::LiveInstance>& holder : pod.Instances)
     {
-        Pod::LiveInstance& instance = *live;
+        Pod::LiveInstance& instance = *holder;
         if (instance.State != Pod::LiveInstance::InstanceState::kLoaded)
         {
-            continue;
+            continue; // 可能已被更上游的拆除波及（拆在集合层，循环在实例层，两边以 State 对账）
         }
         const Result<void> started = instance.Instance->OnStart(*instance.Ctx);
         if (!started.IsOk())
         {
-            // 同上：OnStart 失败也可能已落过边（OnLoad 里的 Get 是在本实例 cookie 上落的）。
+            // 先算闭包（此时账本/声明都还是初始态），再拆自己（Failed 语义不变），最后倒序拆波及者。
+            const std::vector<Pod::LiveInstance*> doomed = ComputeDownstreamClosure(pod, instance);
             DiscardInstance(pod, instance);
             pod.FailureRecords.push_back(FailedPluginRecord{
                 .Id = instance.OwnerLabel,
@@ -338,6 +513,7 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
                 .Message = started.GetError().Message(),
             });
             recordFailedBinary(instance.OwnerLabel, instance.Binary);
+            TearDownLiveInstances(pod, doomed, instance.OwnerLabel);
             continue;
         }
         instance.State = Pod::LiveInstance::InstanceState::kStarted;
@@ -358,17 +534,59 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
         return Result<PodHandle>::Err(error);
     }
 
+    // D30：KnownBinaries 为**全部**条目注册（含 kSkip 与装载失败者）——Adopt 不关心它当初为何没进局。
+    // （Replays 的灌入已前移到装配循环之前——R-F1 单源。）
+    for (const LoadPlanEntry& entry : plan.Ordered)
+    {
+        KnownBinaries[std::string(entry.Id)] = entry.BinaryPath; // §5.6：M1 无清单，以计划登记代替
+    }
+
     return Result<PodHandle>::Ok(PodHandle{.Index = index, .Generation = slot->Generation});
 }
 
-std::unique_ptr<Pod::LiveInstance> PluginHost::MakeInstance(Pod& pod, detail::BinaryRecord& record,
-                                                            const PluginDescriptor* desc)
+Result<std::unique_ptr<Pod::LiveInstance>> PluginHost::MakeInstance(Pod& pod, detail::BinaryRecord& record,
+                                                                    const PluginDescriptor* desc,
+                                                                    const ConfigBlob& resolvedConfig)
 {
+    // 配置先建（D32 的检出点）：Kind 不匹配 → 整插件 kLoad Failed，不触 ProgrammerError。
     std::unique_ptr<Pod::LiveInstance> live = std::make_unique<Pod::LiveInstance>();
     live->Desc = desc;
-    live->Instance = desc->Create();
     live->Binary = &record; // T10：本实例的驻留镜像（全局闸与 Eject 都要它）
+
+    const ConfigInfo& info = desc->Meta->Config;
+    void* store = nullptr;
+    if (info.Count > 0)
+    {
+        store = info.CreateConfig();
+        for (std::uint32_t index = 0; index < info.Count; ++index)
+        {
+            const FieldInfo& field = *std::next(info.Fields, static_cast<std::ptrdiff_t>(index));
+            const std::optional<Value> found = resolvedConfig.Find(field.Name);
+            const Value chosen = found.has_value() ? *found : field.Default; // D23 缺字段回退默认
+            if (chosen.Kind != field.Kind)
+            {
+                info.DestroyConfig(store);
+                // spec §6：消息含插件 Id + 字段名 + 两侧 Kind——光看 Failed 记录就要能定位。
+                std::string message{"config field "};
+                message.append(field.Name);
+                message.append(" kind mismatch in plugin ");
+                message.append(desc->Meta->Id);
+                message.append(": value kind ");
+                message.append(ValueKindName(chosen.Kind));
+                message.append(", field kind ");
+                message.append(ValueKindName(field.Kind));
+                ErrorContext context;
+                context.PluginId = std::string(desc->Meta->Id);
+                context.Stage = Phase::kLoad;
+                return Result<std::unique_ptr<Pod::LiveInstance>>::Err(Error{std::move(message), std::move(context)});
+            }
+            field.Apply(store, chosen); // D35：Min/Max 不查——纯展示元信息
+        }
+        live->ConfigObject = std::unique_ptr<void, void (*)(void*)>(store, info.DestroyConfig);
+    }
+
     ++Counters.PluginInstances;
+    live->Instance = desc->Create();
 
     // OwnerLabel 取拥有型拷贝：Scope 只存 const char*，字面量的生命周期不可赌。
     live->OwnerLabel = std::string(desc->Meta->Id);
@@ -379,7 +597,10 @@ std::unique_ptr<Pod::LiveInstance> PluginHost::MakeInstance(Pod& pod, detail::Bi
     live->Ctx->Ledger = pod.Ledger;
     live->Ctx->ConsumerCookie = live->Instance;
     live->Ctx->PodIndex = pod.PodIndex;
-    return live;
+    // M2a（T6）配置的读端挂钩：store 归 live->ConfigObject 拥有，Context 只借。
+    live->Ctx->ConfigStore = store;
+    live->Ctx->ConfigMeta = store == nullptr ? nullptr : &info;
+    return Result<std::unique_ptr<Pod::LiveInstance>>::Ok(std::move(live));
 }
 
 void PluginHost::DiscardInstance(Pod& pod, Pod::LiveInstance& live)
@@ -421,6 +642,7 @@ PodReport PluginHost::DestroyPod(PodHandle handle)
     // 差分而非绝对值：进程级计数本就单调递增（§9.2）。基线是本 Pod 创建时的快照。
     report.CountersDiff = Difference(Counters, slot->Baseline);
     report.Failures = slot->Inner->Failures(); // 拷贝：Pod 随即整体析构
+    report.Skips = slot->Inner->Skips();
 
     // #10（D14）的 M1 形态：测试注入的残留 Scope 逐条点名归属。它们此刻仍在计数里
     // （Scopes 差分因此非零），报告交出后随 Pod 一起回收。
@@ -485,30 +707,31 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
         // 多一层过滤只会把（本不该存在的）跨局边静默放行，而那正是「留下消费者却卸了货」
         // 的最坏形态，也正是 3b 点名要防的。
         const std::vector<const detail::LedgerEdge*> incoming = pod.Ledger->EdgesTo(live->Instance);
-        std::string consumers;
-        for (const detail::LedgerEdge* edge : incoming)
+        if (!incoming.empty())
         {
-            if (!consumers.empty())
+            // §5.6 规则③的 3b 兑现（D21）：执法性拒绝 = Ok + Status + 逐条点名；Err 通道留给误用。
+            EjectReport rejected;
+            rejected.PluginId = id;
+            rejected.Status = EjectStatus::kRejectedConsumers;
+            for (const detail::LedgerEdge* edge : incoming)
             {
-                consumers.append(", ");
+                rejected.Consumers.push_back(SnapshotEdge(*edge));
             }
-            consumers.append(edge->ConsumerId);
+            // 不进 HotSwapLog：日志语义维持「真实进出才记名」（M1 的 Err 拒绝本就不记，Ok 化不改这条）。
+            return Result<EjectReport>::Ok(std::move(rejected));
         }
-        if (!consumers.empty())
-        {
-            std::string message{"eject refused: "};
-            message.append(pluginId);
-            message.append(" is provided by [");
-            message.append(consumers);
-            message.append("]");
-            return Result<EjectReport>::Err(Refusal(id, Phase::kEject, std::move(message)));
-        }
+        report.Status = EjectStatus::kEjected; // 过了闸才是成功态——默认悲观的另一半
 
         // ② 拆实例（复用 T3/T7 的既有回收机器，不新建排序机器）：边先死（§5.6 规则②）
         // → Scope 逆序回收 → 销毁实例。档① 保证只碰被卸者自己的 Scope，不需要跨实例
         // 排序（§7.6-1）；出边存活义务由串行保证——Dispose 整体完成前不会有下一个生命
         // 周期动作，故回收动作里合法调用 U 的服务（§7.6-2）。
         binary = live->Binary;
+        // RemovedEdges 必须在 RemoveByInstance **之前**取：账内指针随边死，入边此时必空（上面已拒）。
+        for (const detail::LedgerEdge* edge : pod.Ledger->EdgesFrom(live->Instance))
+        {
+            report.RemovedEdges.push_back(SnapshotEdge(*edge));
+        }
         pod.Ledger->RemoveByInstance(live->Instance);
         live->Scope->Dispose();
         // ④ 档一复验：拆完之后现场再读一遍。Scope 的读数必须在条目析构**之前**取（下面的
@@ -540,6 +763,7 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
                       { return entry->OwnerLabel == pluginId; });
         std::erase_if(pod.FailureRecords,
                       [pluginId](const FailedPluginRecord& record) { return record.Id == pluginId; });
+        report.Status = EjectStatus::kEjected;  // 无实例必无边——RemovedEdges 天然为空
         report.LedgerHadNoIncomingEdges = true; // 无实例必无入边
         report.ScopeEmptied = true;             // 该插件此刻没有任何存活 Scope
         report.HotSwapNote = "failed-record ejected";
@@ -709,6 +933,32 @@ Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view p
     }
     const PluginDescriptor* desc = inspected.Value();
 
+    // ③' Provides 不得与活集合已注册服务相碰（D43）：不做这步，错 Adopt 会走到 ⑥ 的
+    // duplicate-Provide **终止**——§5.6「任一步失败 → X 干净退出」在此路径不成立。
+    std::vector<CollisionRef> collisions;
+    for (std::size_t index = 0; index < desc->Meta->Provides.Size(); ++index)
+    {
+        const ServiceRef& provided = *std::next(desc->Meta->Provides.Begin(), static_cast<std::ptrdiff_t>(index));
+        const detail::ServiceEntry* taken =
+            pod.Registry->Find(ServiceKey{.Name = provided.Name, .Version = provided.Version});
+        if (taken != nullptr)
+        {
+            collisions.push_back(CollisionRef{
+                .Service = std::string(provided.Name),
+                .Version = provided.Version,
+                .ProvidedBy = taken->Origin == ServiceOrigin::kHost ? "host" : std::string(taken->ProviderId),
+            });
+        }
+    }
+    if (!collisions.empty())
+    {
+        AdoptReport rejected; // 执法性拒绝走 Ok + Status（D21）；不进 HotSwapLog——没有进，就没有出入事件
+        rejected.PluginId = id;
+        rejected.Status = AdoptStatus::kRejectedCollision;
+        rejected.Collisions = std::move(collisions);
+        return Result<AdoptReport>::Ok(std::move(rejected));
+    }
+
     // ④ §8.7 导入表执法读的是**文件声明**：运行期已解析的导入表会替隐式兄弟链拉边，而账面
     //    看不见的正是这种「文件里写着」的关系。命中即拒——破了这条，账本看不见的边会把引用
     //    计数焊死，Eject 当场假成功。
@@ -740,29 +990,41 @@ Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view p
     }
 
     // ⑤ 声明绑齐或整体拒绝（规则①：不带病入局）。提供方 kPlugin 与 kHost 都算——
-    //    宿主服务活到 Pod 终老，对消费者而言与插件提供方无异。
-    std::string unresolved;
+    //    宿主服务活到 Pod 终老，对消费者而言与插件提供方无异。缺哪条进 Missing 字段（D21）。
+    //    optional 不进这道闸：「缺 optional ≠ 依赖不齐」（§6.3），执法只咬 Requires。
+    std::vector<RequirementRef> missing;
     for (std::size_t index = 0; index < desc->Meta->Requires.Size(); ++index)
     {
         const ServiceRef& required = *std::next(desc->Meta->Requires.Begin(), static_cast<std::ptrdiff_t>(index));
         if (pod.Registry->Find(ServiceKey{.Name = required.Name, .Version = required.Version}) == nullptr)
         {
-            if (!unresolved.empty())
-            {
-                unresolved.append(", ");
-            }
-            unresolved.append(required.Name);
+            missing.push_back(RequirementRef{.Service = std::string(required.Name), .Version = required.Version});
         }
     }
-    if (!unresolved.empty())
+    if (!missing.empty())
     {
-        return Result<AdoptReport>::Err(
-            Refusal(id, Phase::kAdopt, "adopt refused: unresolved declarations [" + unresolved + "]"));
+        AdoptReport rejected; // 同 ③'：执法拒绝是 Ok + Status，不是 Err；不进 HotSwapLog
+        rejected.PluginId = id;
+        rejected.Status = AdoptStatus::kRejectedDependencies;
+        rejected.Missing = std::move(missing);
+        return Result<AdoptReport>::Ok(std::move(rejected));
     }
 
     // ⑥ 装配：CreatePod 的同一台两阶段机器。任一阶段失败 → 当场全拆（规则②：Adopt 失败
     //    零级联——本实例从未进 pod.Instances，边随它死，活人一根毛都不掉）→ Err。
-    std::unique_ptr<Pod::LiveInstance> live = MakeInstance(pod, *record, desc);
+    // R-F1：取回放表的**引用**而非局部拷贝——Apply 后类型化结构体的 kString 字段借用这块
+    // blob 里的字符串，局部拷贝意味着 AdoptPlugin 一返回就悬空。
+    // D34：查无 = 空 = 全默认（static 空 blob 无任何借用可外流，与调用期同寿无害）。
+    static const ConfigBlob kEmptyReplay{};
+    const auto found = slot->Replays.find(id);
+    const ConfigBlob& replay = found == slot->Replays.end() ? kEmptyReplay : found->second;
+    Result<std::unique_ptr<Pod::LiveInstance>> built = MakeInstance(pod, *record, desc, replay);
+    if (!built.IsOk())
+    {
+        return Result<AdoptReport>::Err(
+            Refusal(id, Phase::kAdopt, "adopt failed at config apply: " + built.GetError().Message()));
+    }
+    std::unique_ptr<Pod::LiveInstance> live = std::move(built.Value());
     const Result<void> loaded = live->Instance->OnLoad(*live->Ctx);
     if (!loaded.IsOk())
     {
@@ -788,12 +1050,85 @@ Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view p
     // 进程从该文件装入」构造性地成立（内存即该文件的映射，没有第二个来源可比）。
     report.IdentityVerified = true;
     report.ImportEnforcementPassed = true;
-    report.OutgoingEdges = pod.Ledger != nullptr ? pod.Ledger->EdgesFrom(live->Instance).size() : 0;
+    report.Status = AdoptStatus::kAdopted; // 过了全部闸才是成功态——默认悲观的另一半
+    // 解析记录 Adopt 侧：本次入局新落的出边逐条快照（与 Eject 的 RemovedEdges 对位）。
+    for (const detail::LedgerEdge* edge : pod.Ledger->EdgesFrom(live->Instance))
+    {
+        report.Outgoing.push_back(SnapshotEdge(*edge));
+    }
+    report.OutgoingEdges = report.Outgoing.size(); // 计数保留（= .size()，向后自洽）
 
     // 追加**末尾**：逆拓扑序回收时它领自己的位（§5.6 四条补角「Adopted 节点没有特殊位置」）。
     pod.Instances.push_back(std::move(live));
     slot->HotSwapLog.push_back("adopt:" + id);
     return Result<AdoptReport>::Ok(std::move(report));
+}
+
+std::vector<Pod::LiveInstance*> PluginHost::ComputeDownstreamClosure(Pod& pod, Pod::LiveInstance& origin)
+{
+    std::vector<Pod::LiveInstance*> closure;
+    std::vector<Pod::LiveInstance*> frontier;
+    frontier.push_back(&origin);
+    while (!frontier.empty())
+    {
+        const Pod::LiveInstance* current = frontier.back();
+        frontier.pop_back();
+        for (const std::unique_ptr<Pod::LiveInstance>& candidate : pod.Instances)
+        {
+            Pod::LiveInstance* c = candidate.get();
+            if (c->Instance == nullptr || c->State == Pod::LiveInstance::InstanceState::kFailed)
+            {
+                continue; // 只波及仍活着的
+            }
+            if (c == &origin || std::ranges::find(closure, c) != closure.end())
+            {
+                continue; // 去重（含 origin 自己）
+            }
+            bool ripple = false;
+            for (std::size_t r = 0; r < c->Desc->Meta->Requires.Size() && !ripple; ++r)
+            {
+                const ServiceRef& want = *std::next(c->Desc->Meta->Requires.Begin(), static_cast<std::ptrdiff_t>(r));
+                for (std::size_t p = 0; p < current->Desc->Meta->Provides.Size() && !ripple; ++p)
+                {
+                    const ServiceRef& gives =
+                        *std::next(current->Desc->Meta->Provides.Begin(), static_cast<std::ptrdiff_t>(p));
+                    ripple = (want.Name == gives.Name && want.Version == gives.Version);
+                }
+            }
+            for (const detail::LedgerEdge* edge : pod.Ledger->EdgesTo(current->Instance))
+            {
+                ripple = ripple || (edge->Consumer == static_cast<const void*>(c->Instance));
+            }
+            if (ripple)
+            {
+                closure.push_back(c);
+                frontier.push_back(c);
+            }
+        }
+    }
+    return closure;
+}
+
+void PluginHost::TearDownLiveInstances(Pod& pod, const std::vector<Pod::LiveInstance*>& doomed,
+                                       std::string_view causedById)
+{
+    // 数组序倒着拆 = 逆拓扑序（数组序 = 拓扑序是 §5.1 的定形契约；M2a 手写计划违序者已被
+    // 预检拦在门外，走到这里的集合必然满足）。空壳留在 Instances：与 Failed 空壳同形，
+    // DestroyPod 统一收（镜像不解除——中途卸货是 Eject 的事，D42）。
+    for (const std::unique_ptr<Pod::LiveInstance>& candidate : std::views::reverse(pod.Instances))
+    {
+        if (std::ranges::find(doomed, candidate.get()) == doomed.end() || candidate->Instance == nullptr)
+        {
+            continue;
+        }
+        pod.SkipRecords.push_back(SkippedRecord{
+            .Id = candidate->OwnerLabel,
+            .Class = SkipClass::kRuntime,
+            .Cause = "cascade from " + std::string(causedById),
+            .CausedBy = std::string(causedById),
+        });
+        DiscardInstance(pod, *candidate);
+    }
 }
 
 } // namespace vase

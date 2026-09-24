@@ -2,15 +2,25 @@
 #include "Greeter.h"
 #include "Vase/Plugin.h"
 
+#include <cstdint>
+#include <string>
 #include <string_view>
+#include <utility>
 
 namespace
 {
 
+// 作者侧配置形态证人（§14）：宿主不写 JSON 也能把值灌进来，play 肉眼可见 x<N>。
+VASE_CONFIG(HelloConfig, (std::int32_t, Repeats, 1, vase::Meta{.Label = "问候次数"}));
+
 class GreeterImpl final : public samples::IGreeter
 {
 public:
-    [[nodiscard]] std::string_view Greet() const override { return "hello from Vase.Hello"; }
+    void SetGreeting(std::string text) { Greeting = std::move(text); }
+    [[nodiscard]] std::string_view Greet() const override { return Greeting; }
+
+private:
+    std::string Greeting = "hello from Vase.Hello x0"; // OnLoad 立刻被配置真值覆写
 };
 
 class HelloPlugin final : public vase::Plugin
@@ -18,6 +28,8 @@ class HelloPlugin final : public vase::Plugin
 public:
     vase::Result<void> OnLoad(vase::Context& ctx) override
     {
+        const auto& cfg = ctx.Config<HelloConfig>();
+        Greeter.SetGreeting("hello from Vase.Hello x" + std::to_string(cfg.Repeats));
         ctx.Provide<samples::IGreeter>(Greeter);                  // Effect #1：服务
         ctx.On<samples::GreetEvent>(&HelloPlugin::OnGreet, this); // Effect #2：订阅
         return vase::Result<void>::Ok();
@@ -49,6 +61,8 @@ VASE_PLUGIN(HelloPlugin){
     .Id = "Vase.Hello",
     .DisplayName = "示例插件",
     .Version = "0.1.0",
-    .Requires = {}, // 不依赖任何服务：任何局都能进（§4.1 增量语义的插件侧镜像）
+    .Requires = {},         // 不依赖任何服务：任何局都能进（§4.1 增量语义的插件侧镜像）
+    .OptionalRequires = {}, // 示例形态：显式写出来，作者看得见这槽存在（§3.4）
     .Provides = {{.Name = "Vase.Hello.Greeter", .Version = 1}},
+    .Config = vase::FieldsOf<HelloConfig>(),
 };

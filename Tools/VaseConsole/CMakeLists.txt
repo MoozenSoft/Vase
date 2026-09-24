@@ -228,3 +228,53 @@ add_test(NAME VaseConsoleRefusedReason
          COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/unknown_id.txt")
 set_tests_properties(VaseConsoleRefusedReason PROPERTIES
     PASS_REGULAR_EXPRESSION "plugin not in pod")
+
+# —— R9-2（T9 移交）：CmdEject Status 拒绝分支的回放证人 ——
+# 上面 21 条的流程全是叶进叶出，执法拒绝到不了 console 层（T9 探针表实测清空该分支全绿）。
+# 这对的 plan 是提供方+消费者：eject 提供方必被账本拦下（D21 的 Ok + Status），
+# 点名单要**真的打印出来**才算字段驱动——退出码只说「不干净」，说不出是谁挡的。
+file(GENERATE OUTPUT "${VASE_CONSOLE_REPLAY_DIR}/blocked_plan.txt"
+     CONTENT "# 由 CMake 生成，不要手改：提供方在前、消费者在后（装配预检要求拓扑序）\nVase.SharedProvider $<PATH:CMAKE_PATH,$<TARGET_FILE:SharedProviderPlugin>>\nVase.SharedConsumer2 $<PATH:CMAKE_PATH,$<TARGET_FILE:SharedConsumer2Plugin>>\n")
+file(GENERATE OUTPUT "${VASE_CONSOLE_REPLAY_DIR}/eject_blocked.txt"
+     CONTENT "pod new ${VASE_CONSOLE_REPLAY_DIR}/blocked_plan.txt
+eject Vase.SharedProvider
+exit
+")
+add_test(NAME VaseConsoleEjectBlockedIsFailure
+         COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/eject_blocked.txt")
+set_tests_properties(VaseConsoleEjectBlockedIsFailure PROPERTIES WILL_FAIL TRUE)
+# 兄弟用例：钉拒绝行进名了消费者（判据从 EjectReport::Consumers 字段现拼）。
+# ⚠ 只看正则、**无视退出码**，码由上面那条钉——两者不可合并（同 VaseConsoleBadPlan 系列的
+#    ctest 4.4.3 实测规则）。用例名带 Eject，规矩 6 的窄选择子 `-R 'HotSwap|Eject|Adopt'`
+#    能把这对一并拉进热插拔验证。
+add_test(NAME VaseConsoleEjectBlockedReason
+         COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/eject_blocked.txt")
+set_tests_properties(VaseConsoleEjectBlockedReason PROPERTIES
+    PASS_REGULAR_EXPRESSION "eject refused: Vase\\.SharedProvider is provided by \\[Vase\\.SharedConsumer2\\]")
+
+# —— R10-2（T10 评审裁定）：console adopt 拒绝分支的端到端证人，补上 T10 探针登记的同形缺口 ——
+# **两份 plan 是构造性的，不是冗余**：CollisionProvider 若与 SharedProvider 同 plan，T8 的
+# 计划级碰撞执法会把整局拒掉——到不了 Adopt。故注册局单独成局（无对手 → 建局即注册
+# KnownBinaries；拆局不卸货，镜像留架供 ② 的复用比对），再在 SharedProvider 局里 adopt 它，
+# ③' 的 kRejectedCollision 才可达。adopt refused 行由 Collisions 字段现拼，点名归因者。
+file(GENERATE OUTPUT "${VASE_CONSOLE_REPLAY_DIR}/collision_reg_plan.txt"
+     CONTENT "# 由 CMake 生成，不要手改：注册局——CollisionProvider 单独成局（同局有对手会被 T8 整局拒）\nVase.CollisionProvider $<PATH:CMAKE_PATH,$<TARGET_FILE:CollisionProviderPlugin>>\n")
+file(GENERATE OUTPUT "${VASE_CONSOLE_REPLAY_DIR}/adopt_blocked_plan.txt"
+     CONTENT "# 由 CMake 生成，不要手改\nVase.SharedProvider $<PATH:CMAKE_PATH,$<TARGET_FILE:SharedProviderPlugin>>\n")
+file(GENERATE OUTPUT "${VASE_CONSOLE_REPLAY_DIR}/adopt_blocked.txt"
+     CONTENT "pod new ${VASE_CONSOLE_REPLAY_DIR}/collision_reg_plan.txt
+pod destroy
+pod new ${VASE_CONSOLE_REPLAY_DIR}/adopt_blocked_plan.txt
+adopt Vase.CollisionProvider
+exit
+")
+add_test(NAME VaseConsoleAdoptBlockedIsFailure
+         COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/adopt_blocked.txt")
+set_tests_properties(VaseConsoleAdoptBlockedIsFailure PROPERTIES WILL_FAIL TRUE)
+# 兄弟用例：钉点名行——服务、版本、现提供者归因三段都在（谁挡的要看得见）。
+# ⚠ 只看正则、**无视退出码**，码由上面那条钉（不可合并规则同 VaseConsoleBadPlan 系列）。
+# 用例名带 Adopt：规矩 6 的窄选择子 `-R 'HotSwap|Eject|Adopt'` 能把这对拉进热插拔验证。
+add_test(NAME VaseConsoleAdoptBlockedReason
+         COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/adopt_blocked.txt")
+set_tests_properties(VaseConsoleAdoptBlockedReason PROPERTIES
+    PASS_REGULAR_EXPRESSION "adopt refused: provides collision \\[Vase\\.Test\\.Shared@1 by Vase\\.SharedProvider\\]")

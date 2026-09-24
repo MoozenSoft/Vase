@@ -13,6 +13,10 @@
 // 给伞形头的语用意（「本头转出它包含的东西」），加上之后检查器就不再误报——比给
 // 每个使用者加 NOLINT 干净。
 // IWYU pragma: begin_exports
+#include "Vase/Config/ConfigInfo.h"
+#include "Vase/Config/ConfigMacros.h"
+#include "Vase/Config/FieldInfo.h"
+#include "Vase/Config/Value.h"
 #include "Vase/Detail/Export.h"
 #include "Vase/Detail/MetaArray.h"
 #include "Vase/Detail/Result.h"

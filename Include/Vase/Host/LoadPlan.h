@@ -1,10 +1,13 @@
 #pragma once
 
-// §5.1 的输入形状，M1 手写形态（D12）：LoadPlan 是普通 struct，M2 的
-// PluginCatalog::Solve 产出同一个类型——装配路径零返工。
-// Ordered 的数组序**就是**加载与关停的序（加载正序 / 关停逆序，§5.4）；
-// M1 没有求解器，「Ordered 已按拓扑序排好」由手写者保证（M2 起是 Solve 的构造性保证）。
+// §5.1 的输入形状，M2a 定形（D23）：提议形 + BinaryPath（Host 得知道文件在哪；M2b 由清单
+// stem + 目录填）+ 三层合并后的 ResolvedConfig。kLoad 条目的数组序 = 加载序 = 关停逆序
+// （§5.4）；应当是拓扑序——M2a 由手写者负责、装配预检兜底，M2b 起是 Solve 的构造性保证。
+// Id 与 M1 同：借用计划拥有者持有的串，只在这次 CreatePod 调用期间有效。
 
+#include "Vase/Host/ConfigBlob.h"
+
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <string_view>
@@ -13,12 +16,31 @@
 namespace vase
 {
 
-class Context; // 前向声明足矣：Stage0 回调只接引用，不定义它
+class Context; // 前向声明足矣：Stage0 回调只接引用
+
+enum class LoadDecision : std::uint8_t
+{
+    kLoad,
+    kSkip,
+};
+
+// 全部是静态跳过类（§4.4）。后两个值由 M2b 的 Solve 产出；M2a 手写计划至多用 kDisabled
+// （「不进局但留在计划里示众」）。运行时跳过不进计划——它活在报告的 Skips 里（§5.1）。
+enum class SkipReason : std::uint8_t
+{
+    kDisabled,
+    kMissingDependency,
+    kVersionMismatch,
+};
 
 struct LoadPlanEntry
 {
     std::string_view Id;
-    std::filesystem::path BinaryPath; // 绝对或相对 CWD；Host 内部绝对化（T6）
+    std::filesystem::path BinaryPath; // 绝对或相对 CWD；Host 内部绝对化（T6 原文）
+    LoadDecision Decision = LoadDecision::kLoad;
+    SkipReason Reason{};            // 仅 kSkip 有意义
+    ConfigBlob ResolvedConfig = {}; // 缺字段回退 kFields 默认（D23）；空 = 全默认。
+    // = {} 是必需的 NSDMI：省略尾字段的指定初始化点在本工具链是 error（同 T3 的 OptionalRequires{}）
 };
 
 struct LoadPlan
@@ -28,8 +50,7 @@ struct LoadPlan
 
 struct PodOptions
 {
-    bool Strict = false; // 5.5：任一插件失败即整局失败。M1 实现「无级联」的基本形
-    // （任一 Failed → 已建 Pod 全拆 → Err）；级联拆除等 M2 依赖图。
+    bool Strict = false;                  // §5.5 + D36：Strict 只对 Failed 触发；预检/静态跳过不算失败
     std::function<void(Context&)> Stage0; // §5.3 阶段 0：宿主服务注册点
 };
 

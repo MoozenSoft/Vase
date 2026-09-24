@@ -56,6 +56,22 @@ struct FailedPluginRecord
     std::string Message;
 };
 
+// §4.4 两类跳过，从类型上就不许混（D29）。住 Pod.h 的理由与 FailedPluginRecord 同款：
+// 装配期生成、Pod 自持，链接方向不许它上 Host 头。
+enum class SkipClass : std::uint8_t
+{
+    kStatic,
+    kRuntime,
+};
+
+struct SkippedRecord
+{
+    std::string Id;
+    SkipClass Class = SkipClass::kStatic;
+    std::string Cause;    // 静态：SkipReason 的名字化；运行时：missing service <k>@<v> / cascade from <id>
+    std::string CausedBy; // 运行时归因（D41）；序缺陷与静态为空串
+};
+
 struct ResidualEntry
 {
     std::string OwnerLabel;
@@ -67,9 +83,10 @@ struct PodReport
     bool HandleWasStale = false; // §5.1：句柄失效是预期内，不是错误
     std::uint32_t PodIndex = 0;
     std::vector<FailedPluginRecord> Failures; // 运行时失败（§5.2 的轻量诊断记录）
-    std::vector<std::string> HotSwapLog;      // §9.2 v3「中途进出过谁」（T10/T11 填充）
-    DiagnosticSnapshot CountersDiff;          // 相对基线的差分（基线 = 本 Pod 创建时）
-    std::vector<ResidualEntry> Residuals;     // #10 归属（M1 形态见类内注释）
+    std::vector<SkippedRecord> Skips;
+    std::vector<std::string> HotSwapLog;  // §9.2 v3「中途进出过谁」（T10/T11 填充）
+    DiagnosticSnapshot CountersDiff;      // 相对基线的差分（基线 = 本 Pod 创建时）
+    std::vector<ResidualEntry> Residuals; // #10 归属（M1 形态见类内注释）
 
     // VASE_POD_API 只加在这个成员函数上，不给整个 struct 加：定义在 VasePod 里，
     // 本库外调用不导出即 lld-link undefined symbol（与 EffectHandle 同一笔账）；
@@ -109,6 +126,7 @@ public:
     [[nodiscard]] bool HasPlugin(std::string_view id) const;
     [[nodiscard]] std::vector<std::string> PluginIds() const;
     [[nodiscard]] const std::vector<FailedPluginRecord>& Failures() const; // §5.5：失败清单随时可被宿主读出
+    [[nodiscard]] const std::vector<SkippedRecord>& Skips() const { return SkipRecords; }
 
 private:
     friend class PluginHost;
@@ -123,6 +141,8 @@ private:
         detail::BinaryRecord* Binary = nullptr;
         std::unique_ptr<EffectScope> Scope;
         std::unique_ptr<Context> Ctx;
+        // 配置对象：镜像内 CreateConfig 造、DestroyConfig 毁（D25）；deleter 与指针成对，空 = 无配置。
+        std::unique_ptr<void, void (*)(void*)> ConfigObject{nullptr, nullptr};
         std::string OwnerLabel; // Meta->Id 的拥有型拷贝（别赌字面量生命周期）
 
         enum class InstanceState : std::uint8_t
@@ -153,6 +173,7 @@ private:
 
     std::vector<std::unique_ptr<LiveInstance>> Instances; // 数组序 = 计划序
     std::vector<FailedPluginRecord> FailureRecords;       // §5.2：Failed 保留的是记录
+    std::vector<SkippedRecord> SkipRecords;               // §5.1：跳过者无实例无边——不进活集合、不进 Clean（D38）
 
     // T10（§5.6 四条补角「Failed 可被 Eject」）：失败插件的**记录**在 FailureRecords，
     // 它的**驻留镜像**在这里。两张表分开是必须的——二进制根本没驻留（EnsureResident

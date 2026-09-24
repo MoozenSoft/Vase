@@ -2,6 +2,7 @@
 
 #include "Vase/Detail/Counters.h"
 #include "Vase/Detail/Fail.h"
+#include "Vase/Detail/MetaArray.h"
 #include "Vase/Detail/RegistryBus.h"
 #include "Vase/Effect/EffectHandle.h"
 #include "Vase/Effect/EffectScope.h"
@@ -77,21 +78,24 @@ private:
     vase::detail::DiagnosticCounters* Counters;
 };
 
-// 服务是否在本插件的 Requires 上（§5.6 规则①）。主版本也算身份的一部分（§6.1），
-// 所以比对的是 (name, version) 整对，不是只看名字。
+// 服务是否声明在本插件的 Requires/OptionalRequires 上（§5.6 规则①；扩展覆盖 spec 3.4）。
+// 主版本也算身份的一部分（§6.1），所以比对的是 (name, version) 整对，不是只看名字。
 bool DeclaredInRequires(const vase::PluginMeta& meta, std::string_view name, std::uint32_t version)
 {
-    for (std::size_t index = 0; index < meta.Requires.Size(); ++index)
+    const auto contains = [name, version](const vase::MetaArray<vase::ServiceRef, 16>& items)
     {
-        // 用 std::next 而非 operator[]：非常量下标过不了 cppcoreguidelines-pro-bounds-*。
-        // DescriptorTests 迭代 Requires 用的是同一写法（subscript 那一处无代码级出路的才点名豁免）。
-        const vase::ServiceRef& ref = *std::next(meta.Requires.Begin(), static_cast<std::ptrdiff_t>(index));
-        if (ref.Name == name && ref.Version == version)
+        for (std::size_t index = 0; index < items.Size(); ++index)
         {
-            return true;
+            // 用 std::next 而非 operator[]：非常量下标过不了 cppcoreguidelines-pro-bounds-*。
+            const vase::ServiceRef& ref = *std::next(items.Begin(), static_cast<std::ptrdiff_t>(index));
+            if (ref.Name == name && ref.Version == version)
+            {
+                return true;
+            }
         }
-    }
-    return false;
+        return false;
+    };
+    return contains(meta.Requires) || contains(meta.OptionalRequires);
 }
 
 // ProgrammerError 只收 string_view，三要素（谁的解析、哪个服务、哪个版本）先在栈上拼好。
@@ -105,7 +109,7 @@ bool DeclaredInRequires(const vase::PluginMeta& meta, std::string_view name, std
     message.append(serviceName);
     message.append("' v");
     message.append(std::to_string(version));
-    message.append(" without declaring it in Requires");
+    message.append(" without declaring it in Requires/OptionalRequires");
     vase::detail::ProgrammerError(message);
 }
 
