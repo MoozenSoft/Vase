@@ -72,3 +72,6 @@ Testing/
 
 # skill 评测工作区（with_skill / baseline 输出，看完即弃，不进版本库）
 .claude/skills/*-workspace/
+
+# moozen 定时任务事件日志：本机历史，不随仓库分发（查看命令是 /moozen:jobs，命令文件进版本库）
+.claude/scheduled-jobs.md
