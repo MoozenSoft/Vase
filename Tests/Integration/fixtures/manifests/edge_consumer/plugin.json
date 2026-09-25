@@ -1,0 +1,7 @@
+{
+    "schemaVersion": 1,
+    "id": "Vase.EdgeConsumer",
+    "binary": "EdgeConsumerPlugin",
+    "requires": [ { "service": "Vase.Test.Shared", "version": 1 },
+                  { "service": "Vase.Test.HostOnly", "version": 1 } ]
+}

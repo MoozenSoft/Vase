@@ -27,7 +27,7 @@
 
 | 不做 | 归属 |
 |---|---|
-| `.plugin.json` / Preset / `nlohmann/json` / `VaseCatalog` target / `Solve` / 清单↔二进制逐字段比对 / Adopt 就地重读清单的接口缝 | M2b |
+| `plugin.json` / Preset / `nlohmann/json` / `VaseCatalog` target / `Solve` / 清单↔二进制逐字段比对 / Adopt 就地重读清单的接口缝 | M2b |
 | `enum` 配置类型（choices 的 schema 无处安放，§4.2 禁数组） | M2b 与 schema 同定（D22） |
 | VaseConsole 扩展、`Samples/DependentPlugin`、`Samples/FailingPlugin` | M2b 前端改接时一并（D19） |
 | 3a 多插件 Eject/Adopt 全循环回归、叶判定图反查的新华 | M3（§12.3 明文） |

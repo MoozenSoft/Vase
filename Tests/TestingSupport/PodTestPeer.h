@@ -8,6 +8,8 @@
 #include "Vase/Pod/Pod.h"
 
 #include <cstddef>
+#include <string>
+#include <vector>
 
 namespace vase
 {
@@ -16,6 +18,9 @@ class PodTestPeer
 {
 public:
     static EffectScope& InjectLeakedScope(Pod& pod, const char* ownerLabel, std::size_t effectCount);
+
+    // 证人用例（M2b 波1 T7）读取装载序：数组序 = 计划序（Pod.h:174 注释即依据）。
+    static std::vector<std::string> InstanceOrder(const Pod& pod);
 };
 
 } // namespace vase

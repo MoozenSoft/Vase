@@ -1,7 +1,7 @@
 #pragma once
 
 // §5.1 的输入形状，M2a 定形（D23）：提议形 + BinaryPath（Host 得知道文件在哪；M2b 由清单
-// stem + 目录填）+ 三层合并后的 ResolvedConfig。kLoad 条目的数组序 = 加载序 = 关停逆序
+// `binary` + 目录填）+ 三层合并后的 ResolvedConfig。kLoad 条目的数组序 = 加载序 = 关停逆序
 // （§5.4）；应当是拓扑序——M2a 由手写者负责、装配预检兜底，M2b 起是 Solve 的构造性保证。
 // Id 与 M1 同：借用计划拥有者持有的串，只在这次 CreatePod 调用期间有效。
 

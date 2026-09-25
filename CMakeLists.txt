@@ -272,6 +272,7 @@ enable_testing()
 
 add_subdirectory(Source/Pod)
 add_subdirectory(Source/Host)
+add_subdirectory(Source/Catalog)
 
 # Samples 在 Tests 之前：Tests 与 VaseEmbedding 都要用 $<TARGET_FILE:HelloPlugin>，
 # 生成器表达式求值时该 target 必须已存在。

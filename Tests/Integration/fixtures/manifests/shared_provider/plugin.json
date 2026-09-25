@@ -1,0 +1,6 @@
+{
+    "schemaVersion": 1,
+    "id": "Vase.SharedProvider",
+    "binary": "SharedProviderPlugin",
+    "provides": [ { "service": "Vase.Test.Shared", "version": 1 } ]
+}

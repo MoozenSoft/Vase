@@ -36,26 +36,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 即核心关注点是**模块的选取、挂载与干净卸载**。M1 已把它的最小形落成代码，M2a 补了装配地基那一层（见「项目状态」；具体机制以磁盘上的头文件与实现为准，`wiki/vase-architecture.md` 里其余部分仍是提案）。**不要在文档或代码注释中把提案写成既定事实**——新增或变更机制前先与需求方确认。
 
-### 项目状态：M0、M1 完成；M2a 完成（M2 第一波），M2b 未起
+### 项目状态：M0、M1 完成；M2a 完成（M2 第一波），M2b 第一波完成（清单解析/Catalog/Solve/Preset），M2b 第二波未起
 
 
-**M0（构建地基）、M1（Pod 闭环 + 热插拔骨架）与 M2a（M2 第一波：装配地基——配置面、`LoadPlan` 定形、
-多插件装配与跳过/碰撞执法、递归拆除、报告结构化）均已完成**。
-**M2b（第二波：`Catalog` / 清单解析 / `Solve` / JSON / Preset）未起**——求解链、清单格式、
-`enum` 配置型与 choices schema 都在那一波。当前仓库里有什么：
+**M0（构建地基）、M1（Pod 闭环 + 热插拔骨架）、M2a（M2 第一波：装配地基——配置面、`LoadPlan` 定形、
+多插件装配与跳过/碰撞执法、递归拆除、报告结构化）与 M2b 第一波（清单解析/Catalog/Solve/Preset）均已完成**。
+**M2b 第二波未起（加载期比对/Adopt 改接/enum+bump/前端）**——`enum` 配置型与 choices schema
+都在那一波。当前仓库里有什么：
 
 - **构建系统已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（三个工具链文件）、
   `Cmake/Triplets/x64-linux-libcxx.cmake`，依赖经 vcpkg manifest 模式拉取。
-- **两个动态库 target**：`VasePod` 与 `VaseHost`（后者链前者）——「插件不依赖 Host」（D11）
-  是链接期事实，不是约定。插件 target 一律经 `Cmake/VasePluginHelpers.cmake` 立（见规矩 5）。
-- **架构代码已在**（`Include/Vase/` + `Source/{Pod,Host}`）：描述符宏/基类与 `HeaderVersion`、
+- **三个动态库 target**：`VasePod`、`VaseHost`（后者链前者）与 `VaseCatalog`（链 `VaseHost`，
+  D45 链接方向）——「插件不依赖 Host」（D11）是链接期事实，不是约定。插件 target 一律经
+  `Cmake/VasePluginHelpers.cmake` 立（见规矩 5）。
+- **架构代码已在**（`Include/Vase/` + `Source/{Pod,Host,Catalog}`）：描述符宏/基类与 `HeaderVersion`、
   `Result<T>` / `Error`、效果与作用域（`IEffect` / `EffectScope` / `ScopePool`）、
   服务注册表与事件总线、依赖账本（最小形）、`Pod` / `Context`、`PluginHost`、
   `AdoptPlugin` / `EjectPlugin` 与三档卸载证据、`Loader` 与自写的 PE/ELF 镜像解析；
   M2a 增**配置面**——`Include/Vase/Config/` 四头（`Value` / `FieldInfo` / `ConfigInfo` /
   `ConfigMacros`，header-only，无 Source 对称实体）+ 宿主拥有层 `ConfigBlob`、`LoadPlan` 定形
   （含 `BinaryPath` 与缺字段回退，D23）、装配预检与 Provides 碰撞执法（两态形，D27/D33）、
-  `OnStart` 失败的递归拆除（闭包 + 逆数组序，D28）、`EjectReport` / `AdoptReport` 结构化（D20/D21）。
+  `OnStart` 失败的递归拆除（闭包 + 逆数组序，D28）、`EjectReport` / `AdoptReport` 结构化（D20/D21）；
+  M2b 波 1 增 **Catalog 层**——`Include/Vase/Catalog/` 四头（`ManifestView` / `Preset` /
+  `LoadRequest` / `PluginCatalog`，`Preset`/清单值形只含标量）+ `Source/Catalog` 四源
+  （`ManifestJson` / `PresetJson` / `PluginCatalog` / `Solve`，另 `Detail/LibraryFileName`），
+  **全仓唯一 JSON 消费者**（D55：nlohmann 不出现于任何公开头，也不出现在 `Source/Catalog/` 以外；
+  解析面只到结构/语法 D59，类型核对在 `Solve`）。
 - **测试已建立**：GoogleTest 1.18.0（vcpkg manifest）+ `ctest` + `gtest_discover_tests`，
   分层落成 `Tests/{Smoke,Unit,Lifecycle,Integration,HotSwap,Abi}`（共用 `Tests/TestingSupport`），
   各线基数见「构建与测试」。M0 的跨 DLL 冒烟用例保留。M2a 新增测试文件 7 个
@@ -63,7 +69,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   `Integration/{MultiPluginAssemblyTests,ConfigApplyTests,RecursiveTeardownTests}`、
   `Lifecycle/MultiPluginCycleTests`），`Tests/Integration/fixtures/` 现共 23 个 fixture 插件，
   其中 M2a 新增 16 个（Behind\* 五个、Cycle 一对、Dead 三个、StartFail / FailingEdge /
-  SharedConsumer2 / Collision / ConfigConsumer / ConfigLayoutMisuse 各一）。
+  SharedConsumer2 / Collision / ConfigConsumer / ConfigLayoutMisuse 各一）。M2b 波 1 新增测试文件 6 个
+  （`Unit/{CatalogWiringSmoke,ManifestJsonTests,PresetJsonTests}`、
+  `Integration/{SolveTests,CatalogScanTests,AssemblyFromSolveTests}`）、共用支撑
+  `Tests/TestingSupport/CatalogSandbox.h`，另 `Tests/Integration/fixtures/manifests/` 下 4 个
+  纯清单 fixture（复用既有 DLL，不新增插件二进制）。
 - **示例**：`Samples/{HelloCommon,HelloPlugin,HelloPluginPrime,Embedding}`——
   `VaseEmbedding play | loop <N> | swapdemo`，`HelloPluginPrime` 是 `file install` 的换件材料。
   Hello 两个插件自 M2a 起带**真实配置**（`VASE_CONFIG` 的 `Repeats` 字段），`play` 打出的
@@ -116,9 +126,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 项 | 架构文档里的状态 | 仓库里的状态 |
 |---|---|---|
 | 构建系统 | 已决定：CMake + vcpkg（13.2） | **已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（3 个）、`Cmake/Triplets/x64-linux-libcxx.cmake`、`Cmake/VasePluginHelpers.cmake`，六个 preset 全绿（见「构建与测试」） |
-| 目录布局与模块划分 | **已确认**（第 10 节） | **磁盘上是这些**：`Include/Vase/`（`Plugin.h` / `PluginDescriptor.h` / `Config` / `Effect` / `Service` / `Event` / `Pod` / `Host` / `Detail`）、`Source/{Pod,Host}` 双 target、`Samples/{HelloCommon,HelloPlugin,HelloPluginPrime,Embedding}`、`Tools/VaseConsole/`、`Tests/{Smoke,Unit,Lifecycle,Integration,HotSwap,Abi,TestingSupport}`、`ThirdParty/cli`；第 10 节里尚未出现的实体（`Catalog/`、`Host/` 的清单解析面）等真有内容再立。**但别把这一格读成"§10 是当前状态的描述"**：§10 的 `Samples/` 子树列着两个从未存在的目录、漏掉两个实有的；它提议的 `Tools/VaseCli/`（清单扫描、校验、索引生成，M5）与实有的 `Tools/VaseConsole/`（交互式验证台）**不是一回事**——两者同在 `Tools/` 下、名字只差一个词，别混；后者原名 `Samples/VaseCli`，2026-09-23 因「CLI 这个名字不体现它是交互式验证台」而更名并移出 `Samples/`，同一轮的 spec / plan 在 `docs/superpowers/` 下同步改名为 `vase-console-*`。**改 §10 本身要需求方过目**（它标着"已确认"），不要顺手修 |
-| 测试框架与运行方式 | 有分层与验证策略（12 节） | **已落成**：GoogleTest 1.18.0（vcpkg manifest）+ `ctest` + `gtest_discover_tests`；分层即 12.2 那五类（Unit / Integration / Lifecycle / HotSwap / Abi，外加 M0 的 Smoke），各线基数见「构建与测试」的按线分账表。12 节里依赖 M2 起的部分（Catalog 求解链、账本 3b 完整执法）尚未落成 |
-| 插件接口 / ABI 约定 | 有完整设计（第 3、8 节） | **已落地最小形**：§3.1 的宏（`VASE_PLUGIN`）、插件基类、描述符结构体与 `kHeaderVersion` 都在 M1；M2a 补配置面（`VASE_CONFIG` 六型、`ConfigInfo`/`ConfigBlob`，`enum` 与描述符布局的再变更留 M2b 随 bump）；**清单/`Preset` 格式与 `Catalog` 解析在 M2b**。接口以磁盘上的 `Include/Vase/Plugin.h` 与 `PluginDescriptor.h` 为准，第 3、8 节其余部分仍是提案 |
+| 目录布局与模块划分 | **已确认**（第 10 节） | **磁盘上是这些**：`Include/Vase/`（`Plugin.h` / `PluginDescriptor.h` / `Config` / `Catalog` / `Effect` / `Service` / `Event` / `Pod` / `Host` / `Detail`）、`Source/{Pod,Host,Catalog}` 三 target、`Samples/{HelloCommon,HelloPlugin,HelloPluginPrime,Embedding}`、`Tools/VaseConsole/`、`Tests/{Smoke,Unit,Lifecycle,Integration,HotSwap,Abi,TestingSupport}`、`ThirdParty/cli`；第 10 节里此前未出现的 `Catalog/` 实体已于 M2b 波 1 立起（清单解析面住在 `Source/Catalog`，`Host/` 下不另立）。**但别把这一格读成"§10 是当前状态的描述"**：§10 的 `Samples/` 子树列着两个从未存在的目录、漏掉两个实有的；它提议的 `Tools/VaseCli/`（清单扫描、校验、索引生成，M5）与实有的 `Tools/VaseConsole/`（交互式验证台）**不是一回事**——两者同在 `Tools/` 下、名字只差一个词，别混；后者原名 `Samples/VaseCli`，2026-09-23 因「CLI 这个名字不体现它是交互式验证台」而更名并移出 `Samples/`，同一轮的 spec / plan 在 `docs/superpowers/` 下同步改名为 `vase-console-*`。**改 §10 本身要需求方过目**（它标着"已确认"），不要顺手修 |
+| 测试框架与运行方式 | 有分层与验证策略（12 节） | **已落成**：GoogleTest 1.18.0（vcpkg manifest）+ `ctest` + `gtest_discover_tests`；分层即 12.2 那五类（Unit / Integration / Lifecycle / HotSwap / Abi，外加 M0 的 Smoke），各线基数见「构建与测试」的按线分账表。12 节里依赖 M2 起的部分：Catalog 求解链已于 M2b 波 1 落成，账本 3b 完整执法仍未起 |
+| 插件接口 / ABI 约定 | 有完整设计（第 3、8 节） | **已落地最小形**：§3.1 的宏（`VASE_PLUGIN`）、插件基类、描述符结构体与 `kHeaderVersion` 都在 M1；M2a 补配置面（`VASE_CONFIG` 六型、`ConfigInfo`/`ConfigBlob`，`enum` 与描述符布局的再变更留 M2b 第二波随 bump）；M2b 波 1 已落 **清单/`Preset` 格式与 `Catalog` 解析**（`Source/Catalog`，结构/语法段 D59 + Solve 两段）。接口以磁盘上的 `Include/Vase/Plugin.h` 与 `PluginDescriptor.h` 为准，第 3、8 节其余部分仍是提案 |
 
 **不要从文档推断出可用的命令、路径或接口签名**——文档写的是「打算怎么做」，本文件负责说明「现在有什么」。
 ## 二、怎么跑
@@ -128,11 +138,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### 构建与测试
 
 
-**六个 preset，全部已实测可用**。基数的最近一次复核（终审修复波复测，2026-09-24）：**六条 preset 线
+**六个 preset，全部已实测可用**。基数的最近一次复核（M2b 波 1 终审修复波复测，2026-09-25）：**六条 preset 线
 各自 configure → build → ctest → `ctest -N`，六线全绿、构建零警告**——走的是下面那两个
-脚本的**删树重配全量**（四棵 Windows 树与两棵 Linux 树，`rm -rf` 后从零 configure）。
-本轮的全量跑了两次（tidy 代码级出路前后各一次）：两次都六线一次过、无失败步，
-未撞到下面记的那类 `z-applocal` 文件锁假红。
+脚本的**删树重配全量**（四棵 Windows 树与两棵 Linux 树，`rm -rf` 后从零 configure；
+两脚本并行一次跑完，一次过、无失败步，本轮未撞到下面记的那类 `z-applocal` 文件锁假红）。
 tidy 三条 debug 线各自跑（见「静态检查与格式」），format 一条命令。
 
 | 平台 | preset |
@@ -141,24 +150,25 @@ tidy 三条 debug 线各自跑（见「静态检查与格式」），format 一�
 | Windows / cl.exe | `win-x64-msvc-debug`、`win-x64-msvc-release` |
 | Linux / clang + libc++ | `linux-x64-clang-debug`、`linux-x64-clang-release` |
 
-**各线 `ctest -N` 基数**（六线全部为终审修复波复测 2026-09-24 实测：终审修复波加两条用例
-（`ConfigApply.HostSuppliedStringConfigOutlivesPlanDonor` 钉用例 + `ConfigBlob.FromDefaultsLaysFieldsInDeclarationOrder`），
-两例均无 death 门与平台门，六线相对 M2a 收口波同幅 +2；
+**各线 `ctest -N` 基数**（六线全部为终审修复波复测 2026-09-25 实测：M2b 波 1 共加 53 条用例
+（收口波 49：清单解析/Catalog 扫描/Solve 两段/Preset 结构语法/端到端证人各线 + T8 的 int64 越界拒绝 1 条；
+终审修复波再 +4：三层 override 执行、D66 跳过者型错、空快照 Solve、Preset 缺文件），
+全部无 death 门与平台门，六线相对 M2a 收口（141/140/143/142）同幅 +53；
 `ctest` 在没发现测试时同样返回 0，故基数要按线单独记，见「四、怎么验」下的「核这些门禁时，退出码单独用是不够的」）：
 
 | preset | `Total Tests` | 与 Win debug 的差 |
 |---|---|---|
-| `win-x64-{clang,msvc}-debug` | 141 | —（基线） |
-| `win-x64-{clang,msvc}-release` | 140 | −1：T3 的 death test 受 `#ifndef NDEBUG` 门 |
-| `linux-x64-clang-debug` | 143 | +2：T11 的两条 Linux-only（`Adopt.MissingIdentityFeatureRejectedWithPointer`、`Adopt.RenameReplacementCaughtByTierThree`——`NoBuildIdPlugin` 这个 fixture 在 `if(NOT WIN32)` 里） |
-| `linux-x64-clang-release` | 142 | 同上两点相抵：+2 −1 |
+| `win-x64-{clang,msvc}-debug` | 194 | —（基线） |
+| `win-x64-{clang,msvc}-release` | 193 | −1：T3 的 death test 受 `#ifndef NDEBUG` 门 |
+| `linux-x64-clang-debug` | 196 | +2：T11 的两条 Linux-only（`Adopt.MissingIdentityFeatureRejectedWithPointer`、`Adopt.RenameReplacementCaughtByTierThree`——`NoBuildIdPlugin` 这个 fixture 在 `if(NOT WIN32)` 里） |
+| `linux-x64-clang-release` | 195 | 同上两点相抵：+2 −1 |
 
 **基数差是设计，不是漏注册**：debug 与 release 差的 1 条仍是 T3 的 death test（`#ifndef NDEBUG`）——
 M2a 新增的 `ConfigApply.LayoutMismatchTerminates` 同为 death test 但**不带**这道门，
 debug/release 同计（两条 release 线实测全绿），故 −1 差值不因它而变；
 Linux 与 Windows 差的 2 条仍是 T11 的 Linux-only 用例（`-Wl,--build-id=none` 的 fixture 只在 Linux 存在），
-M2a 新 fixture 群无一 Linux-only，+2 不变；终审修复波新增的两条用例同无门，差值亦不因它们而变。
-两侧都与预期值逐位对上（用例名集合的 win/linux 差集实测恰为这两条，终审修复波复测再确认，
+M2a 新 fixture 群无一 Linux-only，+2 不变；波 1 与终审修复波新增的用例（53 条）同无门，差值亦不因它们而变。
+两侧都与预期值逐位对上（用例名集合的 win/linux 差集实测恰为这两条，终审修复波在删树重配的新鲜树上再确认；
 规矩 6 的选择子 `-R 'HotSwap|Eject|Adopt'` 亦双侧重跑全绿、差集恰为这两条），
 说明 `gtest_discover_tests` 没有静默漏掉任何一条。
 console 套件（`ctest -R VaseConsole` 实测 25 条）与 Embedding 回放**不含** `#ifndef NDEBUG` 门与平台门，
@@ -215,9 +225,12 @@ wsl -d Ubuntu -- bash -lc 'cd /mnt/d/Git/Vase && ctest --preset linux-x64-clang-
 > 先落成脚本文件，再 `wsl -d Ubuntu -- bash -lc 'bash <脚本>'`。本项目已因此栽过不止一次
 > （本任务执行期间又撞到一次：`$CXX` / `$FLAGS` 被外层吃空，命令照跑、结果假绿）。
 
-#### 第三方依赖有两条入口，只有 gtest 走 vcpkg
+#### 第三方依赖有两条入口，gtest 与 nlohmann-json 走 vcpkg
 
-- **要编译的依赖 → vcpkg manifest**（现在只有 `gtest`）。`vcpkg.json` 的 `dependencies` 就是它的清单。
+- **要编译的依赖 → vcpkg manifest**（现在是 `gtest` 与 `nlohmann-json`）。`vcpkg.json` 的 `dependencies` 就是它的清单。
+  nlohmann-json 虽是 header-only 库，仍走这条：它经 vcpkg 的 **CMake config 包**出口
+  （`find_package(nlohmann_json)` 消费者，target 名 `nlohmann_json::nlohmann_json`）——与下面
+  submodule + INTERFACE 那条 `ThirdParty/cli` 的区别就在这里，不在「要不要编译」。
 - **只有头文件的依赖 → git submodule + `Cmake/VaseThirdParty.cmake`**。现在是 `ThirdParty/cli`
   （`MoozenSoft/cli`，BSL-1.0 的 fork，随仓库版本管理，不进 vcpkg）。在该文件里为它立一个
   `VaseThirdPartyCli` INTERFACE target，消费者 `target_link_libraries(... VaseBuildOptions VaseThirdPartyCli)`。
@@ -510,7 +523,7 @@ tidy 与 format 怎么跑、退出码为什么单独不够、基数怎么读。�
 
 
 ```bash
-run-clang-tidy -p build-win/win-x64-clang-debug          # clang-cl 线（77 个 TU）
+run-clang-tidy -p build-win/win-x64-clang-debug          # clang-cl 线（87 个 TU）
 run-clang-tidy -p build-win/win-x64-msvc-debug -extra-arg=-Wno-unused-command-line-argument
 run-clang-tidy -p build-linux/linux-x64-clang-debug      # Linux 线**必须单独跑**
 git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc' '*.ixx' \
@@ -526,8 +539,15 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
 两者同契约：日志落在脚本旁边（`*.log`，已被 gitignore），stdout 打全「退出码 + 正文
 `error:` 条数 + 正文 `warning:` 条数」三判据与摘要计数，**退出码非 0 即门禁未过**，
 不必再手工 grep 日志。基数见「核这些门禁时，退出码单独用是不够的」那节的实测表，脚本不复制阈值。
-实测两侧输出与该表逐位对上：Linux 78 TU / 208584 / NOLINT 2751，Windows 两线各 77 TU /
-501215 / NOLINT 2701。
+实测两侧输出与该表逐位对上：Linux 88 TU / 241510 / NOLINT 2948，Windows 两线各 87 TU /
+555223 / NOLINT 2898（M2b 波 1 终审修复波复测，2026-09-25）。
+
+> **tidy 的树必须是构建过的**（T8 实测坑）：compile_commands 里每条命令以 `@...modmap` 引用
+> CMake 模块扫描的响应文件，那是**构建产物**——只 configure 未 build 的新树里它不存在，
+> clang-tidy 当场报 `clang-diagnostic-error`、run-clang-tidy 退出 1，而正文 `error:`/`warning:`
+> 这类报错行**不带 `文件:行:列:` 前缀**，脚本按 `": error: "` 计数抓不到——三判据里
+> 退出码 1 而正文双 0，正是它的指纹（也再次说明退出码与正文计数谁都不能单独信）。
+> 修法是先把那棵树 build 一遍，不是查代码。
 
 但**别指望 configure 帮你守住版本**：`CMakeLists.txt` 的版本校验对象是
 **CXX 编译器**，只查 clang 的 `23.x` 主版本；cl.exe 分支更是只查平台、不查版本。
@@ -576,7 +596,7 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
 
 - **`run-clang-tidy` 退出 0 ≠ 没有 warning。** `.clang-tidy` 的 `WarningsAsErrors`
   为空，tidy 永远不会因 warning 失败。健康的输出长这样（每行都是摘要行，
-  正文一条 `error:` / `warning:` 都没有）：
+  正文一条 `error:` / `warning:` 都没有；以下系旧运行示例（77 TU 时代），数字只示形态、与本轮基数无关）：
 
   ```
   Running clang-tidy in 12 threads for 77 files out of 77 in compilation database ...
@@ -586,15 +606,22 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
 
   所以「无新 warning」的判据是三条一起：**退出 0 + 正文 `error:` 0 条 +
   正文 `warning:` 0 条**，再连摘要行一起读。只 grep `warning:` 会漏掉全部被抑制的量。
-  实测基数（终审修复波复测，2026-09-24；两处代码级出路后的三线全绿记录，未新增任何 NOLINT；
-  全部落在第三方头、gtest 模板与被 NOLINT 豁免的自有位形/宏机制代码里，
-  我们自己的代码零正文 warning）：
+  实测基数（终审修复波复测，2026-09-25；波 1 遗留的 267 条正文 warning 已全部走代码级出路清零，
+  **净新增 NOLINT = 0**（命中数较收口波 +1，源码 diff 可证无新增抑制位点）；
+  正文双 0 之外，抑制仍全部落在第三方头、gtest/nlohmann 模板与被 NOLINT 豁免的
+  自有位形/宏机制代码里，我们自己的代码零正文 warning）：
 
   | 线 | 文件数 | 摘要行 Suppressed 合计 | 单 TU 最小 / 最大 |
   |---|---|---|---|
-  | clang-cl（`win-x64-clang-debug`） | 77 | 501215 | 998 / 45609 |
-  | cl.exe（`win-x64-msvc-debug`） | 77 | 501215 | 998 / 45609 |
-  | Linux（`linux-x64-clang-debug`） | 78 | 208584 | 359 / 11337 |
+  | clang-cl（`win-x64-clang-debug`） | 87 | 555223 | 998 / 45609 |
+  | cl.exe（`win-x64-msvc-debug`） | 87 | 555223 | 998 / 45609 |
+  | Linux（`linux-x64-clang-debug`） | 88 | 241510 | 359 / 11337 |
+
+  **TU 数 +10 的构成**（77→87 / 78→88，2026-09-25 实测）：`Source/Catalog` 四个源 TU + M2b 波 1 的
+  六个新测试 .cpp——每个测试源都是独立编译数据库条目（「测试源不加 TU 数」这个波 1 前预判不成立，
+  `run-clang-tidy` 的按路径去重只合并同一文件的多次入库，如 LoadProbe 双 target 那一例）。
+  Suppressed 合计上跳（501215→555223 / 208584→241510）是新 TU 各带一份 nlohmann/gtest 模板量的
+  乘法形状，单 TU 极值未动即为证。
 
   **Linux 比 Windows 多 1 个 TU**，就是 `Tests/HotSwap/fixtures/NoBuildIdPlugin`——它在
   `if(NOT WIN32)` 里（与按线基数那 +2 条同源）。两侧的 `*Windows.cpp` / `*Posix.cpp` 是成对的，
@@ -602,7 +629,8 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
   `LoadProbe` 与 `UnloadProbe` 两个 fixture，`run-clang-tidy` 按路径去重（两条线都一样）。
 
   数字变了不一定是错，但**要看它变在哪一类**——摘要行里还会出现 `N NOLINT`
-  （本轮的抑制命中次数：Windows 两线 2701、Linux 2751；**这不是仓库里的抑制处数**，
+  （本轮的抑制命中次数：Windows 两线 2898、Linux 2948；较收口波各 +1 是既有抑制被新代码路径
+  多命中一次的计数漂移——源码 diff 可证无新增抑制位点；**这不是仓库里的抑制处数**，
   同一个抑制会被每个包含它的 TU 各计一次——M2a 的 `Value.h` 与 `ConfigMacros.h` 两处
   NOLINTBEGIN 区因此被几十个 TU 各计一遍，数目看着大是这一乘法的形状），以及 gtest 模板实例化带来的巨量非用户代码告警。
   三线正文里的 `ThirdParty/` 路径 diagnostic 实测 **0 条**（`ExcludeHeaderFilterRegex: '.*ThirdParty.*'` 如期生效）。

@@ -29,3 +29,9 @@
 #else
 #define VASE_HOST_API VASE_IMPORT
 #endif
+
+#ifdef VASE_CATALOG_BUILD
+#define VASE_CATALOG_API VASE_EXPORT
+#else
+#define VASE_CATALOG_API VASE_IMPORT
+#endif

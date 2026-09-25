@@ -2,10 +2,13 @@ find_package(GTest CONFIG REQUIRED)
 
 add_executable(VaseTests
     Smoke/CrossDllSmoke.cpp
+    Unit/CatalogWiringSmoke.cpp
     Unit/DetailTests.cpp
     Unit/DescriptorTests.cpp
     Unit/EffectTests.cpp
     Unit/ConfigValueTests.cpp
+    Unit/ManifestJsonTests.cpp
+    Unit/PresetJsonTests.cpp
     Unit/ConfigBlobTests.cpp
     Unit/ConfigMacroTests.cpp
     Unit/LoaderTests.cpp
@@ -20,6 +23,9 @@ add_executable(VaseTests
     Integration/MultiPluginAssemblyTests.cpp
     Integration/RecursiveTeardownTests.cpp
     Integration/ConfigApplyTests.cpp
+    Integration/CatalogScanTests.cpp
+    Integration/SolveTests.cpp
+    Integration/AssemblyFromSolveTests.cpp
     HotSwap/EjectTests.cpp
     HotSwap/AdoptTests.cpp
     HotSwap/HotSwapLoopTests.cpp
@@ -42,6 +48,7 @@ add_subdirectory(Abi/fixtures)
 target_link_libraries(VaseTests
     PRIVATE VaseBuildOptions
             VaseHost
+            VaseCatalog
             GTest::gtest_main)
 
 # PodTestPeer.h 住在这里，测试文件以 `#include "PodTestPeer.h"` 取它。
@@ -81,7 +88,8 @@ target_compile_definitions(VaseTests PRIVATE
     VASE_FIXTURE_NEIGHBORB="$<PATH:CMAKE_PATH,$<TARGET_FILE:NeighborB>>"
     VASE_FIXTURE_TIMER="$<PATH:CMAKE_PATH,$<TARGET_FILE:TimerPlugin>>"
     VASE_FIXTURE_BADLINKA="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingA>>"
-    VASE_FIXTURE_BADLINKB="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingB>>")
+    VASE_FIXTURE_BADLINKB="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingB>>"
+    VASE_FIXTURE_MANIFESTS="$<PATH:CMAKE_PATH,${CMAKE_CURRENT_SOURCE_DIR}/Integration/fixtures/manifests>")
 
 # 档三「特征缺失」fixture（T11）：**整个 if 块（target 与它的宏定义）必须在同一道
 # `if(NOT WIN32)` 里**——宏的值是 `$<TARGET_FILE:NoBuildIdPlugin>`，而生成器表达式

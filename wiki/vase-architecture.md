@@ -74,7 +74,7 @@ Vase 由三层构成，各层生命周期不同、职责正交。
 ```text
 ┌─────────────────────────────────────────────────────────┐
 │ PluginCatalog          元数据层                          │
-│   · 扫描目录、解析 .plugin.json                          │
+│   · 扫描目录、解析 plugin.json                           │
 │   · 静态求解依赖、计算加载计划                            │
 │   · 不加载任何二进制                                      │
 │   · 可被 VaseCli / 编辑器 / 装配期共同复用                │
@@ -513,22 +513,23 @@ struct CombatConfig
 
 （同样地，`VASE_PLUGIN` 的展开物也是契约：工厂函数、描述符布局、导出符号名。三者任一变化，都会破坏「先扫描后加载」这条流程。）
 
-### 3.3 清单：`.plugin.json`
+### 3.3 清单：`plugin.json`
 
-清单与二进制并排放置在**宿主的插件目录**里（这个目录属于宿主，不属于 Vase 仓库）：
+每个插件占一个**子目录**，清单与二进制并排放置其中（宿主的插件目录属于宿主，不属于 Vase 仓库）：
 
 ```text
 <宿主的插件目录>/
-├── VaseCombat.dll
-└── VaseCombat.plugin.json      ← stem 与 DLL stem 一致
+└── VaseCombat/                 ← 一个插件一个子目录
+    ├── VaseCombat.dll
+    └── plugin.json             ← 固定名；与 DLL 同目录即配对
 ```
 
-命名遵循 `<stem>.<kind>.json` 家族，与 Preset 的 `<Name>.preset.json` 保持一致，便于统一 glob。
+清单是固定名 `plugin.json`：配对由「与 DLL 同目录」给出，文件名不携带 stem，枚举只需 glob `*/plugin.json`。Preset 仍用 `<Name>.preset.json`——那是用户手写的多个文件同住一个 `Presets/` 目录，固定名会互相覆盖，两类不必强求一致。
 
 清单的字段如下。注意它们**全部由 3.1 / 3.2 的 C++ 声明生成**，没有人手写这份 JSON：
 
 ```jsonc
-// VaseCombat.plugin.json
+// VaseCombat/plugin.json
 {
     "schemaVersion": 1,
 
@@ -536,7 +537,7 @@ struct CombatConfig
     "displayName": "战斗系统",
     "version": "1.2.0",
 
-    "binary": "VaseCombat",          // DLL stem；缺省时取文件 stem
+    "binary": "VaseCombat",          // DLL stem；缺省时取插件目录名
     "enabledByDefault": true,        // Preset 未提及时是否参与
 
     // 我依赖的服务。缺任何一个 → 本局跳过该插件
@@ -592,6 +593,8 @@ struct CombatConfig
 
 关于 `schemaVersion`：与 6.1 的服务版本**同一条规律**——主版本不同即拒绝，次要差异（新增可选字段）容忍。而且**扫描期与加载期必须用同一规则**：`VaseCli scan` 和 `PluginHost` 若各自判断，就会出现「工具说没问题、运行时拒绝」的分歧，而 3.4 的整条流程恰恰建在「两边结论一致」上。
 
+> **[M2b波1 勘误（2026-09-24, spec `docs/superpowers/specs/2026-09-24-vase-m2b-catalog-solving-design.md` §4/D49）]** 上句「次要差异（新增可选字段）容忍」说的是**格式世代**方向（新解析器读旧世代的清单）；解析器随库版本**独一**，不做版本化多解析。「容忍」不延伸到 unknown：落地形态里 `plugin.json` 的顶层与条目级 unknown 键一律**解析期拒**（D49/D64 硬闸），「两边结论一致」正是由这个独一 parser + 硬闸兑现的。
+
 ### 3.4 清单的权威性与生成流程
 
 清单有**两个副本**，必须一致；权威在二进制里。
@@ -605,15 +608,15 @@ struct CombatConfig
     │  VaseCli scan（构建期，一次性）
     │  · 加载 DLL
     │  · 读出导出的描述符
-    │  · 生成 VaseCombat.plugin.json
+    │  · 生成 VaseCombat/plugin.json
     │  · 立即卸载
     ▼
-VaseCombat.plugin.json          ← 外部副本，工具与宿主读它
+VaseCombat/plugin.json          ← 外部副本，工具与宿主读它
     │
     │  加载期加载 DLL
     │  · 先读 HeaderVersion —— 不匹配即拒绝（8.3 的前提在此兑现）
     │  · 读出描述符
-    │  · 与 .plugin.json 逐字段比对（含 schemaVersion）
+    │  · 与 plugin.json 逐字段比对（含 schemaVersion）
     │  · 不一致 → 拒绝加载并报告
     ▼
 Pod
@@ -665,6 +668,8 @@ Preset **只记录偏离默认的部分**，不是全量列表。
 
 **谁解析 Preset：`PluginCatalog`，不是 `Pod`。** 理由：Catalog 本来就是「元数据、工具、宿主共用」的那一层，是给 `VaseCli` 和编辑器用的；`Pod` 不碰文件系统、不碰 JSON。**JSON 依赖因此只落在最上面那一层**，核心库不带它。这也解释了 5.1 的 `Solve` 为什么能同时接受「一个路径」和「一个已解析的 Preset 值」——两种输入都由 Catalog 消化。
 
+> **[M2b波1 勘误（2026-09-24, 同上 spec §3/§6/D46/D60）]** 「由 Catalog 消化」兑现的更细一层：**路径消化不在 `Solve`**——目录路径由 `PluginCatalog::Refresh` 消化、Preset 路径由 `LoadPreset` 消化，`Solve` 接的 `LoadRequest` 里只有已解析的值形（D46）。且该结构相对本节的提议形另多了一个 `HostProvided` 声明面（宿主声明本局 Stage0 会注册什么，D60）。
+
 **引用了不存在的插件 `Id` 时：不报错，记 warn**，并在 `VaseCli validate` 与宿主的诊断报告里列出来。理由：Preset 是增量的，插件被临时删掉、换了名字、或还没构建出来都是常态；报错会让「删掉一个插件」变成「必须同步改所有 Preset」——**这条摩擦会直接导致没人敢删插件**，而脏 Preset 比脏代码更难发现。
 
 ### 4.2 配置合并规则
@@ -696,6 +701,8 @@ Preset（落盘的、命名的覆盖集）
 - 哪些插件会因**静态原因**被跳过，以及原因是什么
 
 **求解器是纯函数**：`PluginCatalog::Solve(const LoadRequest&) -> Result<LoadPlan>`。它是**公开 API**，`VaseCli` 和编辑器直接调它预览；`CreatePod` 接受的是 `LoadPlan` 而不是 `LoadRequest`——所以「求解」和「装配」是**同一次计算**，不是两次各算一遍。没有第二次求解，就没有漂移的可能。
+
+> **[M2b波1 勘误（2026-09-24, 同上 spec §6/D47/D62）]** 实形返回 `Result<SolveOutcome>`——`SolveOutcome = { LoadPlan Plan; std::vector<SolveNote> Notes }`：warn 族不进计划、随计划一起以结构化字段返回（D47），Notes 按 Kind/PluginId/Key/Cause 逐字段可断言（D62，判据不匹配消息子串）。`CreatePod` 仍只接 `LoadPlan`，「同一次计算」不变。
 
 **Catalog 是有状态的，但状态只通过显式 `Refresh()` 改变。**
 
@@ -768,7 +775,9 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle, const PluginId&);
 // EjectReport：被拒时点名每个消费者；成功时载明三档证据与重置了哪些进程级状态（9.1）
 ```
 
-> **[M2a 落地勘误（2026-09-24，同上 spec 3.1/D23）]** `Entry` 的实形是平铺的 `vase::LoadPlanEntry`（住 `Include/Vase/Host/LoadPlan.h`，非嵌套），多一个提议形没给的字段：`BinaryPath`——M2a 手写计划必填（绝对或相对 CWD，Host 内部绝对化），M2b 由 `Solve` 从清单 stem + 目录填。`ResolvedConfig` 的「默认值已经并进去」的运行期形态 = **缺字段回退 `kFields` 默认**（手写计划只给增量也合法；空 blob = 全默认）。
+> **[M2a 落地勘误（2026-09-24，同上 spec 3.1/D23）]** `Entry` 的实形是平铺的 `vase::LoadPlanEntry`（住 `Include/Vase/Host/LoadPlan.h`，非嵌套），多一个提议形没给的字段：`BinaryPath`——M2a 手写计划必填（绝对或相对 CWD，Host 内部绝对化），M2b 由 `Solve` 从清单 `binary` + 目录填。`ResolvedConfig` 的「默认值已经并进去」的运行期形态 = **缺字段回退 `kFields` 默认**（手写计划只给增量也合法；空 blob = 全默认）。
+
+> **[M2b波1 勘误（2026-09-24, 同上 spec §3/D46/D47/D60）]** 上块的提议签名实形为 `Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest&) const`（D47，见 4.4 处勘误）。提议形的 `LoadRequest` 带 `PluginDirectory`——**落地形没有它**（D46：目录的属主是快照，由 `Refresh` 携带，不在求解输入面出现）；`PodOverrides` 落地名为 `Overrides`；另多一个提议形没有的 `HostProvided` 声明面（D60）。
 
 求解失败（循环依赖、同一服务被两个插件提供、清单损坏、插件 `Id` 重复）返回错误，不产生计划。
 
@@ -1470,7 +1479,7 @@ Tools/VaseCli/     → VaseCli
 ### 11.1 `VaseCli`
 
 ```text
-VaseCli scan     <插件目录>     加载每个 DLL、读出描述符、生成 .plugin.json
+VaseCli scan     <插件目录>     加载每个 DLL、读出描述符、生成 plugin.json
 
 VaseCli validate <插件目录>     校验四项：
                                   · 清单与二进制是否一致、schemaVersion 是否兼容
@@ -1632,7 +1641,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 ### 13.1 尚未决定
 
 - **`Effect` 的存储形态与分配成本**——纯性能问题。7.4 已记下约束（必须能容纳插件 DLL 内的代码、必须在卸载前全部回收），具体类型（`std::function` / 自研类型擦除 / 模板化）实现时测量决定。
-- **平台差异的收口方式**——8.5 定了编译矩阵，但若干差异还没落到具体接口上：Unicode 路径、大小写敏感的文件系统、路径分隔符、动态库扩展名与加载 API 的差异。约定是「全部收在 `Loader` 层」，但那条约定本身还只是一句话。v3 给它加码了：`Loader` 现在还要承载三档证据（8.2）与导入表执法（8.7），这条收口约定的分量比 v2 重得多。
+- **平台差异的收口方式**——8.5 定了编译矩阵，但若干差异还没落到具体接口上：Unicode 路径、大小写敏感的文件系统、路径分隔符、动态库扩展名与加载 API 的差异。约定是「全部收在 `Loader` 层」，但那条约定本身还只是一句话。v3 给它加码了：`Loader` 现在还要承载三档证据（8.2）与导入表执法（8.7），这条收口约定的分量比 v2 重得多。**[M2b波1 勘误（2026-09-24, 同上 spec §6/D54）]** 「全部收在 `Loader` 层」的范围 = **加载行为**（dlopen/dlsym、映射、证据链、导入表）。库文件命名（扩展名与 `lib` 前缀的平台差，`LibraryFileName`）M2b 波 1 起在 Catalog 层另立私有实现（`Source/Catalog/Detail/LibraryFileName.h`，D54）——那是清单→路径的翻译，不是加载行为，收口点因此比 Loader 高一档；平台差异仍是单点收口，只是这个单点不止一个。
 - **身份特征缺失时的内存哈希兜底（v3）**——特征已是构建要求（8.2、13.2），但「无特征的旧二进制」是永远被拒还是有哈希兜底，未决。暂不设计，出现真实需求再议。
 - **macOS 热插拔能力上限（v3）**——dyld4 neverUnload 的条件清单远宽于 glibc（ObjC/Swift、static terminators、主程序静态依赖），且 `dlclose` 返回 0 不可信。「哪些插件在 macOS 上可热卸」由 M5 实测回答；机制与风险段见 8.2。
 
@@ -1711,7 +1720,7 @@ Vase 的设计借鉴了 cordis（一个 TypeScript 元框架）的若干思路�
 | 逆序回收 | 同 | 「后注册先销毁」是关停顺序正确性的来源 |
 | 服务即能力单元，经 Context 解析 | 同 | 插件不直接互相引用 |
 | 声明式依赖 + 拓扑加载 | 同 | `requires` → `LoadPlan` |
-| 插件是纯粹的声明 | 同（`.plugin.json`） | 元数据与代码分离 |
+| 插件是纯粹的声明 | 同（`plugin.json`） | 元数据与代码分离 |
 
 ### A.2 明确不做的
 

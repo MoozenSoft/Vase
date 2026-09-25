@@ -36,7 +36,7 @@
 | D9 | `EffectHandle` = **索引 + 代际** | 与 5.1 的 `SessionHandle` 同构；代际一次解决 7.2 幂等与 7.3 的「从账上移除」 |
 | D10 | 节点池**跨 Session 复用**，挂在 `PluginHost` 上 | 让「反复 Play / Stop」在稳态下零分配。与 1.2 不冲突：池里只有空闲节点，不持有实例级对象 |
 | D11 | CMake 建**两个动态库 target**：`VaseSession`、`VaseHost` | 「插件不依赖 Host」从约定变成链接期事实 |
-| D12 | M1 手写 **`LoadPlan`**，不手写 `.plugin.json` | `LoadPlan` 是普通 struct，Catalog 接上后走同一条路径，不产生返工 |
+| D12 | M1 手写 **`LoadPlan`**，不手写 `plugin.json` | `LoadPlan` 是普通 struct，Catalog 接上后走同一条路径，不产生返工 |
 | D13 | `HeaderVersion` **提前**到 M1 | 它是描述符结构体的字段，而布局是对外契约；12 节标为承重。晚加要改布局 |
 | D14 | `LeakyPlugin` 与泄漏归属 **提前**到 M1 | 让「计数归零」这条判据不至于只证明了一个恒为零的计数器 |
 | D15 | 属主追踪器 M1 只上**最小版** | 进程级容器插入时断言属主为空或为进程级；完整归属标记等 M2 有多插件后再补 |
@@ -563,7 +563,7 @@ M1 自有测试：
 
 ### 3.6 M1 不做
 
-Catalog、`.plugin.json`、Preset、`ConfigBlob`、配置宏反射、Waterfall、`CreateScope` 子作用域、拓扑排序、多插件、依赖求解、级联拆除、`Strict` 模式的实际触发、双版本 reload、`VaseCli`、`VasePack`、macOS。
+Catalog、`plugin.json`、Preset、`ConfigBlob`、配置宏反射、Waterfall、`CreateScope` 子作用域、拓扑排序、多插件、依赖求解、级联拆除、`Strict` 模式的实际触发、双版本 reload、`VaseCli`、`VasePack`、macOS。
 
 ---
 
@@ -572,7 +572,7 @@ Catalog、`.plugin.json`、Preset、`ConfigBlob`、配置宏反射、Waterfall�
 ```text
 M0  骨架   CMake + 双平台工具链 + vcpkg + GoogleTest + 跨 DLL 冒烟
 M1  闭环   Effect / Context / Host 单插件 + 卸载证据 + 诊断归零
-M2  清单   Catalog + .plugin.json + 拓扑序 + 跳过分类 + 配置（宏反射 / ConfigBlob）
+M2  清单   Catalog + plugin.json + 拓扑序 + 跳过分类 + 配置（宏反射 / ConfigBlob）
 M3  诊断   进程级状态登记 + SessionReport 完善 + 完整属主追踪器
 M4  重载   Tests/Reload 双版本 fixture（卸载 / 替换 / 重载的端到端验证）
 M5  发布   VasePack + VaseCli + macOS arm64 + CI

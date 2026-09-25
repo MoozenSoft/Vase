@@ -6,6 +6,8 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace
 {
@@ -42,6 +44,17 @@ EffectScope& PodTestPeer::InjectLeakedScope(Pod& pod, const char* ownerLabel, st
         scope.Create<Noop>(i);
     }
     return scope;
+}
+
+std::vector<std::string> PodTestPeer::InstanceOrder(const Pod& pod)
+{
+    std::vector<std::string> order;
+    order.reserve(pod.Instances.size());
+    for (const auto& live : pod.Instances)
+    {
+        order.emplace_back(live->OwnerLabel);
+    }
+    return order;
 }
 
 } // namespace vase

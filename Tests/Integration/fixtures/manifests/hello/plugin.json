@@ -1,0 +1,7 @@
+{
+    "schemaVersion": 1,
+    "id": "Vase.Hello",
+    "binary": "HelloPlugin",
+    "provides": [ { "service": "Vase.Hello.Greeter", "version": 1 } ],
+    "config": [ { "key": "Repeats", "type": "int32", "default": 1 } ]
+}

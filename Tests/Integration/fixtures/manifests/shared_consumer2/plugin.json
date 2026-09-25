@@ -1,0 +1,6 @@
+{
+    "schemaVersion": 1,
+    "id": "Vase.SharedConsumer2",
+    "binary": "SharedConsumer2Plugin",
+    "requires": [ { "service": "Vase.Test.Shared", "version": 1 } ]
+}

@@ -3,7 +3,8 @@
   "version-string": "0.1.0",
   "description": "插件管理能力库",
   "dependencies": [
-    "gtest"
+    "gtest",
+    "nlohmann-json"
   ],
   "builtin-baseline": "114d9fe62faf35856b45cf55cb93b57028a45d63"
 }
