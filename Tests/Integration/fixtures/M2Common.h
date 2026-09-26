@@ -24,7 +24,8 @@ public:
     [[nodiscard]] virtual int Value() const = 0;
 };
 
-// 配置应用判据：把 ctx.Config<T>().Echo 原样吐回来（值 = 供给 blob 的，或被默认）。
+// 配置应用判据：把 ctx.Config<T>().Echo 原样吐回来（值 = 供给 blob 的，或被默认）；
+// MoodLabel 是 enum 应用现场读回（D79 正反两半：域内值落进成员、读得到 label）。
 class IConfigEcho
 {
 public:
@@ -39,6 +40,8 @@ public:
     [[nodiscard]] virtual int Value() const = 0;
     // R-F1 证人：调用时才从类型化配置结构体读 kString 借用指针（非 OnLoad 期的深拷）。
     [[nodiscard]] virtual const char* Banner() const = 0;
+    // enum 读回证人：调用时按**已应用的** Mood 成员现选 label（域内值 → 表里文本）。
+    [[nodiscard]] virtual const char* MoodLabel() const = 0;
 };
 
 // 环退化互缺（D40）：A strict 需 B、B strict 需 A。

@@ -6,6 +6,7 @@
 // kString 的借用视图指向 Entry::Stored 里 std::string 的数据——窗口 = 本 blob 任何后续变更之前：
 // 任意键的 Set/MergeShallow 插入都可能重分配挪走短串（Set 已把拷入上提到重分配点之前挡住自借用）。
 // 借出的指针随来源 blob 存续——装配供给源已收编为 slot->Replays 单源，覆盖全部实例存活期（R-F1，spec §3.3 勘误）。
+// kEnum 自 M2b 波 2（D75/D78）：Set/ToView 走 int32 位形 ⇄ EnumStored，与 kInt32 各存各的。
 
 #include "Vase/Config/ConfigInfo.h"
 #include "Vase/Detail/Export.h"
@@ -24,7 +25,12 @@ namespace vase
 class VASE_HOST_API ConfigBlob
 {
 public:
-    using Storage = std::variant<bool, std::int32_t, std::int64_t, float, double, std::string>;
+    struct EnumStored
+    {
+        std::int32_t Value = 0;
+    }; // kEnum 的拥有形；与 kInt32 是 variant 的两个不同 alternative，不可混读（D78）
+
+    using Storage = std::variant<bool, std::int32_t, std::int64_t, float, double, std::string, EnumStored>;
 
     struct Entry
     {

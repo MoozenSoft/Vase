@@ -1,7 +1,14 @@
 {
     "schemaVersion": 1,
     "id": "Vase.Hello",
+    "displayName": "示例插件",
+    "version": "0.1.0",
     "binary": "HelloPlugin",
     "provides": [ { "service": "Vase.Hello.Greeter", "version": 1 } ],
-    "config": [ { "key": "Repeats", "type": "int32", "default": 1 } ]
+    "config": [
+        { "key": "Repeats", "type": "int32", "default": 1, "displayName": "问候次数" },
+        { "key": "MoodValue", "type": "enum", "displayName": "情绪",
+          "choices": [ { "value": 0, "label": "安静" }, { "value": 1, "label": "响亮" } ],
+          "default": "安静" }
+    ]
 }

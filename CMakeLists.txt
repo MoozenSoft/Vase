@@ -281,6 +281,10 @@ add_subdirectory(Samples/HelloPlugin)
 # $<TARGET_FILE:HelloPluginPrime>，求值时该 target 必须已存在。
 add_subdirectory(Samples/HelloPluginPrime)
 add_subdirectory(Samples/Embedding)
+# T11 依赖链/失败演示两员：Tests 的 AssemblyFromSolve Sample 证人经 $<TARGET_FILE:> 用它们，
+# 故同样必须在 add_subdirectory(Tests) 之前就位。
+add_subdirectory(Samples/DependentPlugin)
+add_subdirectory(Samples/FailingPlugin)
 add_subdirectory(Tools/VaseConsole)
 
 add_subdirectory(Tests)

@@ -28,7 +28,8 @@ class Plugin;  // 同上：PluginDescriptor 的两个函数指针按名引用它
 // §8.3：「插件与宿主包含同一份 Vase 头文件」这条前提唯一的执行点（§3.1）。
 // 每次不兼容改动递增；插件作者不需要知道它的存在。
 // 1 → 2（M2a-T3）：PluginMeta 布局变更——新增 OptionalRequires 与 Config 两槽（D26）。
-inline constexpr std::uint32_t kHeaderVersion = 2U;
+// 2 → 3（M2b-波2）：FieldInfo 尾追加 Choices/ChoiceCount 两槽（D76）。
+inline constexpr std::uint32_t kHeaderVersion = 3U;
 
 struct ServiceRef
 {

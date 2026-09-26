@@ -49,15 +49,22 @@ struct ManifestDependency
     std::uint32_t Version = 0; // 解析期保证 ≥1（D64）
 };
 
+// enum choices 条目（D80）：拥有形——快照自持，比对域含它（D72 末句）。
+struct ManifestChoice
+{
+    std::int32_t Value;
+    std::string Label;
+};
+
 // 导出靠类级宏：三个访问器是 DLL 内的出定义，Windows 下测试二进制（链 VaseCatalog）
 // 不导入就 unresolved external——与 PluginCatalog 同机制。
 struct VASE_CATALOG_API ManifestConfigField
 {
     std::string Key;
-    ValueKind Kind = ValueKind::kNone; // 六型（spec §4）；enum 波 2 开闸
+    ValueKind Kind = ValueKind::kNone; // 七型（spec §4）；enum 自波 2 合法（D49 预留兑现）
 
     std::uint64_t DefaultBits = 0;
-    std::string DefaultStr; // kString 专属
+    std::string DefaultStr; // kString 值；enum 中间形存 default 的 label（换 value 归 Solve，D80）
 
     std::uint64_t MinBits = 0;
     std::uint64_t MaxBits = 0;
@@ -66,7 +73,9 @@ struct VASE_CATALOG_API ManifestConfigField
 
     std::string DisplayName;
 
-    [[nodiscard]] Value DefaultValue() const; // kString 借本条目 DefaultStr（快照内稳定）
+    std::vector<ManifestChoice> Choices; // 拥有形；Kind==kEnum 时非空，非 enum 恒空（D80）
+
+    [[nodiscard]] Value DefaultValue() const; // kString 与 enum 的 label 中间形借本条目 DefaultStr（快照内稳定）
     [[nodiscard]] Value MinValue() const;     // !HasMin → kNone
     [[nodiscard]] Value MaxValue() const;
 };
@@ -85,5 +94,9 @@ struct ManifestEntry
     std::vector<ManifestDependency> Provides;
     std::vector<ManifestConfigField> Config;
 };
+
+// 清单事实 → 加载期期望（D84）：拥有值形、逐字段深拷（D61 借用窗不随迁）；enum default 的
+// label→value 换算在此收口（「期望形只存 value 形」，D80）。定义在 Source/Catalog/PluginCatalog.cpp。
+VASE_CATALOG_API ManifestExpectation BuildExpectation(const ManifestEntry& entry);
 
 } // namespace vase

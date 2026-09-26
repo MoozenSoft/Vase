@@ -7,7 +7,8 @@
 //                                                    .Min = vase::Value::From<float>(1.0f),
 //                                                    .Max = vase::Value::From<float>(10.0f)}),
 //       (bool, FriendlyFire, false, vase::Meta{.Label = "友军伤害"}));
-// 展开物 = struct Type{ 成员(默认值 = 元组第3项) ; static constexpr kFields ; 配对工厂 }。
+// enum 字段必带表：Meta{..., .Choices = vase::ChoicesOf(命名数组)}——表须 inline constexpr（D76/D77）。
+// 展开物 = struct Type{ 成员(默认值 = 元组第3项) ; D76 配对 CHECK ; static constexpr kFields ; 配对工厂 }。
 // 宏参数内花括号不受 Allman 管辖（与 VASE_PLUGIN 同例外）。至少 1 个字段；无配置就别用本宏。
 
 #include "Vase/Config/ConfigInfo.h"
@@ -80,6 +81,20 @@
 #define VASE_CONFIG_DETAIL_MEMBER(S, T)                                                                                 \
     VASE_CONFIG_DETAIL_T1 T VASE_CONFIG_DETAIL_T2 T = VASE_CONFIG_DETAIL_T3 T;
 
+// D76 配对执法与 D80 侧「默认 ∈ choices」闸（账①）的落点：条件在展开处是 manifestly-constant
+// 表达式（Meta 实形 + consteval KindOf / constexpr MetaChoiceCount），所以 static_assert 放这里
+// 而不是 MetaChoices 体内（形参非常量式）。
+#define VASE_CONFIG_DETAIL_CHECK(S, T)                                                                                \
+    static_assert(vase::KindOf<VASE_CONFIG_DETAIL_T1 T>() != vase::ValueKind::kEnum ||                                \
+                      vase::MetaChoiceCount(VASE_CONFIG_DETAIL_TAIL T) > 0U,                                          \
+                  "enum config field must carry choices (D76)");                                                      \
+    static_assert(vase::KindOf<VASE_CONFIG_DETAIL_T1 T>() == vase::ValueKind::kEnum ||                                \
+                      vase::MetaChoiceCount(VASE_CONFIG_DETAIL_TAIL T) == 0U,                                         \
+                  "choices only legal on enum fields (D76)");                                                         \
+    static_assert(vase::DefaultInChoices<VASE_CONFIG_DETAIL_T1 T>(VASE_CONFIG_DETAIL_T3 T,                            \
+                                                                 vase::MetaChoices(VASE_CONFIG_DETAIL_TAIL T)),        \
+                  "enum config field default must be one of its choices (D80)");
+
 #define VASE_CONFIG_DETAIL_FIELD(S, T)                                                                                  \
     vase::FieldInfo{.Name = VASE_CONFIG_DETAIL_STR2 T,                                                                \
                     .Kind = vase::KindOf<VASE_CONFIG_DETAIL_T1 T>(),                                                  \
@@ -87,12 +102,15 @@
                     .Min = vase::MetaMin(VASE_CONFIG_DETAIL_TAIL T),                                                  \
                     .Max = vase::MetaMax(VASE_CONFIG_DETAIL_TAIL T),                                                  \
                     .Label = vase::MetaLabel(VASE_CONFIG_DETAIL_TAIL T),                                              \
-                    .Apply = vase::kApplyTo<&S::VASE_CONFIG_DETAIL_T2 T>},
+                    .Apply = vase::kApplyTo<&S::VASE_CONFIG_DETAIL_T2 T>,                                             \
+                    .Choices = vase::MetaChoices(VASE_CONFIG_DETAIL_TAIL T).Items,                                    \
+                    .ChoiceCount = vase::MetaChoices(VASE_CONFIG_DETAIL_TAIL T).Count},
 
 #define VASE_CONFIG(Type, ...)                                                                                        \
     struct Type                                                                                                       \
     {                                                                                                                 \
         VASE_CONFIG_DETAIL_FOR_EACH(VASE_CONFIG_DETAIL_MEMBER, Type, __VA_ARGS__)                                     \
+        VASE_CONFIG_DETAIL_FOR_EACH(VASE_CONFIG_DETAIL_CHECK, Type, __VA_ARGS__)                                      \
         static constexpr std::array<vase::FieldInfo, VASE_CONFIG_DETAIL_NARG(__VA_ARGS__)> kFields =                  \
             {{VASE_CONFIG_DETAIL_FOR_EACH(VASE_CONFIG_DETAIL_FIELD, Type, __VA_ARGS__)}};                             \
         static void* VaseConfigCreate() { return std::make_unique<Type>().release(); }                                \

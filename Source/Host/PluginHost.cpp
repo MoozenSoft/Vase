@@ -13,11 +13,14 @@
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
 #include "Vase/Host/Loader.h"
+#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/PluginDescriptor.h"
 #include "Vase/Pod/Context.h"
 #include "Vase/Pod/DependencyLedger.h"
 #include "Vase/Pod/Pod.h"
 #include "Vase/Service/Service.h"
+
+#include "Detail/ManifestCompare.h"
 
 #include <algorithm>
 #include <array>
@@ -103,6 +106,19 @@ std::string LowerAscii(std::string_view text)
     return lowered;
 }
 
+// 绝对化与 Loader::EnsureResident 用**同一套写法**（Loader.cpp:23）：驻留表的查询键是字面
+// 比较，相对路径查不到那条。Adopt 两轨入口共用（T8 自 ① 段提出），只算一次各下游调用同值。
+[[nodiscard]] std::filesystem::path MakeAbsolutePath(const std::filesystem::path& raw)
+{
+    std::error_code ec;
+    std::filesystem::path abs = std::filesystem::absolute(raw, ec);
+    if (ec)
+    {
+        return raw;
+    }
+    return abs;
+}
+
 // §0.2「每次进出必须有账可查」：Eject / Adopt 的每条拒绝都要带「谁、哪一步」。ErrorContext
 // 在指定初始化下四个字段必须全写（-Wmissing-designated-field-initializers 是 error），
 // 故把构造收到这一处。
@@ -158,8 +174,23 @@ const char* ValueKindName(vase::ValueKind kind)
         return "kDouble";
     case vase::ValueKind::kString:
         return "kString";
+    case vase::ValueKind::kEnum:
+        return "kEnum";
     }
     return "kOutOfRange";
+}
+
+// D79 成员闸的核对体：手写 blob 可绕开 Solve 的域闸，装配点补扫 choices（宏面保证 enum 必带表）。
+bool EnumValueInChoices(const vase::FieldInfo& field, std::int32_t value)
+{
+    for (std::uint32_t index = 0; index < field.ChoiceCount; ++index)
+    {
+        if (std::next(field.Choices, static_cast<std::ptrdiff_t>(index))->Value == value)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -384,6 +415,19 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
         }
         const PluginDescriptor* desc = inspected.Value();
 
+        // D67/D68 期望比对：HeaderVersion 闸后、注册表/账本动作前（kSkip 条目已在上面出圈，无从比对）。
+        // 空 Expected = M2a 行为逐字节一致；失败与 InspectBinary 同形落账（D70：记录 + 镜像留架）。
+        if (entry.Expected.has_value())
+        {
+            const Result<void> compared = detail::CompareDescriptor(*entry.Expected, *desc);
+            if (!compared.IsOk())
+            {
+                recordFailure(entry.Id, Phase::kLoad, compared.GetError().Message());
+                recordFailedBinary(entry.Id, resident.Value());
+                continue;
+            }
+        }
+
         // (a') Provides 碰撞（D33 ②，M2a 两态形：声明要读镜像才看得见，检出必在 inspect 后）。
         // 查两处：声明登记账（Loaded/Failed/Skipped 都算——「一服务一实现」是声明级不变量，
         // 不豁免「他者反正倒了」）∪ 注册表（宿主 Stage0 也算）。记账仍先于预检（D41 归因要用）。
@@ -534,13 +578,7 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
         return Result<PodHandle>::Err(error);
     }
 
-    // D30：KnownBinaries 为**全部**条目注册（含 kSkip 与装载失败者）——Adopt 不关心它当初为何没进局。
-    // （Replays 的灌入已前移到装配循环之前——R-F1 单源。）
-    for (const LoadPlanEntry& entry : plan.Ordered)
-    {
-        KnownBinaries[std::string(entry.Id)] = entry.BinaryPath; // §5.6：M1 无清单，以计划登记代替
-    }
-
+    // （Replays 的灌入已前移到装配循环之前——R-F1 单源。M1 的 KnownBinaries 注册段随路径账退役，T12/D69。）
     return Result<PodHandle>::Ok(PodHandle{.Index = index, .Generation = slot->Generation});
 }
 
@@ -579,6 +617,36 @@ Result<std::unique_ptr<Pod::LiveInstance>> PluginHost::MakeInstance(Pod& pod, de
                 context.PluginId = std::string(desc->Meta->Id);
                 context.Stage = Phase::kLoad;
                 return Result<std::unique_ptr<Pod::LiveInstance>>::Err(Error{std::move(message), std::move(context)});
+            }
+            // D79：kind 闸已过，kEnum 位形即 int32；∉ choices → 与 D32 同通道的 Err。
+            if (chosen.Kind == ValueKind::kEnum)
+            {
+                const auto enumValue = chosen.GetAs<std::int32_t>();
+                if (!EnumValueInChoices(field, enumValue))
+                {
+                    info.DestroyConfig(store);
+                    std::string message{"config field "};
+                    message.append(field.Name);
+                    message.append(" value ");
+                    message.append(std::to_string(enumValue));
+                    message.append(" not in choices in plugin ");
+                    message.append(desc->Meta->Id);
+                    message.append(":");
+                    for (std::uint32_t choiceIndex = 0; choiceIndex < field.ChoiceCount; ++choiceIndex)
+                    {
+                        const ChoiceInfo& choice = *std::next(field.Choices, static_cast<std::ptrdiff_t>(choiceIndex));
+                        message.append(" ");
+                        message.append(std::to_string(choice.Value));
+                        message.append("=\"");
+                        message.append(choice.Label);
+                        message.append("\"");
+                    }
+                    ErrorContext context;
+                    context.PluginId = std::string(desc->Meta->Id);
+                    context.Stage = Phase::kLoad;
+                    return Result<std::unique_ptr<Pod::LiveInstance>>::Err(
+                        Error{std::move(message), std::move(context)});
+                }
             }
             field.Apply(store, chosen); // D35：Min/Max 不查——纯展示元信息
         }
@@ -832,13 +900,22 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
     // 平台选择与 ~PluginHost 同形：本平台有判据力的那个字段作判。
     report.BinaryActuallyUnloaded =
         evidence.ReopenWritableIsMeaningful ? evidence.ReopenWritable : evidence.MappingRemoved;
-    // KnownBinaries[id] 的**路径账保留**：§5.6「Adopt 就地重读」的 M1 前身——清单没有，
-    // 路径留着，下一手可能反悔再 Adopt（12.1 的循环正是 Eject 之后立刻 Adopt）。
+    // 本局不再记得它，镜像在架与否由 ③ 的全局闸结算；「Eject 之后立刻 Adopt」的循环
+    // （§12.1）自此不需要路径账——下一手 Adopt 的路径由调用方自带（D71）。
     slot->HotSwapLog.push_back("eject:" + id);
     return Result<EjectReport>::Ok(std::move(report));
 }
 
-Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view pluginId)
+// Adopt 单轨（T12）：路径与兄弟集全由请求自带（D71）——M1 旧 overload 与 KnownBinaries 路径账已退役，
+// 「M2 还债：连同本条注释一起删」在此兑现。
+Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, const AdoptRequest& request)
+{
+    return AdoptImpl(handle, request.Id, MakeAbsolutePath(request.BinaryPath), request.Expected,
+                     request.SiblingBinaries);
+}
+
+Result<AdoptReport> PluginHost::AdoptImpl(PodHandle handle, const std::string& id, const std::filesystem::path& absPath,
+                                          const ManifestExpectation* expected, const std::vector<std::string>& siblings)
 {
     // §5.6 规则④：进出全程串行于绑定线程（Adopt 会跑插件的 OnLoad/OnStart）。
     AssertBoundThread("AdoptPlugin");
@@ -846,53 +923,45 @@ Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view p
     PodSlot* slot = FindSlot(handle);
     if (slot == nullptr)
     {
-        return Result<AdoptReport>::Err(Refusal(pluginId, Phase::kAdopt, "adopt on stale pod handle"));
+        return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, "adopt on stale pod handle"));
     }
     Pod& pod = *slot->Inner; // friend：Instances / FailureRecords / Registry 都是 Pod 的私有成员
-    const std::string id(pluginId);
+
+    // ⓪-guard（误用两类，判定序 stale 之后、一切执法之前）：先问有没有期望，再问两枚身份同源。
+    if (expected == nullptr)
+    {
+        return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, "adopt refused: manifest expectation required"));
+    }
+    if (expected->Id != id)
+    {
+        return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, "adopt request/expectation id mismatch"));
+    }
 
     // ⓪ 身份唯一：本局已有该 Id 的活实例或 Failed 记录 → 拒。失败**残留条目**也带
     //    OwnerLabel（Instance 已置空），故第一段同时覆盖「活实例」与「失败残留」；
     //    FailureRecords 那一路覆盖「EnsureResident 自己失败、连镜像都没有」的形态。
     for (const std::unique_ptr<Pod::LiveInstance>& candidate : pod.Instances)
     {
-        if (candidate->OwnerLabel == pluginId)
+        if (candidate->OwnerLabel == id)
         {
             return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, "adopt refused: " + id + " is already in pod"));
         }
     }
     for (const FailedPluginRecord& failure : pod.FailureRecords)
     {
-        if (failure.Id == pluginId)
+        if (failure.Id == id)
         {
             return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, "adopt refused: " + id + " is already in pod"));
         }
     }
 
-    // ① §5.6①「清单就地重读」的 M1 代偿：路径账是 CreatePod 时记下的（KnownBinaries）。
-    //    **M2 还债**：PluginCatalog 接手这张表，届时连同本条注释一起删。
-    const auto known = KnownBinaries.find(id);
-    if (known == KnownBinaries.end())
-    {
-        return Result<AdoptReport>::Err(
-            Refusal(id, Phase::kAdopt,
-                    "adopt refused: unknown plugin id " + id +
-                        " — M1 requires prior registration through a LoadPlan (M2's Catalog "
-                        "replaces this table)"));
-    }
-    // 绝对化与 Loader::EnsureResident 用**同一套写法**（Loader.cpp:23）：驻留表的查询键是
-    // 字面比较，相对路径查不到那条。只算一次，下面两个 Loader 调用共用同一个值。
-    std::error_code ec;
-    std::filesystem::path abs = std::filesystem::absolute(known->second, ec);
-    if (ec)
-    {
-        abs = known->second;
-    }
+    // ① 就地重读的落点在调用方（§5.6/D67：Catalog 侧 AdoptInto 重读清单并喂期望；手写旁路自备）。
+    //    本体不碰路径账——absPath / expected / siblings 全部由门口带入。
 
     // ② 档三验新。FindResident 只用来**分流**（它决定 ReusedResidentImage、也决定要不要比对）；
     //    记录本体两分支都从 EnsureResident 取——已驻留时它按文档复用同一记录、不触发二次平台
     //    加载，于是这里不必把 const 访问器的结果 const_cast 回可变。
-    const detail::BinaryRecord* resident = Loader.FindResident(abs);
+    const detail::BinaryRecord* resident = Loader.FindResident(absPath);
     const bool reused = resident != nullptr;
     if (reused)
     {
@@ -903,7 +972,7 @@ Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view p
         {
             return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, memory.GetError().Message()));
         }
-        const Result<detail::ImageIdentity> disk = detail::Loader::FileIdentity(abs);
+        const Result<detail::ImageIdentity> disk = detail::Loader::FileIdentity(absPath);
         if (!disk.IsOk())
         {
             return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, disk.GetError().Message()));
@@ -917,7 +986,7 @@ Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view p
                         "that tier two cannot see. escape: rebuild the pod / eject-all then retry"));
         }
     }
-    const Result<detail::BinaryRecord*> ensured = Loader.EnsureResident(abs);
+    const Result<detail::BinaryRecord*> ensured = Loader.EnsureResident(absPath);
     if (!ensured.IsOk())
     {
         // T6：消息自带缺依赖诊断
@@ -932,6 +1001,16 @@ Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view p
         return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, inspected.GetError().Message()));
     }
     const PluginDescriptor* desc = inspected.Value();
+
+    // ③.5 清单比对（D69「Adopt 必比」，T12 单轨后无旁路）：CreatePod 的同一份 CompareDescriptor
+    // 与同一消息格式器（D72 单点），失败透传原文进 Adopt 的 Refusal 通道。
+    {
+        const Result<void> compared = detail::CompareDescriptor(*expected, *desc);
+        if (!compared.IsOk())
+        {
+            return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, compared.GetError().Message()));
+        }
+    }
 
     // ③' Provides 不得与活集合已注册服务相碰（D43）：不做这步，错 Adopt 会走到 ⑥ 的
     // duplicate-Provide **终止**——§5.6「任一步失败 → X 干净退出」在此路径不成立。
@@ -962,25 +1041,20 @@ Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view p
     // ④ §8.7 导入表执法读的是**文件声明**：运行期已解析的导入表会替隐式兄弟链拉边，而账面
     //    看不见的正是这种「文件里写着」的关系。命中即拒——破了这条，账本看不见的边会把引用
     //    计数焊死，Eject 当场假成功。
-    const Result<std::vector<std::string>> imports = detail::Loader::ImportedLibraryNamesFromFile(abs);
+    const Result<std::vector<std::string>> imports = detail::Loader::ImportedLibraryNamesFromFile(absPath);
     if (!imports.IsOk())
     {
         return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, imports.GetError().Message()));
     }
-    const std::string selfName = LowerAscii(abs.filename().string());
-    std::vector<std::string> siblings;
-    for (const auto& entry : KnownBinaries)
-    {
-        const std::string sibling = LowerAscii(entry.second.filename().string());
-        if (sibling != selfName)
-        {
-            siblings.push_back(sibling);
-        }
-    }
+    // 兄弟集来自形参 = AdoptRequest.SiblingBinaries（终态由前端喂快照全量，D71）。
+    // 名字在比对时归一大小写（§8.7 同法）——调用方给文件名即可，不必自备归一（T8 评审 Minor-1）。
+    const std::string selfName = LowerAscii(absPath.filename().string());
     for (const std::string& imported : imports.Value())
     {
         const std::string lowered = LowerAscii(imported);
-        if (lowered != selfName && std::ranges::find(siblings, lowered) != siblings.end())
+        const bool siblingHit = std::ranges::any_of(siblings, [&lowered](const std::string& sibling)
+                                                    { return LowerAscii(sibling) == lowered; });
+        if (lowered != selfName && siblingHit)
         {
             return Result<AdoptReport>::Err(
                 Refusal(id, Phase::kAdopt,
@@ -1050,6 +1124,7 @@ Result<AdoptReport> PluginHost::AdoptPlugin(PodHandle handle, std::string_view p
     // 进程从该文件装入」构造性地成立（内存即该文件的映射，没有第二个来源可比）。
     report.IdentityVerified = true;
     report.ImportEnforcementPassed = true;
+    report.ManifestVerified = true;        // T12 单轨：走到成功态必经 ③.5（nullptr 在 ⓪-guard 就 Err 了）
     report.Status = AdoptStatus::kAdopted; // 过了全部闸才是成功态——默认悲观的另一半
     // 解析记录 Adopt 侧：本次入局新落的出边逐条快照（与 Eject 的 RemovedEdges 对位）。
     for (const detail::LedgerEdge* edge : pod.Ledger->EdgesFrom(live->Instance))

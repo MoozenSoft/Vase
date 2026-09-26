@@ -1,7 +1,9 @@
 // §5.2 判据 5（T7）：OnStart 失败的递归拆除——波及集四形态、传递闭包、D42 空壳与 Adopt 零级联。
+#include "AdoptExpectations.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/Host/PluginHost.h"
 #include "Vase/Pod/Pod.h"
 
@@ -97,7 +99,12 @@ TEST(RecursiveTeardown, TornShellRejectsEjectAndAdoptWithoutCrashing)
     ASSERT_FALSE(ejected.IsOk()); // 不许解引用 null，也不许当真能卸
     EXPECT_NE(ejected.GetError().Message().find("not in pod"), std::string::npos);
 
-    const vase::Result<vase::AdoptReport> adopted = host.AdoptPlugin(h, "Vase.BehindStrictUnused");
+    const vase::ManifestExpectation behind = testing_support::MakeBehindStrictUnusedExpectation();
+    vase::AdoptRequest request;
+    request.Id = behind.Id;
+    request.BinaryPath = VASE_FIXTURE_BEHINDSTRICTUNUSED;
+    request.Expected = &behind;
+    const vase::Result<vase::AdoptReport> adopted = host.AdoptPlugin(h, request);
     ASSERT_FALSE(adopted.IsOk()); // OwnerLabel 唯一性覆盖空壳：本局还"记得"它
     EXPECT_NE(adopted.GetError().Message().find("already in pod"), std::string::npos);
 
@@ -109,13 +116,19 @@ TEST(RecursiveTeardown, AdoptFailureStaysZeroCascade)
     // §5.6 规则②：入局者皆为叶，Adopt 失败零级联——拆的那台机器对这条路径备而不用。
     vase::PluginHost host;
     {
-        // 先用一个宽容局把 DeadProvider 的路径注册上（D30；局成功即注册，其 Failed 记录随局销毁）。
+        // 先让 DeadProvider 过一回装载（局照常交付、条目落 Failed）——拆局不卸货（§8.1），
+        // 镜像留在架上，Adopt 的 ② 走复用分支；OnLoad 必败的结论与分支无关。
         const vase::PodHandle registrar =
             host.CreatePod(Plan({{"Vase.DeadProvider", VASE_FIXTURE_DEADPROVIDER}})).Value();
-        host.DestroyPod(registrar); // 拆局不卸货（§8.1），镜像还在架上
+        host.DestroyPod(registrar);
     }
+    const vase::ManifestExpectation deadExpected = testing_support::MakeDeadProviderExpectation();
+    vase::AdoptRequest deadRequest;
+    deadRequest.Id = "Vase.DeadProvider";
+    deadRequest.BinaryPath = VASE_FIXTURE_DEADPROVIDER;
+    deadRequest.Expected = &deadExpected;
     const vase::PodHandle h = host.CreatePod(Plan({{"Vase.SharedProvider", VASE_FIXTURE_SHAREDPROVIDER}})).Value();
-    const auto dead = host.AdoptPlugin(h, "Vase.DeadProvider"); // 路径已知 → 走到 OnLoad 必败
+    const auto dead = host.AdoptPlugin(h, deadRequest); // 一路走到 ⑥ 的 OnLoad 才败
     ASSERT_FALSE(dead.IsOk());
     EXPECT_NE(dead.GetError().Message().find("adopt failed at OnLoad"), std::string::npos);
     const vase::Pod* pod = host.Resolve(h);

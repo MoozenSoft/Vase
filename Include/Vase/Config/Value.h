@@ -4,7 +4,7 @@
 // kString 走同一 8 字节的 const char* 覆盖成员：字面量或宿主 blob 存储的**借用**（窗口见 ConfigBlob.h）。
 // 为什么 string 不存位形：constexpr 里指针↔整数没有任何合法写法（P2736 属 C++26，C++20 的
 // 常量评测器连 struct 包裹与 union 闲置读一并拒绝）——而描述符表是 static constexpr 的（D24）。
-// enum 不做（D22）：它随清单 schema 在 M2b 定案，届时布局要变就再 bump。
+// kEnum 自 M2b 波 2（D75）：值走 int32 位形，choices 表在 FieldInfo。
 
 #include <bit>
 #include <cstdint>
@@ -22,6 +22,7 @@ enum class ValueKind : std::uint8_t
     kFloat,
     kDouble,
     kString,
+    kEnum,
 };
 
 template <typename T>
@@ -52,6 +53,12 @@ consteval ValueKind KindOf()
     {
         return ValueKind::kDouble;
     }
+    else if constexpr (std::is_enum_v<T>)
+    {
+        static_assert(std::is_same_v<std::underlying_type_t<T>, std::int32_t>,
+                      "enum config field must have : std::int32_t underlying (D75)");
+        return ValueKind::kEnum;
+    }
     else if constexpr (std::is_same_v<T, const char*>)
     {
         return ValueKind::kString;
@@ -59,7 +66,7 @@ consteval ValueKind KindOf()
     else
     {
         static_assert(AlwaysInvalidConfigType<T>::value,
-                      "config type must be bool/int32_t/int64_t/float/double/const char* (enum deferred to M2b, D22)");
+                      "config type must be bool/int32_t/int64_t/float/double/const char* or enum : std::int32_t (D75)");
         return ValueKind::kNone;
     }
 }
@@ -99,6 +106,10 @@ struct Value
         {
             out.Bits = std::bit_cast<std::uint64_t>(value);
         }
+        else if constexpr (std::is_enum_v<T>)
+        {
+            out.Bits = static_cast<std::uint64_t>(static_cast<std::uint32_t>(static_cast<std::int32_t>(value)));
+        }
         else
         {
             out.Str = value; // const char*：借用直接进覆盖成员（位形进不了 constexpr，见头注）
@@ -133,12 +144,17 @@ struct Value
         {
             return std::bit_cast<double>(Bits);
         }
+        else if constexpr (std::is_enum_v<T>)
+        {
+            return static_cast<T>(GetAs<std::int32_t>());
+        }
         else
         {
-            // 白名单收口：上面五个分支精确匹配其余五类，走到这里 T 必须是 const char*——
+            // 白名单收口：上面六个分支精确匹配其余六类，走到这里 T 必须是 const char*——
             // 不再静默返回 Str（KindOf 处有同款 static_assert）。
-            static_assert(std::is_same_v<T, const char*>,
-                          "GetAs<T>: readable types are bool/int32_t/int64_t/float/double/const char* (six ValueKind)");
+            static_assert(
+                std::is_same_v<T, const char*>,
+                "GetAs<T>: readable types are bool/int32_t/int64_t/float/double/const char*/enum (seven ValueKind)");
             return Str;
         }
         // NOLINTEND(cppcoreguidelines-pro-type-union-access)

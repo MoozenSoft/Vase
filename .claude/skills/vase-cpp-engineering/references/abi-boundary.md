@@ -37,6 +37,8 @@ static_assert(offsetof(PluginDescriptor, HeaderVersion) == 0, "...");
 
 **每次不兼容改动递增它。** 什么算不兼容：`Plugin` 虚函数表变了、`PluginMeta` / `PluginDescriptor` 的字段或顺序变了、`ServiceRef` 变了、任何跨边界结构体的布局变了。递增时在提交信息里写清改了什么——插件作者不需要知道它存在，但**宿主需要一句能读懂的解释**。
 
+描述符布局变更的现例 = M2b 波 2 的 `FieldInfo` choices 槽追加（`kHeaderVersion` 2→3），唯一理由就是布局、不带行为夹带。
+
 ---
 
 ## 2. 描述符纪律：POD

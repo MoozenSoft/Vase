@@ -39,8 +39,9 @@ public:
     // 坏清单 / 重复 Id → Err（D50）。入参绝对化后存为 Directory()。
     Result<void> Refresh(const std::filesystem::path& pluginDirectory);
 
-    // 纯函数，吃当前快照；spec §6 全语义。返回的 Plan 借用快照字符串（D61），
-    // 借用窗 = 到下一次 Refresh；首扫前调用 → Err（D63）。
+    // 纯函数，吃当前快照；spec §6 全语义。返回 Plan 里余下唯一借用 = Ordered[i].Id 的快照窗
+    // （D61，窗 = 到下一次 Refresh）；Expected 自 T9 起为拥有值形、逐条目深拷（D84），必有值。
+    // 首扫前调用 → Err（D63）。
     Result<SolveOutcome> Solve(const LoadRequest& request) const;
 
 private:

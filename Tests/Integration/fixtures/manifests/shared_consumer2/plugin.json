@@ -1,6 +1,8 @@
 {
     "schemaVersion": 1,
     "id": "Vase.SharedConsumer2",
+    "displayName": "第二消费者探针",
+    "version": "0.0.1",
     "binary": "SharedConsumer2Plugin",
     "requires": [ { "service": "Vase.Test.Shared", "version": 1 } ]
 }

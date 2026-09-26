@@ -1,4 +1,5 @@
 #include "Vase/Config/Value.h"
+#include "Vase/Host/ConfigBlob.h"
 
 #include <cstdint>
 #include <gtest/gtest.h>
@@ -38,6 +39,38 @@ TEST(ConfigValue, DefaultIsNone)
     EXPECT_EQ(vase::Value{}.Kind, vase::ValueKind::kNone);
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-union-access) 测的就是默认位形，无代码级出路。
     EXPECT_EQ(vase::Value{}.Bits, 0U);
+}
+
+// NOLINTNEXTLINE(performance-enum-size) D75 的闸就是 underlying 必须 int32——缩基型即失去被测契约本身。
+enum class ET : std::int32_t
+{
+    kA = 0,
+    kB = -5, // 负值位形（0xFFFFFFFB）：零扩展链的钉（T1/T4 handoff）
+};
+
+// 编不过的形状反例不进编译面（本仓纪律，T2 Step 2 同此）：underlying ≠ int32 的
+// static_assert（D75）与枚举缺 choices 的配对闸（T4）由编译期评审守，不设运行期用例。
+
+TEST(EnumValue, RoundTripsViaInt32Bits)
+{
+    const vase::Value v = vase::Value::From<ET>(ET::kB);
+    EXPECT_EQ(v.Kind, vase::ValueKind::kEnum);
+    EXPECT_EQ(v.GetAs<ET>(), ET::kB);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-union-access) 测的就是位形本身，无代码级出路。
+    EXPECT_EQ(static_cast<std::int32_t>(static_cast<std::uint32_t>(v.Bits)), -5); // 位形低 32 位（负）
+    EXPECT_TRUE(v == vase::Value::From<ET>(ET::kB));
+    EXPECT_FALSE(v == vase::Value::From<std::int32_t>(-5)); // Kind 参与相等
+}
+
+TEST(EnumValue, NegativeBitFormSurvivesBlob)
+{
+    // D75/D78 零扩展链：int32 -5 → EnumStored{-5} → 位形回装，解码仍恰为 -5。
+    vase::ConfigBlob blob;
+    blob.Set("e", vase::Value::From<ET>(ET::kB));
+    const vase::Value e = blob.Find("e").value_or(vase::Value{}); // miss 落 kNone，Kind 断言即红（禁 .value()）
+    EXPECT_EQ(e.Kind, vase::ValueKind::kEnum);
+    EXPECT_EQ(e.GetAs<ET>(), ET::kB);
+    EXPECT_EQ(e.GetAs<std::int32_t>(), -5);
 }
 
 } // namespace

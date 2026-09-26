@@ -30,6 +30,7 @@ namespace
 
 using nlohmann::json;
 using vase::Error;
+using vase::ManifestChoice;
 using vase::ManifestConfigField;
 using vase::ManifestDependency;
 using vase::ManifestEntry;
@@ -103,6 +104,10 @@ bool TypeName(std::string_view name, ValueKind& out)
     else if (name == "string")
     {
         out = ValueKind::kString;
+    }
+    else if (name == "enum")
+    {
+        out = ValueKind::kEnum;
     }
     else
     {
@@ -291,13 +296,14 @@ Result<std::vector<ManifestConfigField>> ParseConfig(const json& array, const st
         if (!item.is_object())
         {
             return Result<std::vector<ManifestConfigField>>::Err(
-                ManifestError(file, "config entries accept only {key,type,default,min,max,displayName}"));
+                ManifestError(file, "config entries accept only {key,type,default,min,max,displayName,choices}"));
         }
         std::string offender;
-        if (!OnlyKeys(item, {"key", "type", "default", "min", "max", "displayName"}, offender))
+        if (!OnlyKeys(item, {"key", "type", "default", "min", "max", "displayName", "choices"}, offender))
         {
             return Result<std::vector<ManifestConfigField>>::Err(ManifestError(
-                file, "config entries accept only {key,type,default,min,max,displayName}; got \"" + offender + "\""));
+                file,
+                "config entries accept only {key,type,default,min,max,displayName,choices}; got \"" + offender + "\""));
         }
         const auto key = item.find("key");
         const auto type = item.find("type");
@@ -311,15 +317,102 @@ Result<std::vector<ManifestConfigField>> ParseConfig(const json& array, const st
         field.Key = key->get_ref<const std::string&>();
         if (type == item.end() || !type->is_string() || !TypeName(type->get_ref<const std::string&>(), field.Kind))
         {
-            return Result<std::vector<ManifestConfigField>>::Err(
-                ManifestError(file, "config \"" + field.Key + "\": unknown type (six kinds; enum opens in wave 2)"));
+            return Result<std::vector<ManifestConfigField>>::Err(ManifestError(
+                file, "config \"" + field.Key + "\": unknown type (seven kinds; enum legal since wave 2, D49)"));
+        }
+        const auto choices = item.find("choices");
+        if (field.Kind != ValueKind::kEnum)
+        {
+            if (choices != item.end())
+            {
+                return Result<std::vector<ManifestConfigField>>::Err(
+                    ManifestError(file, "config \"" + field.Key + R"(": "choices" only with enum type (D80))"));
+            }
+        }
+        else
+        {
+            if (choices == item.end())
+            {
+                return Result<std::vector<ManifestConfigField>>::Err(
+                    ManifestError(file, "config \"" + field.Key + R"(": enum requires "choices" (D80))"));
+            }
+            if (!choices->is_array() || choices->empty())
+            {
+                return Result<std::vector<ManifestConfigField>>::Err(ManifestError(
+                    file, "config \"" + field.Key + R"(": enum "choices" must be a non-empty array (D80))"));
+            }
+            for (const json& choice : *choices)
+            {
+                if (!choice.is_object())
+                {
+                    return Result<std::vector<ManifestConfigField>>::Err(ManifestError(
+                        file, "config \"" + field.Key + "\": enum choices entries must be {value,label} objects"));
+                }
+                std::string choiceOffender;
+                if (!OnlyKeys(choice, {"value", "label"}, choiceOffender))
+                {
+                    return Result<std::vector<ManifestConfigField>>::Err(
+                        ManifestError(file, "config \"" + field.Key +
+                                                "\": enum choices entries must be {value,label} objects; got \"" +
+                                                choiceOffender + "\""));
+                }
+                // 越界与 default 的 int32 闸同通道（Encode 的 kInt32 段）；非整数一并落此消息。
+                std::uint64_t valueBits = 0;
+                std::string valueIgnored;
+                const auto value = choice.find("value");
+                if (value == choice.end() || !Encode(*value, ValueKind::kInt32, valueBits, valueIgnored))
+                {
+                    return Result<std::vector<ManifestConfigField>>::Err(
+                        ManifestError(file, "config \"" + field.Key +
+                                                R"(": enum choice "value" must be an int32-range integer (D80))"));
+                }
+                const auto label = choice.find("label");
+                if (label == choice.end() || !label->is_string() || label->get_ref<const std::string&>().empty())
+                {
+                    return Result<std::vector<ManifestConfigField>>::Err(ManifestError(
+                        file, "config \"" + field.Key + R"(": enum choice "label" must be a non-empty string (D80))"));
+                }
+                ManifestChoice candidate{
+                    .Value = static_cast<std::int32_t>(static_cast<std::uint32_t>(valueBits)),
+                    .Label = label->get_ref<const std::string&>(),
+                };
+                for (const ManifestChoice& held : field.Choices)
+                {
+                    if (held.Value == candidate.Value)
+                    {
+                        return Result<std::vector<ManifestConfigField>>::Err(
+                            ManifestError(file, "config \"" + field.Key + "\": enum choices: duplicate value (D80)"));
+                    }
+                    if (held.Label == candidate.Label)
+                    {
+                        return Result<std::vector<ManifestConfigField>>::Err(
+                            ManifestError(file, "config \"" + field.Key + "\": enum choices: duplicate label (D80)"));
+                    }
+                }
+                field.Choices.push_back(std::move(candidate));
+            }
         }
         if (def == item.end())
         {
             return Result<std::vector<ManifestConfigField>>::Err(
                 ManifestError(file, "config \"" + field.Key + R"(": "default" is required)"));
         }
-        if (!Encode(*def, field.Kind, field.DefaultBits, field.DefaultStr))
+        if (field.Kind == ValueKind::kEnum)
+        {
+            if (!def->is_string())
+            {
+                return Result<std::vector<ManifestConfigField>>::Err(
+                    ManifestError(file, "config \"" + field.Key + "\": enum default must be a choice label (D80)"));
+            }
+            const auto& defLabel = def->get_ref<const std::string&>();
+            if (std::ranges::find(field.Choices, defLabel, &ManifestChoice::Label) == field.Choices.end())
+            {
+                return Result<std::vector<ManifestConfigField>>::Err(ManifestError(
+                    file, "config \"" + field.Key + "\": enum default \"" + defLabel + "\" not in choices (D80)"));
+            }
+            field.DefaultStr = defLabel; // 中间形存 label 的 kString；换 value 归 Solve（D80）
+        }
+        else if (!Encode(*def, field.Kind, field.DefaultBits, field.DefaultStr))
         {
             return Result<std::vector<ManifestConfigField>>::Err(
                 ManifestError(file, "config \"" + field.Key + "\": default does not match declared type"));
@@ -391,14 +484,15 @@ namespace vase
 Value ManifestConfigField::DefaultValue() const
 {
     Value out{};
-    out.Kind = Kind;
     // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access) D24 位形按 Kind 互斥读写（与 Value::From 同机制）
-    if (Kind == ValueKind::kString)
+    if (Kind == ValueKind::kString || Kind == ValueKind::kEnum)
     {
+        out.Kind = ValueKind::kString; // enum 中间形：default 即 label 字串，换 value 归 Solve（D80）
         out.Str = DefaultStr.c_str();
     }
     else
     {
+        out.Kind = Kind;
         out.Bits = DefaultBits;
     }
     // NOLINTEND(cppcoreguidelines-pro-type-union-access)

@@ -3,11 +3,13 @@
 #include "Vase/Catalog/LoadRequest.h"
 #include "Vase/Catalog/ManifestView.h"
 #include "Vase/Config/Value.h"
+#include "Vase/Detail/Fail.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/ConfigBlob.h"
 #include "Vase/Host/LoadPlan.h"
 #include "Vase/PluginDescriptor.h"
 
+#include "Detail/ChoiceCoerce.h"
 #include "Detail/LibraryFileName.h"
 
 #include <algorithm>
@@ -22,6 +24,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -34,7 +37,7 @@ namespace
 
 Error SolveError(std::string_view detail) { return Error("catalog solve: " + std::string(detail)); }
 
-// 并行数组（participating/reasons/adjacency/inDegree/emitted）按下标寻址是算法本体。
+// 并行数组（participating/selfDisabled/reasons/adjacency/inDegree/emitted）按下标寻址是算法本体。
 // 非常量下标 operator[] 过不了 cppcoreguidelines-pro-bounds-avoid-unchecked-container-access，
 // .at() 本仓库禁用——用 std::next，惯例同 EffectScope::SlotAt；界由外层
 // `index < SnapshotEntries.size()` 循环条件与 size 同源的初始化担保。
@@ -54,6 +57,8 @@ std::string_view KindName(ValueKind kind)
 {
     switch (kind)
     {
+    case ValueKind::kNone:
+        return "none";
     case ValueKind::kBool:
         return "bool";
     case ValueKind::kInt32:
@@ -66,15 +71,16 @@ std::string_view KindName(ValueKind kind)
         return "double";
     case ValueKind::kString:
         return "string";
-    default:
-        return "none";
+    case ValueKind::kEnum:
+        return "enum";
     }
+    return "out-of-range"; // 全值已列、-Wswitch 锁表；越界值不可达，防御位同 KindText/StorageOf
 }
 
-// D59 原样形（bool/int64/double/string；也容忍 typed 面的 int32/float）→ 字段声明型。
+// D59 原样形（bool/int64/double/string；也容忍 typed 面的 int32/float）→ 字段声明型；enum 字段只认 label（D80）。
 // widened 只构造不重赋：Value 的隐式拷贝赋值被 tidy 建模为联合成员访问（探针实测：
 // 拷贝构造不报，赋值报在类声明行），构造式无赋值即无痕。
-std::optional<Value> Coerce(const Value& raw, ValueKind kind)
+std::optional<Value> Coerce(const Value& raw, const ManifestConfigField& field)
 {
     const auto widen = [](const Value& v) -> Value
     {
@@ -100,7 +106,7 @@ std::optional<Value> Coerce(const Value& raw, ValueKind kind)
         return true;
     };
 
-    switch (kind)
+    switch (field.Kind)
     {
     case ValueKind::kBool:
         if (widened.Kind == ValueKind::kBool)
@@ -156,13 +162,43 @@ std::optional<Value> Coerce(const Value& raw, ValueKind kind)
             return widened;
         } // blob.Set 深拷入
         break;
+    case ValueKind::kEnum:
+        if (widened.Kind == ValueKind::kString)
+        {
+            // 唯一转换位在 ChoiceCoerce.h；位形与 From<int32_t> 同形（D75），只改标签。
+            if (const std::optional<std::int32_t> mapped =
+                    catalog_detail::LabelToValue(widened.GetAs<const char*>(), field.Choices))
+            {
+                Value view = Value::From(*mapped);
+                view.Kind = ValueKind::kEnum;
+                return view;
+            }
+        }
+        break;
     default:
         break;
     }
     return std::nullopt;
 }
 
-// bool/string 无 min/max（解析期保证）→ 数值四型比较。
+// enum 成员闸的消息形：offending 串加引号、其余给型名；合法集按清单文件序点名（D80）。
+std::string EnumMismatchText(const Value& raw, const ManifestConfigField& field)
+{
+    const std::string found = raw.Kind == ValueKind::kString ? "\"" + std::string(raw.GetAs<const char*>()) + "\""
+                                                             : std::string(KindName(raw.Kind));
+    std::string legal = "[";
+    for (const ManifestChoice& choice : field.Choices)
+    {
+        if (legal.size() > 1)
+        {
+            legal += ", ";
+        }
+        legal += choice.Label;
+    }
+    return found + " is not one of " + legal + "]";
+}
+
+// bool/string/enum 无 min/max（解析期保证，schema 硬闸 D80）→ 数值四型比较；enum 恒过。
 bool OutOfRange(const ManifestConfigField& field, const Value& value)
 {
     const auto less = [&field](std::uint64_t a, std::uint64_t b)
@@ -206,6 +242,13 @@ Value FromStorage(const ConfigBlob::Storage& stored)
             {
                 return Value::From(v.c_str()); // 借用；调用方在同一次 Solve 内 Set 深拷
             }
+            else if constexpr (std::is_same_v<T, ConfigBlob::EnumStored>)
+            {
+                // 位形与 From<int32_t> 逐位同形，只改标签；旁路 Set 把 EnumStored 写进覆盖层时走此支。
+                Value view = Value::From(v.Value);
+                view.Kind = ValueKind::kEnum;
+                return view;
+            }
             else
             {
                 return Value::From(v);
@@ -225,6 +268,14 @@ const ManifestConfigField* FindField(const ManifestEntry& entry, std::string_vie
     }
     return nullptr;
 }
+
+// exact 提供方的三态（②a 判定与 ②b 归因共用）；kSkipped 时出 = 按 Id 序最小的在场者。
+enum class ExactState : std::uint8_t
+{
+    kSatisfied,
+    kSkipped,
+    kAbsent,
+};
 
 } // namespace
 
@@ -292,9 +343,15 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
                 });
                 continue;
             }
-            const std::optional<Value> coerced = Coerce(FromStorage(kv.Stored), field->Kind);
+            const Value raw = FromStorage(kv.Stored);
+            const std::optional<Value> coerced = Coerce(raw, *field);
             if (!coerced.has_value())
             {
+                if (field->Kind == ValueKind::kEnum)
+                {
+                    return Result<SolveOutcome>::Err(SolveError("override for \"" + entry->Id + "\" key \"" + kv.Key +
+                                                                "\": " + EnumMismatchText(raw, *field) + " (D80)"));
+                }
                 return Result<SolveOutcome>::Err(SolveError("override for \"" + entry->Id + "\" key \"" + kv.Key +
                                                             "\": type mismatch, manifest declares " +
                                                             std::string(KindName(field->Kind))));
@@ -308,6 +365,7 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
     }
 
     std::vector<char> participating(SnapshotEntries.size(), 0);
+    std::vector<char> selfDisabled(SnapshotEntries.size(), 0); // ① 判过 disabled 的存底（D82：归因 pass 不碰自禁者）
     std::vector<SkipReason> reasons(SnapshotEntries.size(), SkipReason::kDisabled);
 
     // ① 参与判定：清单默认 → preset → override，后层整体替换该键。
@@ -323,6 +381,7 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
             }
         }
         At(participating, index) = enabled ? 1 : 0;
+        At(selfDisabled, index) = enabled ? 0 : 1;
     }
 
     using ServiceKey = std::pair<std::string, std::uint32_t>;
@@ -343,7 +402,26 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
                                    { return ref.Name == name && ref.Version == version; });
     };
 
-    // ② 硬需求闭包：不动点迭代，每轮按快照 Id 序扫 → 归因确定性（D53/D62）。
+    const auto exactState = [&exactProviders,
+                             &participating](const ManifestDependency& need) -> std::pair<ExactState, std::size_t>
+    {
+        const auto it = exactProviders.find({need.Service, need.Version});
+        if (it == exactProviders.end())
+        {
+            return {ExactState::kAbsent, 0};
+        }
+        for (const std::size_t provider : it->second) // 构建序 = 快照 Id 序：首个命中亦即最小 Id 在场者
+        {
+            if (At(participating, provider) != 0)
+            {
+                return {ExactState::kSatisfied, provider};
+            }
+        }
+        return {ExactState::kSkipped, it->second.front()};
+    };
+
+    // ②a 硬需求闭包：不动点迭代只翻 participating，Reason/Notes 一律留到收敛后（D82 两段制——读
+    // 中间态归因必抖动）。每轮按快照 Id 序扫 → 判定确定（D53/D62）。
     bool changed = true;
     while (changed)
     {
@@ -361,64 +439,94 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
                 {
                     continue; // D60：宿主声明恒满足、不入环、不定序
                 }
-                const auto exactIt = exactProviders.find({need.Service, need.Version});
-                bool satisfied = false;
-                if (exactIt != exactProviders.end())
-                {
-                    for (const std::size_t provider : exactIt->second)
-                    {
-                        if (At(participating, provider) != 0)
-                        {
-                            satisfied = true;
-                            break;
-                        }
-                    }
-                }
-                if (satisfied)
+                if (exactState(need).first == ExactState::kSatisfied)
                 {
                     continue;
                 }
-
                 At(participating, index) = 0;
                 changed = true;
-                At(reasons, index) = SkipReason::kMissingDependency;
-
-                bool versionNamed = false;
-                const auto nameIt = nameProviders.find(need.Service);
-                if (nameIt != nameProviders.end())
-                {
-                    for (const auto& [version, provider] : nameIt->second)
-                    {
-                        if (At(participating, provider) != 0 && version != need.Version)
-                        {
-                            At(reasons, index) = SkipReason::kVersionMismatch;
-                            outcome.Notes.push_back(SolveNote{
-                                .Kind = SolveNoteKind::kVersionMismatchProvider,
-                                .PluginId = entry.Id,
-                                .Key = {},
-                                .Cause = At(SnapshotEntries, provider).Id,
-                                .Message =
-                                    "only major " + std::to_string(version) + " of " + need.Service + " participates",
-                            });
-                            versionNamed = true;
-                            break;
-                        }
-                    }
-                }
-                if (!versionNamed && exactIt != exactProviders.end() && !exactIt->second.empty())
-                {
-                    outcome.Notes.push_back(SolveNote{
-                        .Kind = SolveNoteKind::kProviderSkipped,
-                        .PluginId = entry.Id,
-                        .Key = {},
-                        .Cause = At(SnapshotEntries, exactIt->second.front()).Id,
-                        .Message = "provider disabled or skipped: " + need.Service,
-                    });
-                }
-                break; // 首个不满足的声明即归因（§6② 注）
+                break; // 一条不满足即定出局；归因交 ②b
             }
         }
     }
+
+    // ②b 归因 pass：终态表 → Reason/Notes，按快照 Id 序产（D53）；级联停在直接提供方，
+    // 提供方自身因何出局不问。selfDisabled 者保 kDisabled——向量默认值即答案。
+    // 本段 Notes 的键唯一性契约见收尾去重处（新增产出点前先读那一段）。
+    for (std::size_t index = 0; index < SnapshotEntries.size(); ++index)
+    {
+        if (At(participating, index) != 0 || At(selfDisabled, index) != 0)
+        {
+            continue;
+        }
+        const ManifestEntry& entry = At(SnapshotEntries, index);
+        for (const ManifestDependency& need : entry.Requires)
+        {
+            if (hostProvides(need.Service, need.Version))
+            {
+                continue;
+            }
+            const auto [state, smallest] = exactState(need);
+            if (state == ExactState::kSatisfied)
+            {
+                continue;
+            }
+            At(reasons, index) = SkipReason::kMissingDependency;
+            if (state == ExactState::kSkipped)
+            {
+                outcome.Notes.push_back(SolveNote{
+                    .Kind = SolveNoteKind::kProviderSkipped,
+                    .PluginId = entry.Id,
+                    .Key = {},
+                    .Cause = At(SnapshotEntries, smallest).Id,
+                    .Message = "provider disabled or skipped: " + need.Service,
+                });
+                break; // 首个不满足的声明即归因（§6② 注）
+            }
+            const auto nameIt =
+                nameProviders.find(need.Service); // exact 全无：仅同名异 major 的终态参与者 → kVersionMismatch
+            if (nameIt != nameProviders.end())
+            {
+                for (const auto& [version, provider] : nameIt->second)
+                {
+                    if (At(participating, provider) == 0 || version == need.Version)
+                    {
+                        continue;
+                    }
+                    At(reasons, index) = SkipReason::kVersionMismatch;
+                    outcome.Notes.push_back(SolveNote{
+                        .Kind = SolveNoteKind::kVersionMismatchProvider,
+                        .PluginId = entry.Id,
+                        .Key = {},
+                        .Cause = At(SnapshotEntries, provider).Id,
+                        .Message = "only major " + std::to_string(version) + " of " + need.Service + " participates",
+                    });
+                    break;
+                }
+            }
+            break; // 未点名版本错者即沉默线：kMissingDependency、无 Note（§6②）
+        }
+    }
+
+    // Notes 收尾（D82 末句）：(Kind,PluginId,Key,Cause) 字典序 + 全等去重——产出次序不外泄。
+    // 键不含 Message，靠「同键必同 Message」的产出方不变量兜住（产出点各至多一条，或 Message 为常量串）；
+    // 该不变量正是「全等去重」良定义的前提——五字段全等，不稳定的 sort 才换不掉实质内容。
+    const auto noteKey = [](const SolveNote& note) { return std::tie(note.Kind, note.PluginId, note.Key, note.Cause); };
+    std::ranges::sort(outcome.Notes,
+                      [&](const SolveNote& lhs, const SolveNote& rhs) { return noteKey(lhs) < noteKey(rhs); });
+    const auto sameNote = [&](const SolveNote& lhs, const SolveNote& rhs)
+    {
+        if (noteKey(lhs) != noteKey(rhs))
+        {
+            return false;
+        }
+        if (lhs.Message != rhs.Message)
+        {
+            detail::ProgrammerError("Solve: duplicate note key with differing message");
+        }
+        return true;
+    };
+    outcome.Notes.erase(std::ranges::unique(outcome.Notes, sameNote).begin(), outcome.Notes.end());
 
     // ③ 碰撞：参与集内 provide 同 {name,ver} 即拒（§6.3「不静默择一」）；撞 HostProvided 同判（D60）。
     std::map<ServiceKey, std::size_t> claimedBy;
@@ -543,6 +651,20 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
         ConfigBlob merged;
         for (const ManifestConfigField& field : entry.Config)
         {
+            if (field.Kind == ValueKind::kEnum)
+            {
+                // default 是 label 中间形（D80），进 blob 前换成 value；成员资格解析期已闸，此处只防御。
+                const std::optional<std::int32_t> mapped =
+                    catalog_detail::LabelToValue(field.DefaultValue().GetAs<const char*>(), field.Choices);
+                if (!mapped.has_value())
+                {
+                    detail::ProgrammerError("Solve: enum default label not in choices");
+                }
+                Value stored = Value::From(*mapped);
+                stored.Kind = ValueKind::kEnum;
+                merged.Set(field.Key, stored);
+                continue;
+            }
             merged.Set(field.Key, field.DefaultValue());
         }
         for (const PluginOverride* layer : layers)
@@ -558,13 +680,14 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
                 {
                     continue;
                 }
-                if (const std::optional<Value> coerced = Coerce(FromStorage(kv.Stored), field->Kind))
+                if (const std::optional<Value> coerced = Coerce(FromStorage(kv.Stored), *field))
                 {
                     merged.Set(kv.Key, *coerced);
                 }
             }
         }
         planEntry.ResolvedConfig = std::move(merged);
+        planEntry.Expected = BuildExpectation(entry); // D84：深拷、无借用窗；CreatePod/Adopt 从此有期望可验
         return planEntry;
     };
 
@@ -583,7 +706,8 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
         skip.Id = entry.Id;
         skip.BinaryPath = SnapshotDirectory / entry.Subdirectory / catalog_detail::LibraryFileName(entry.Binary);
         skip.Decision = LoadDecision::kSkip;
-        skip.Reason = At(reasons, index); // kDisabled / kMissingDependency / kVersionMismatch
+        skip.Reason = At(reasons, index);        // kDisabled / kMissingDependency / kVersionMismatch
+        skip.Expected = BuildExpectation(entry); // kSkip 亦填（D84）——条目与清单同权，读侧不分类
         outcome.Plan.Ordered.push_back(std::move(skip));
     }
     return Result<SolveOutcome>::Ok(std::move(outcome));

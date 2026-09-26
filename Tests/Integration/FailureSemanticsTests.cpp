@@ -39,6 +39,9 @@ TEST(FailureSemantics, StaleHeaderPluginRejectedAndRecorded)
     EXPECT_EQ(failure.Id, "Vase.StaleHeader"); // 记录点名到计划里的那个 Id，而不是空/占位
     EXPECT_EQ(failure.Stage, vase::Phase::kLoad);
     EXPECT_NE(failure.Message.find("HeaderVersion"), std::string::npos);
+    // 旧代号现形：钉 v2 二进制配 v3 宿主——消息里两侧数字都在场（格式 "binary N, host M"）。
+    EXPECT_NE(failure.Message.find("binary 2"), std::string::npos);
+    EXPECT_NE(failure.Message.find("host 3"), std::string::npos);
     EXPECT_TRUE(host.DestroyPod(r.Value()).Clean()); // 被拒的插件没留任何计数
 }
 

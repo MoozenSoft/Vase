@@ -38,13 +38,13 @@ vase::Plugin* CreateStub() { return std::make_unique<StubPlugin>().release(); }
 void DestroyStub(vase::Plugin* raw) { const std::unique_ptr<vase::Plugin> owning{raw}; }
 
 const vase::PluginDescriptor kDesc{
-    .HeaderVersion = 999,
+    .HeaderVersion = 2U,
     .Meta = &kMeta,
     .Create = &CreateStub,
     .Destroy = &DestroyStub,
 };
-// HeaderVersion=999：不是「旧」而是「任何不等」——§3.1 的判据是相等性，
-// 取一个远大于当前值的数，顺带证明比较不是「二进制更新就放行」的方向性检查。
+// HeaderVersion=2：钉的是上一代——v2 二进制配 v3 宿主；§3.1 的判据是相等性，
+// 真实漂移形比 999 占位更响（顺带仍证明这不是「二进制更新就放行」的方向性检查）。
 
 } // namespace
 

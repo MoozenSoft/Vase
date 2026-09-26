@@ -7,9 +7,11 @@
 #include <nlohmann/json.hpp>
 #include <nlohmann/json_fwd.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <ios>
 #include <iterator>
 #include <limits>
@@ -26,6 +28,21 @@ namespace
 Error PresetError(const std::filesystem::path& file, std::string_view detail)
 {
     return Error("preset file \"" + file.string() + "\": " + std::string(detail));
+}
+
+// unknown 键闸（D83），与 ManifestJson 同族形；首个 offender 键经出参带回，供调用方点名进诊断。
+bool OnlyKeys(const nlohmann::json& object, const std::initializer_list<std::string_view>& allowed,
+              std::string& offender)
+{
+    for (auto it = object.begin(); it != object.end(); ++it)
+    {
+        if (std::ranges::find(allowed, std::string_view(it.key())) == allowed.end())
+        {
+            offender = it.key();
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -46,6 +63,10 @@ Result<Preset> LoadPreset(const std::filesystem::path& file)
     if (!root.is_object())
     {
         return Result<Preset>::Err(PresetError(file, "top level must be a JSON object"));
+    }
+    if (std::string unknownField; !OnlyKeys(root, {"schemaVersion", "displayName", "overrides"}, unknownField)) // D83
+    {
+        return Result<Preset>::Err(PresetError(file, "unknown top-level field \"" + unknownField + "\" (D83)"));
     }
 
     const auto schemaVersion = root.find("schemaVersion");

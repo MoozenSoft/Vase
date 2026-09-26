@@ -96,7 +96,8 @@ struct AdoptReport
     bool ReusedResidentImage = false;                        // §5.6 判定流②：复用分支同样必须 IdentityVerified
     bool IdentityVerified = false;                           // 档三 · 内存特征 == 磁盘特征
     bool ImportEnforcementPassed = false;                    // §8.7：导入表不含兄弟插件
-    std::size_t OutgoingEdges = 0;                           // 装配后账本上的出边数（「每次解析落账」的凭证）
+    bool ManifestVerified = false; // D69：期望比对跑过且通过。T12 单轨后成功态恒 true；拒绝态不携证据位
+    std::size_t OutgoingEdges = 0; // 装配后账本上的出边数（「每次解析落账」的凭证）
 };
 
 } // namespace vase

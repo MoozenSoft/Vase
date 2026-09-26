@@ -111,4 +111,24 @@ TEST_F(PresetJson, RejectsUnknownFieldAndBadShapes)
     EXPECT_FALSE(Load(R"({"schemaVersion":1,"overrides":[]})").IsOk());
 }
 
+// D83：根级只收 schemaVersion/displayName/overrides 三键，unknown 即结构错且点名 offending 键。
+TEST(PresetRoot, UnknownRootKeyRejected)
+{
+    CatalogSandbox sandbox{"preset-root"};
+    const auto load = [&sandbox](std::string_view text)
+    {
+        sandbox.WriteFile("Client.preset.json", text);
+        return LoadPreset(sandbox.Root / "Client.preset.json");
+    };
+    const auto extra = load(R"({"schemaVersion":1,"overrides":{},"author":"someone"})");
+    ASSERT_FALSE(extra.IsOk());
+    EXPECT_NE(extra.GetError().Message().find("unknown top-level field"), std::string::npos);
+    EXPECT_NE(extra.GetError().Message().find("\"author\""), std::string::npos);
+    // 必填键的错拼也是根级 unknown，而非「缺失」——闸在缺失核对之前。
+    const auto typo = load(R"({"schemaVersionn":1,"overrides":{}})");
+    ASSERT_FALSE(typo.IsOk());
+    EXPECT_NE(typo.GetError().Message().find("unknown top-level field"), std::string::npos);
+    EXPECT_NE(typo.GetError().Message().find("\"schemaVersionn\""), std::string::npos);
+}
+
 } // namespace

@@ -1,17 +1,21 @@
 #include "Vase/Host/PluginHost.h"
 
 #include "../Integration/fixtures/SharedCommon.h"
+#include "AdoptExpectations.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/Pod/Context.h"
 #include "Vase/Pod/Pod.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <initializer_list>
 #include <string>
 #include <string_view>
+#include <vector>
 // 两平台对 std::error_code 的归属判定不同（MSVC STL 的映射认 <filesystem> 也提供它，
 // libc++ 只认 <system_error>）：本行留着，Windows 报「未被直接使用」、Linux 报「没有头
 // 提供它」；摘掉则反过来。只有「留着 + 在 Windows 抑制」能同时过两条 debug 线。
@@ -38,17 +42,50 @@ vase::LoadPlan Plan(std::initializer_list<std::pair<std::string_view, std::files
     return plan;
 }
 
+// 清单轨单轨后 Adopt 请求的统一构造：Id 与期望同源（⓪-guard 必过），借用止于同步调用。
+vase::AdoptRequest RequestFor(const vase::ManifestExpectation& expected, const std::filesystem::path& binaryPath,
+                              std::vector<std::string> siblings = {})
+{
+    vase::AdoptRequest request;
+    request.Id = expected.Id;
+    request.BinaryPath = binaryPath;
+    request.Expected = &expected;
+    request.SiblingBinaries = std::move(siblings);
+    return request;
+}
+
+std::string FileName(std::string_view path) { return std::filesystem::path{path}.filename().string(); }
+
 TEST(Adopt, UnknownIdAndAlreadyInPodRejected)
 {
+    // D88：M1 的「unknown plugin id」随路径账退役，同位误用由两枚新契约接住——
+    // 路径不存在落 EnsureResident 原文、双 Id 不同源落 ⓪-guard；already-in-pod 照旧。
     vase::PluginHost host;
     const vase::PodHandle h = host.CreatePod(Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}})).Value();
     // 先断 IsOk() 再取错误消息，且必须是 **ASSERT_**：Result::GetError() 在 Ok 上会走
     // ProgrammerError 终止进程，EXPECT_FALSE 只记录失败、继续往下走，照样撞上它——
     // 那就把「一条断言失败」变成了「整条进程挂掉」。
-    const vase::Result<vase::AdoptReport> unknown = host.AdoptPlugin(h, "Vase.NeverRegistered");
+    vase::ManifestExpectation ghost = testing_support::MakeHelloExpectation();
+    ghost.Id = "Vase.NeverRegistered"; // 与请求 Id 同源：放行了才轮到 ② 的装载失败
+    const vase::AdoptRequest missingFile =
+        RequestFor(ghost, std::filesystem::path{VASE_FIXTURE_HELLO}.parent_path() / "never-built-plugin");
+    const vase::Result<vase::AdoptReport> unknown = host.AdoptPlugin(h, missingFile);
     ASSERT_FALSE(unknown.IsOk());
-    EXPECT_NE(unknown.GetError().Message().find("unknown plugin id"), std::string::npos);
-    const vase::Result<vase::AdoptReport> duplicate = host.AdoptPlugin(h, "Vase.Hello");
+    // EnsureResident 原文（Loader.cpp）：两平台共同前缀，尾部的平台诊断（LoadLibraryExW /
+    // dlopen 原因串）按平台分叉、钉不得。
+    EXPECT_NE(unknown.GetError().Message().find("failed to load binary"), std::string::npos)
+        << unknown.GetError().Message();
+
+    const vase::ManifestExpectation hello = testing_support::MakeHelloExpectation();
+    vase::AdoptRequest wrongId;
+    wrongId.Id = "Vase.NeverRegistered";
+    wrongId.BinaryPath = VASE_FIXTURE_HELLO;
+    wrongId.Expected = &hello; // 两枚身份不同源 = 误用（与 RequestExpectationIdMismatchIsErr 同格）
+    const vase::Result<vase::AdoptReport> mismatch = host.AdoptPlugin(h, wrongId);
+    ASSERT_FALSE(mismatch.IsOk());
+    EXPECT_NE(mismatch.GetError().Message().find("request/expectation id mismatch"), std::string::npos);
+
+    const vase::Result<vase::AdoptReport> duplicate = host.AdoptPlugin(h, RequestFor(hello, VASE_FIXTURE_HELLO));
     ASSERT_FALSE(duplicate.IsOk());
     EXPECT_NE(duplicate.GetError().Message().find("already in pod"), std::string::npos);
     host.DestroyPod(h);
@@ -65,11 +102,13 @@ TEST(Adopt, ReusedResidentImageStillVerifiesIdentity)
     HostMarker marker;
     vase::PodOptions options;
     options.Stage0 = [&](vase::Context& root) { root.Provide<samples_fixture::IHostOnlyService>(marker); };
-    host.DestroyPod(host.CreatePod(pairPlan, options).Value()); // 拆局不卸货（§8.1）
+    host.DestroyPod(host.CreatePod(pairPlan, options).Value()); // 拆局不卸货（§8.1）：EdgeConsumer 的镜像留在架上
 
+    const vase::ManifestExpectation edge = testing_support::MakeEdgeConsumerExpectation();
     const vase::PodHandle h =
         host.CreatePod(Plan({{"Vase.SharedProvider", VASE_FIXTURE_SHAREDPROVIDER}}), options).Value();
-    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, "Vase.EdgeConsumer");
+    const vase::Result<vase::AdoptReport> r =
+        host.AdoptPlugin(h, RequestFor(edge, VASE_FIXTURE_EDGECONSUMER, {FileName(VASE_FIXTURE_SHAREDPROVIDER)}));
     ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
     EXPECT_TRUE(r.Value().ReusedResidentImage); // EdgeConsumer 的镜像还驻留在架上
     EXPECT_TRUE(r.Value().IdentityVerified);
@@ -89,10 +128,12 @@ TEST(Adopt, RequiresMustBindFullyOrNothing)
     HostMarker marker;
     vase::PodOptions opts;
     opts.Stage0 = [&](vase::Context& root) { root.Provide<samples_fixture::IHostOnlyService>(marker); };
-    host.DestroyPod(host.CreatePod(pairPlan, opts).Value()); // 只为登记 KnownBinaries
+    host.DestroyPod(host.CreatePod(pairPlan, opts).Value()); // 拆局不卸货（§8.1）：EdgeConsumer 镜像留在架上
 
+    const vase::ManifestExpectation edge = testing_support::MakeEdgeConsumerExpectation();
     const vase::PodHandle h = host.CreatePod(Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}})).Value();
-    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, "Vase.EdgeConsumer");
+    const vase::Result<vase::AdoptReport> r =
+        host.AdoptPlugin(h, RequestFor(edge, VASE_FIXTURE_EDGECONSUMER, {FileName(VASE_FIXTURE_SHAREDPROVIDER)}));
     ASSERT_TRUE(r.IsOk()); // 自 D21 起执法拒绝走 Ok + Status（不再是 Err）
     EXPECT_EQ(r.Value().Status, vase::AdoptStatus::kRejectedDependencies);
     ASSERT_EQ(r.Value().Missing.size(), 2U); // 报告缺哪条：从 Err 文本搬进字段
@@ -113,19 +154,13 @@ TEST(Adopt, RequiresMustBindFullyOrNothing)
 TEST(Adopt, StructuredRefusalsAndOutgoingRecord)
 {
     // D21/D43/解析记录 Adopt 侧：三类判定各走各的通道，字段可枚举报。
-    // 前置：EdgeConsumer / CollisionProvider 的路径都要先在某个成功局里注册过（D30）——用 kSkip 白拿注册。
+    // 路径与期望随请求自带（T12 单轨）——M1 的「先用 kSkip 白拿注册」前置随路径账一起退了。
     vase::PluginHost host;
-    vase::LoadPlan barePlan = Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}});
-    barePlan.Ordered.push_back(
-        {.Id = "Vase.EdgeConsumer", .BinaryPath = VASE_FIXTURE_EDGECONSUMER, .Decision = vase::LoadDecision::kSkip});
-    barePlan.Ordered.push_back({
-        .Id = "Vase.CollisionProvider",
-        .BinaryPath = VASE_FIXTURE_COLLISIONPROVIDER,
-        .Decision = vase::LoadDecision::kSkip,
-    });
-    const vase::PodHandle bare = host.CreatePod(barePlan).Value();
+    const vase::PodHandle bare = host.CreatePod(Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}})).Value();
 
-    const vase::Result<vase::AdoptReport> deps = host.AdoptPlugin(bare, "Vase.EdgeConsumer");
+    const vase::ManifestExpectation edge = testing_support::MakeEdgeConsumerExpectation();
+    const vase::ManifestExpectation collisionExpected = testing_support::MakeCollisionProviderExpectation();
+    const vase::Result<vase::AdoptReport> deps = host.AdoptPlugin(bare, RequestFor(edge, VASE_FIXTURE_EDGECONSUMER));
     ASSERT_TRUE(deps.IsOk()); // 执法拒绝不是 Err（D21）
     EXPECT_EQ(deps.Value().Status, vase::AdoptStatus::kRejectedDependencies);
     EXPECT_EQ(deps.Value().Missing.size(), 2U); // 无 Stage0：Test.Shared 与 Test.HostOnly 都没注册
@@ -133,7 +168,8 @@ TEST(Adopt, StructuredRefusalsAndOutgoingRecord)
 
     const vase::PodHandle withShared =
         host.CreatePod(Plan({{"Vase.SharedProvider", VASE_FIXTURE_SHAREDPROVIDER}})).Value();
-    const vase::Result<vase::AdoptReport> collision = host.AdoptPlugin(withShared, "Vase.CollisionProvider");
+    const vase::Result<vase::AdoptReport> collision =
+        host.AdoptPlugin(withShared, RequestFor(collisionExpected, VASE_FIXTURE_COLLISIONPROVIDER));
     ASSERT_TRUE(collision.IsOk());
     EXPECT_EQ(collision.Value().Status, vase::AdoptStatus::kRejectedCollision);
     ASSERT_EQ(collision.Value().Collisions.size(), 1U);
@@ -146,7 +182,8 @@ TEST(Adopt, StructuredRefusalsAndOutgoingRecord)
     fullOptions.Stage0 = [&](vase::Context& root) { root.Provide<samples_fixture::IHostOnlyService>(marker); };
     const vase::PodHandle full =
         host.CreatePod(Plan({{"Vase.SharedProvider", VASE_FIXTURE_SHAREDPROVIDER}}), fullOptions).Value();
-    const vase::Result<vase::AdoptReport> ok = host.AdoptPlugin(full, "Vase.EdgeConsumer");
+    const vase::Result<vase::AdoptReport> ok =
+        host.AdoptPlugin(full, RequestFor(edge, VASE_FIXTURE_EDGECONSUMER, {FileName(VASE_FIXTURE_SHAREDPROVIDER)}));
     ASSERT_TRUE(ok.IsOk());
     EXPECT_EQ(ok.Value().Status, vase::AdoptStatus::kAdopted);
     ASSERT_EQ(ok.Value().Outgoing.size(), 1U); // Edge→Shared 一条（宿主提供方不落边，§5.6）
@@ -218,7 +255,7 @@ TEST(Adopt, RenameReplacementCaughtByTierThree)
     const std::filesystem::path tmp = probe.string() + ".swap";
     const ProbeSwapGuard guard{probe, tmp}; // 守卫先立起来：下面任一条 ASSERT_* 早退都不留尾巴
     ASSERT_TRUE(guard.IsArmed());
-    host.DestroyPod(host.CreatePod(Plan({{"Vase.LoadProbe", probe}})).Value()); // 驻留 + 登记
+    host.DestroyPod(host.CreatePod(Plan({{"Vase.LoadProbe", probe}})).Value()); // 驻留（拆局不卸货，§8.1）
 
     std::error_code ec;
     std::filesystem::copy_file(VASE_FIXTURE_UNLOADPROBE, tmp, std::filesystem::copy_options::overwrite_existing, ec);
@@ -226,8 +263,9 @@ TEST(Adopt, RenameReplacementCaughtByTierThree)
     std::filesystem::rename(tmp, probe, ec); // Linux：旧 inode 仍映射，路径已换血——档二全绿现场
     ASSERT_FALSE(ec) << ec.message();
 
+    const vase::ManifestExpectation probeExpected = testing_support::MakeLoadProbeExpectation();
     const vase::PodHandle h = host.CreatePod(vase::LoadPlan{}).Value();
-    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, "Vase.LoadProbe");
+    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, RequestFor(probeExpected, probe));
     ASSERT_FALSE(r.IsOk()); // ASSERT_：下面立刻取 GetError()，Ok 上取会终止进程
     EXPECT_NE(r.GetError().Message().find("differ"), std::string::npos);
     EXPECT_NE(r.GetError().Message().find("rebuild"), std::string::npos); // 逃生门写明（§8.2 政策）
@@ -239,9 +277,10 @@ TEST(Adopt, MissingIdentityFeatureRejectedWithPointer)
 {
     vase::PluginHost host;
     const vase::LoadPlan plan = Plan({{"Vase.NoBuildId", VASE_FIXTURE_NOBUILDID}});
-    host.DestroyPod(host.CreatePod(plan).Value()); // CreatePod 不设身份闸（v2 语义）——先进过一回拿登记
+    host.DestroyPod(host.CreatePod(plan).Value()); // CreatePod 不设身份闸（v2 语义）——先驻留一回
+    const vase::ManifestExpectation noBuildId = testing_support::MakeNoBuildIdExpectation();
     const vase::PodHandle h = host.CreatePod(vase::LoadPlan{}).Value();
-    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, "Vase.NoBuildId");
+    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, RequestFor(noBuildId, VASE_FIXTURE_NOBUILDID));
     ASSERT_FALSE(r.IsOk()); // ASSERT_：下面立刻取 GetError()，Ok 上取会终止进程
     EXPECT_NE(r.GetError().Message().find("--build-id"), std::string::npos); // 报告指路补链接标志
     host.DestroyPod(h);
@@ -250,14 +289,146 @@ TEST(Adopt, MissingIdentityFeatureRejectedWithPointer)
 
 TEST(Adopt, FreshLoadBranchAlsoVerifiesAndRecordsEdges)
 {
-    // 卸载后的再 Adopt：load 分支 + 身份验 + 出边落账一条龙。
+    // 卸载后的再 Adopt：load 分支 + 身份验 + 清单比对 + 出边落账一条龙。
     vase::PluginHost host;
     const vase::PodHandle h = host.CreatePod(Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}})).Value();
     ASSERT_TRUE(host.EjectPlugin(h, "Vase.Hello").IsOk());
-    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, "Vase.Hello");
+    const vase::ManifestExpectation hello = testing_support::MakeHelloExpectation();
+    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, RequestFor(hello, VASE_FIXTURE_HELLO));
     ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
     EXPECT_FALSE(r.Value().ReusedResidentImage);
     EXPECT_TRUE(r.Value().IdentityVerified);
+    EXPECT_TRUE(r.Value().ManifestVerified);
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+// —— 清单轨（AdoptRequest，T12 起单轨）：误用两类、比对挂点与兄弟集归一证人 ——
+
+// 清单轨公共前置：单 Hello 局拆出 Hello（腾出入局位），返回活句柄——路径由调用方的请求自带。
+vase::PodHandle EjectedHelloPod(vase::PluginHost& host)
+{
+    const vase::PodHandle h = host.CreatePod(Plan({{"Vase.Hello", VASE_FIXTURE_HELLO}})).Value();
+    EXPECT_TRUE(host.EjectPlugin(h, "Vase.Hello").IsOk());
+    return h;
+}
+
+vase::AdoptRequest HelloRequest(const vase::ManifestExpectation& expected)
+{
+    // Id **写死**而非取 expected.Id——RequestExpectationIdMismatchIsErr 靠这个错位喂 ⓪-guard。
+    vase::AdoptRequest request;
+    request.Id = "Vase.Hello";
+    request.BinaryPath = VASE_FIXTURE_HELLO;
+    request.Expected = &expected; // 借用只在调用期间，expected 由调用方持有
+    return request;
+}
+
+TEST(Adopt, RequestOverloadHappyPath)
+{
+    // 新轨成功态 = 比对跑过且通过（D69「Adopt 必比」的正臂；兄弟集空由请求明说）。
+    vase::PluginHost host;
+    const vase::PodHandle h = EjectedHelloPod(host);
+    const vase::ManifestExpectation expected = testing_support::MakeHelloExpectation();
+    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, HelloRequest(expected));
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    EXPECT_EQ(r.Value().Status, vase::AdoptStatus::kAdopted);
+    EXPECT_TRUE(r.Value().ManifestVerified);
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+TEST(Adopt, RequestExpectationIdMismatchIsErr)
+{
+    // ⓪-guard：request.Id 与 Expected.Id 不同源 = 误用，判据流开跑之前 Err（全文是契约）。
+    vase::PluginHost host;
+    const vase::PodHandle h = EjectedHelloPod(host);
+    vase::ManifestExpectation expected = testing_support::MakeHelloExpectation();
+    expected.Id = "Vase.Other";
+    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, HelloRequest(expected));
+    ASSERT_FALSE(r.IsOk()); // ASSERT_：下一行取 GetError()，Ok 上取会终止进程
+    EXPECT_EQ(r.GetError().Message(), "adopt request/expectation id mismatch");
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+TEST(Adopt, MissingExpectationIsErr)
+{
+    // T12 单轨（D69）：Expected 无「不比对」一档，nullptr = 误用，判据流开跑之前 Err（全文是契约）。
+    vase::PluginHost host;
+    const vase::PodHandle h = EjectedHelloPod(host);
+    vase::AdoptRequest request;
+    request.Id = "Vase.Hello";
+    request.BinaryPath = VASE_FIXTURE_HELLO; // Expected 留在默认 nullptr
+    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, request);
+    ASSERT_FALSE(r.IsOk()); // ASSERT_：下一行取 GetError()，Ok 上取会终止进程
+    EXPECT_EQ(r.GetError().Message(), "adopt refused: manifest expectation required");
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+TEST(Adopt, RequestDisplayNameDriftRejected)
+{
+    // 篡改字段走真 Adopt 轨：Err 复用 CompareDescriptor 原文（D72 消息格式器单源）。
+    vase::PluginHost host;
+    const vase::PodHandle h = EjectedHelloPod(host);
+    vase::ManifestExpectation expected = testing_support::MakeHelloExpectation();
+    expected.DisplayName = "示例插件X";
+    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, HelloRequest(expected));
+    ASSERT_FALSE(r.IsOk());
+    EXPECT_NE(r.GetError().Message().find("manifest/binary mismatch"), std::string::npos) << r.GetError().Message();
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+TEST(Adopt, RequestConfigKeyMissingInExpectationRejected)
+{
+    // 反向臂（对位 LoadTimeComparison fix1）：期望少一个 config key → binary-only 点名 missing。
+    vase::PluginHost host;
+    const vase::PodHandle h = EjectedHelloPod(host);
+    vase::ManifestExpectation expected = testing_support::MakeHelloExpectation();
+    const auto doomed = std::ranges::find(expected.Config, "MoodValue", &vase::ExpectedConfigField::Key);
+    ASSERT_NE(doomed, expected.Config.end());
+    expected.Config.erase(doomed);
+    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, HelloRequest(expected));
+    ASSERT_FALSE(r.IsOk());
+    EXPECT_NE(r.GetError().Message().find("missing in manifest"), std::string::npos) << r.GetError().Message();
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+// 大小写翻转：兄弟名以「翻转后的真实 fixture 文件名」入参，两平台同变换、不写 #ifdef。
+std::string FlipAsciiCase(std::string_view text)
+{
+    std::string flipped;
+    flipped.reserve(text.size());
+    for (const char letter : text)
+    {
+        if (letter >= 'A' && letter <= 'Z')
+        {
+            flipped.push_back(static_cast<char>(letter - 'A' + 'a'));
+        }
+        else if (letter >= 'a' && letter <= 'z')
+        {
+            flipped.push_back(static_cast<char>(letter - 'a' + 'A'));
+        }
+        else
+        {
+            flipped.push_back(letter);
+        }
+    }
+    return flipped;
+}
+
+TEST(Adopt, RequestSiblingImportCaughtDespiteMixedCase)
+{
+    // T9-Step0（T8 评审 Minor-1）：兄弟名由 Host 在比对时归一大小写，调用方免坑（§8.7 同法）。
+    vase::PluginHost host;
+    const vase::PodHandle h = host.CreatePod(Plan({{"Vase.BadLinkSiblingB", VASE_FIXTURE_BADLINKB}})).Value();
+    const vase::ManifestExpectation siblingA = testing_support::MakeBadLinkSiblingAExpectation();
+    vase::AdoptRequest request;
+    request.Id = "Vase.BadLinkSiblingA";
+    request.BinaryPath = VASE_FIXTURE_BADLINKA;
+    request.Expected = &siblingA; // 单轨后必有；④ 的兄弟执法在 ③.5 比对之后，喂对了才轮得到它
+    request.SiblingBinaries = {FlipAsciiCase(std::filesystem::path(VASE_FIXTURE_BADLINKB).filename().string())};
+    const vase::Result<vase::AdoptReport> refused = host.AdoptPlugin(h, request);
+    ASSERT_FALSE(refused.IsOk()); // ASSERT_：下一行取 GetError()
+    EXPECT_NE(refused.GetError().Message().find("imports sibling plugin"), std::string::npos)
+        << refused.GetError().Message();
+    EXPECT_EQ(host.Resolve(h)->PluginCount(), 1U); // 拒 = A 未入局
     EXPECT_TRUE(host.DestroyPod(h).Clean());
 }
 

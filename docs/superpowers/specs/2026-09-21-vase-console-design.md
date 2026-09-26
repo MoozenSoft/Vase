@@ -279,6 +279,9 @@ ShellStop RunShell(const std::vector<CommandSpec>& commands, std::istream& in, s
 
 用例的**判据形状**由 2.19 的实测钉死：**退出码与文本不能在同一条用例里同时断**。所以规则是——每条用例默认判据只钉退出码；需要钉文本时**另起一条兄弟用例**用裸 `PASS_REGULAR_EXPRESSION`（注释写明它无视退出码、码由兄弟用例钉）；`WILL_FAIL` 与 `PASS_REGULAR_EXPRESSION` **绝不同设**。且只在"退出码看不见那个信息"时才配兄弟用例：`VaseConsolePodCycle` 不配（`rc=0` 已经蕴含 `clean=true`，因为规则 ② 就在算它），而换件串、`no provider`、`hotswap log (N)`、两条拒因文本要配。
 
+> **落地勘误（终审写回，2026-09-26）**：案例名已随 M2b 波2 迁移；现行清单见 `wiki/vase-console-use.md` §10。
+> 本节与下节的列举按历史读，不逐项写回。
+
 已注册用例（逐条见 `Tools/VaseConsole/CMakeLists.txt`）：`VaseConsoleExitOnly`、`VaseConsolePodCycle`、`VaseConsoleNoExitIsFailure`、`VaseConsoleBadPlan`(+`…BadPlanReason`)、`VaseConsoleUnknownCommandIsFailure`(+`…Reason`)、`VaseConsoleSwapLoop`(+`…Reason`)、`VaseConsoleSwapStage`（`FIXTURES_SETUP`：把 `HelloPlugin.dll` 刷进影子 `swap_target.dll`）、`VaseConsoleHotSwap`(+`…Reason`、+`…ShowReason`、+`…AdoptReason`)、`VaseConsoleBehaviour`(+`…Reason`、+`…EjectReason`、+`…PluginsReason`、+`…EmitReason`)、`VaseConsoleRefusedIsFailure`(+`…Reason`)。四条换件用例 `FIXTURES_REQUIRED` 那个 setup 并共享一把 `RESOURCE_LOCK`，所以 `-R VaseConsoleHotSwap` 会把 setup 一并拉进来——那是设计，不是多算一条。
 
 回放资产分两类、**不是同一条链路**：plan 文件（`plan.txt` / `swap_plan.txt` / `bad_plan.txt`）与其余按关注点各一份的脚本（`exit_only.txt` / `pod_cycle.txt` / `no_exit.txt` / `bad_plan_script.txt` / `unknown_command.txt` / `swaploop.txt` / `hotswap.txt` / `behaviour.txt` / `unknown_id.txt`）。其中完整的换件链路（`pod new` → `get` → `eject` → `file stage` → `file install` → `adopt` → `get`（串必须变）→ `file show` → `pod destroy` → `exit`）**只属 `hotswap.txt` 一份**。

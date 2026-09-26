@@ -2,10 +2,13 @@
 // 它证明的是「干净地起、干净地灭、可重复无数次」：play 跑一局并把报告打出来，
 // loop <N> 连跑 N 局，任一局不 Clean 就非零退出（CI 化的判据 #1）。
 
+#include "AdoptExpectations.h" // 期望工厂住 Tests/TestingSupport（header-only；include 路径在 CMake 里开）——
+                               // hello 描述符漂移时测试证人与本演示同一家盯住，不留第二份抄本。
 #include "Greeter.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/Host/PluginHost.h"
 #include "Vase/Pod/Context.h"
 #include "Vase/Pod/Pod.h"
@@ -242,7 +245,14 @@ int SwapDemo()
     PrintEjectReport(ejected.Value());
     Out("  plugins after eject: " + std::to_string(running.PluginCount()) + "\n");
 
-    const vase::Result<vase::AdoptReport> adopted = host.AdoptPlugin(pod, "Vase.Hello");
+    // T12 单轨：Adopt 必须自带期望（D69）。期望工厂住在 Tests/TestingSupport（header-only，
+    // 链头不链库）——与 gtest 证人共读一份描述符事实，Hello 漂移时两边一起红。
+    const vase::ManifestExpectation hello = testing_support::MakeHelloExpectation();
+    vase::AdoptRequest request;
+    request.Id = "Vase.Hello";
+    request.BinaryPath = HelloBinaryPath();
+    request.Expected = &hello; // 借用止于这一次同步调用
+    const vase::Result<vase::AdoptReport> adopted = host.AdoptPlugin(pod, request);
     if (!adopted.IsOk())
     {
         Out("AdoptPlugin failed: " + adopted.GetError().Message() + "\n");

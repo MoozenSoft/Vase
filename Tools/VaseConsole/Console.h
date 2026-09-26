@@ -2,11 +2,13 @@
 
 #include "PlanFile.h"
 #include "Shell.h"
+#include "Vase/Catalog/PluginCatalog.h"
 #include "Vase/Host/PluginHost.h"
 #include "Vase/Pod/Pod.h"
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -41,11 +43,17 @@ private:
     struct LivePod
     {
         vase::PodHandle Handle;
-        std::filesystem::path PlanPath;
-        std::vector<Entry> Entries;
+        std::filesystem::path PlanPath; // raw 局 = plan 文件；catalog 局 = 目录（来源标注，D85 两态）
+        std::vector<Entry> Entries;     // catalog 局的条目由 Solve 计划落表（Id/BinaryPath 拷成拥有形）
+        // catalog 随局归属（D85）：pod new 为该局自持并 refresh 一份；非空 = 清单轨局，
+        // adopt/swap 与清单换件命令只认它。会话级预览 catalog 是另一个成员，两不相干。
+        std::unique_ptr<vase::PluginCatalog> Catalog;
     };
 
-    void CmdPodNew(std::ostream& out, const std::vector<std::string>& args);
+    void CmdCatalogRefresh(std::ostream& out, const std::vector<std::string>& args);
+    void CmdCatalogSolve(std::ostream& out, const std::vector<std::string>& args);
+    void CmdPodNew(std::ostream& out, const std::vector<std::string>& args);    // 主链：<dir> [preset]
+    void CmdPodNewRaw(std::ostream& out, const std::vector<std::string>& args); // 旁路：老 plan 解析（D68）
     void CmdPodUse(std::ostream& out, const std::vector<std::string>& args);
     void CmdPodList(std::ostream& out, const std::vector<std::string>& args);
     void CmdPodDestroy(std::ostream& out, const std::vector<std::string>& args);
@@ -54,6 +62,8 @@ private:
     void CmdSwap(std::ostream& out, const std::vector<std::string>& args);
     void CmdFileStage(std::ostream& out, const std::vector<std::string>& args);
     void CmdFileInstall(std::ostream& out, const std::vector<std::string>& args);
+    void CmdFileStageManifest(std::ostream& out, const std::vector<std::string>& args);
+    void CmdFileInstallManifest(std::ostream& out, const std::vector<std::string>& args);
     void CmdFileShow(std::ostream& out, const std::vector<std::string>& args);
     void CmdGet(std::ostream& out, const std::vector<std::string>& args);
     void CmdEmit(std::ostream& out, const std::vector<std::string>& args);
@@ -61,7 +71,13 @@ private:
 
     // 「为哪个 Id 暂了哪些字节」，绑成一个值以免两者错配。**槽是会话级的、不随 pod 生命周期**：
     // pod new / destroy 都不清它，故同一 Id 的字节可能被装到之后某个 pod 的登记路径上（CmdFileInstall）。
-    std::optional<std::pair<std::string, std::vector<std::uint8_t>>> Staged;
+    // T12 起按型双槽（grilling Q4 裁）：二进制与清单各一条线，install 只消费自己那型，错配即无路。
+    std::optional<std::pair<std::string, std::vector<std::uint8_t>>> StagedBinary;
+    std::optional<std::pair<std::string, std::vector<std::uint8_t>>> StagedManifest;
+
+    // adopt/swap 的共用腿：catalog 局走 AdoptInto（§5.6① 就地重读），raw 局响亮拒绝（D85）。
+    // 返回「这一腿是否成功入局」——swap 的「拒绝即停环」语义要靠它（M1 起不变）。
+    bool AdoptActivePod(std::ostream& out, vase::PodHandle handle, const std::string& id);
 
     [[nodiscard]] LivePod* Active();
     void MarkFailed();
@@ -74,6 +90,8 @@ private:
     [[nodiscard]] const Entry* FindEntry(std::string_view id); // 在 Active()->Entries 里按 Id 找
 
     vase::PluginHost Host;
+    // `catalog` 组的会话级预览 catalog（refresh/solve 用）；与活局的 catalog 各自独立（D85）。
+    std::unique_ptr<vase::PluginCatalog> PreviewCatalog;
     std::unordered_map<std::uint32_t, LivePod> Pods; // key = PodHandle::Index（销毁时擦除）
     std::uint32_t ActiveIndex = 0;
     bool HasActive = false;

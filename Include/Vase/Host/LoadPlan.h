@@ -6,10 +6,12 @@
 // Id 与 M1 同：借用计划拥有者持有的串，只在这次 CreatePod 调用期间有效。
 
 #include "Vase/Host/ConfigBlob.h"
+#include "Vase/Host/ManifestExpectation.h"
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -41,6 +43,9 @@ struct LoadPlanEntry
     SkipReason Reason{};            // 仅 kSkip 有意义
     ConfigBlob ResolvedConfig = {}; // 缺字段回退 kFields 默认（D23）；空 = 全默认。
     // = {} 是必需的 NSDMI：省略尾字段的指定初始化点在本工具链是 error（同 T3 的 OptionalRequires{}）
+    // NOLINTNEXTLINE(readability-redundant-member-init) NSDMI 为省略豁免所必需，同 ManifestExpectation.h。
+    std::optional<ManifestExpectation> Expected = {}; // D67/D68：有值 = InspectBinary 闸后逐字段比对；
+    // 空 = M2a 行为原样（手写计划的既有测试材料零改动）。拥有值形，plan 拷贝/移动自包含。
 };
 
 struct LoadPlan

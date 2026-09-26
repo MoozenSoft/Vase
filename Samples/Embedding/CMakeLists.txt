@@ -7,8 +7,11 @@ target_link_libraries(VaseEmbedding
             VaseHost)
 
 # 提供方与消费方共用 Greeter.h，它住在 Samples/HelloCommon。
+# AdoptExpectations.h（swapdemo 的 hello 期望工厂）住 Tests/TestingSupport——header-only、
+# 无链接对象，开 include 即可；描述符事实不留第二份抄本（T12 裁定：include 优先于内联拷贝）。
 target_include_directories(VaseEmbedding PRIVATE
-    "${PROJECT_SOURCE_DIR}/Samples/HelloCommon")
+    "${PROJECT_SOURCE_DIR}/Samples/HelloCommon"
+    "${PROJECT_SOURCE_DIR}/Tests/TestingSupport")
 
 # 插件二进制的位置由构建系统给出：主程序不猜路径，也不扫目录。
 # CMAKE_PATH 的包法与 Tests 相同（直接塞字符串字面量会在 Windows 留下反斜杠转义事故）。

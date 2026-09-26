@@ -13,6 +13,7 @@
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
 #include "Vase/Host/Loader.h"
+#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/Pod/DependencyLedger.h"
 #include "Vase/Pod/Pod.h"
 
@@ -32,6 +33,21 @@ namespace vase
 // DiagnosticSnapshot / FailedPluginRecord / ResidualEntry / PodReport / PodHandle
 // 全部定义在 Vase/Pod/Pod.h（T7 Step 2）——它们要能被下层的 Pod 存储，链接方向不允许
 // 它们定义在本头文件里。本头文件只加 using 级别的引用都不需要：include 已到位。
+
+// Adopt 入参（T8/D69，T12 单轨化）：字段全拥有；Expected 只借用于调用期间，Host 不留存。
+// Expected **必需**：nullptr = 误用 → Err "adopt refused: manifest expectation required"
+// （§5.6① 是定义性步骤，Adopt 没有「不比对」一档）。兄弟集由调用方喂（D71 信任模型）。
+struct AdoptRequest
+{
+    // NOLINTBEGIN(readability-redundant-member-init) 全成员 NSDMI 是指定初始化省略豁免的前提（同
+    // ManifestExpectation.h）。
+    std::string Id = {};
+    std::filesystem::path BinaryPath = {};
+    const ManifestExpectation* Expected = nullptr;
+    std::vector<std::string> SiblingBinaries = {}; // §8.7 执法的兄弟集：文件名、Host 侧比对时大小写不敏感；
+                                                   // 终态由前端喂快照全量（D71）
+    // NOLINTEND(readability-redundant-member-init)
+};
 
 class VASE_HOST_API PluginHost
 {
@@ -58,9 +74,11 @@ public:
 
     // §5.6 判定流右列：Adopt——「就地重读清单 → 档三验新 → 声明全绑 / Provides 不碰 → 装配」。
     // 执法拒绝（声明不齐 / Provides 碰撞，D21/D43）= Ok + Status + Missing / Collisions 逐条点名，
-    // 成功 = kAdopted + Outgoing 解析记录；Err 只剩误用与环境/身份类，判据子串是契约：
-    // 未知 Id / 身份不符 / 特征缺失（T6 原文）/ 兄弟导入 / already in pod。
-    Result<AdoptReport> AdoptPlugin(PodHandle handle, std::string_view pluginId);
+    // 成功 = kAdopted + Outgoing 解析记录；Err 只剩误用与环境/身份类，判据子串是契约（D88 单轨后）：
+    // manifest expectation required / request/expectation id mismatch / 比对不符（manifest/binary
+    // mismatch）/ 身份不符 / 特征缺失（T6 原文）/ 兄弟导入 / already in pod。
+    // M1 的「unknown plugin id」随路径账退役；快照侧归因（not in catalog snapshot）住 CatalogAdopt。
+    Result<AdoptReport> AdoptPlugin(PodHandle handle, const AdoptRequest& request);
 
     detail::DiagnosticCounters& ForTestCounters() { return Counters; } // 测试缝：
     // Lifecycle 判据直接读五项计数。交出去的是**可写引用**——测试要能读，也要能构造残留
@@ -86,6 +104,10 @@ private:
     // T8 的 death test 按它匹配（见计划 T8 的 Interfaces 行），漏了这句 T8 必红。
     void AssertBoundThread(const char* api) const;
     Result<PodHandle> CreatePodImpl(const LoadPlan& plan, const PodOptions& options);
+
+    // Adopt 判定流 ⓪–⑥ 的单点本体（T12 单轨）：expected == nullptr 即误用 Err，非空才谈其余。
+    Result<AdoptReport> AdoptImpl(PodHandle handle, const std::string& id, const std::filesystem::path& absPath,
+                                  const ManifestExpectation* expected, const std::vector<std::string>& siblings);
 
     // CreatePod 与 Adopt 共用的装配件（§5.3 的两阶段机器本身不在这里——**回调留在调用方**：
     // CreatePod 必须「先全 OnLoad 再全 OnStart」，合并进 helper 会把那个序压掉）。
@@ -116,9 +138,9 @@ private:
     // §5.6 账本：进程级、跨 Pod 存活（随宿主死）。铁律 §1.2 在它身上是**结构性**的——
     // 只存非拥有 cookie 与借用字符串，装不下实例级对象。
     detail::DependencyLedger Ledger;
-    std::vector<std::unique_ptr<PodSlot>> Slots;                          // deque 语义：槽位稳定（句柄=索引+代际）
-    std::unordered_map<std::string, std::filesystem::path> KnownBinaries; // Id→path：
-    // CreatePod 注册、Adopt 查用（T11；§5.6「M1 无清单，以计划登记代替」）。
+    std::vector<std::unique_ptr<PodSlot>> Slots; // deque 语义：槽位稳定（句柄=索引+代际）
+    // M1 的 KnownBinaries（Id→path 路径账）与旧轨 AdoptPlugin(handle, id) 同退役（T12/D69/D71）——
+    // 「Id → 二进制在哪」自此只剩调用方能答（AdoptRequest 自带 / Catalog 快照定位）。
 };
 
 } // namespace vase

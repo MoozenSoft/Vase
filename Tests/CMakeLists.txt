@@ -26,8 +26,10 @@ add_executable(VaseTests
     Integration/CatalogScanTests.cpp
     Integration/SolveTests.cpp
     Integration/AssemblyFromSolveTests.cpp
+    Integration/LoadTimeComparisonTests.cpp
     HotSwap/EjectTests.cpp
     HotSwap/AdoptTests.cpp
+    HotSwap/AdoptManifestTests.cpp
     HotSwap/HotSwapLoopTests.cpp
     HotSwap/TimerNoReentryTests.cpp
     Abi/ImportEnforcementTests.cpp
@@ -83,6 +85,9 @@ target_compile_definitions(VaseTests PRIVATE
     VASE_FIXTURE_BEHINDFAR="$<PATH:CMAKE_PATH,$<TARGET_FILE:BehindFarPlugin>>"
     VASE_FIXTURE_COLLISIONPROVIDER="$<PATH:CMAKE_PATH,$<TARGET_FILE:CollisionProviderPlugin>>"
     VASE_FIXTURE_DEADPROVIDER2="$<PATH:CMAKE_PATH,$<TARGET_FILE:DeadProvider2Plugin>>"
+    VASE_FIXTURE_TWOPROVIDERS="$<PATH:CMAKE_PATH,$<TARGET_FILE:TwoProvidersPlugin>>"
+    VASE_FIXTURE_DEPENDENT="$<PATH:CMAKE_PATH,$<TARGET_FILE:DependentPlugin>>"
+    VASE_FIXTURE_FAILING="$<PATH:CMAKE_PATH,$<TARGET_FILE:FailingPlugin>>"
     VASE_FIXTURE_VERSIONEDA="$<PATH:CMAKE_PATH,$<TARGET_FILE:VersionedA>>"
     VASE_FIXTURE_VERSIONEDAPRIME="$<PATH:CMAKE_PATH,$<TARGET_FILE:VersionedAPrime>>"
     VASE_FIXTURE_NEIGHBORB="$<PATH:CMAKE_PATH,$<TARGET_FILE:NeighborB>>"

@@ -1,6 +1,8 @@
 {
     "schemaVersion": 1,
     "id": "Vase.EdgeConsumer",
+    "displayName": "账本消费者探针",
+    "version": "0.0.1",
     "binary": "EdgeConsumerPlugin",
     "requires": [ { "service": "Vase.Test.Shared", "version": 1 },
                   { "service": "Vase.Test.HostOnly", "version": 1 } ]

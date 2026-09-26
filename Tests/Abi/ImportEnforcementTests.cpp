@@ -9,14 +9,18 @@
 // 不产生条目，理由与实测证据写在 Tests/Abi/fixtures/ 那两个 .cpp 与本任务报告里。
 #include "Vase/Host/PluginHost.h"
 
+#include "AdoptExpectations.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/Pod/Pod.h"
 
+#include <filesystem>
 #include <gtest/gtest.h>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -40,19 +44,26 @@ std::string LowerAscii(std::string_view text)
 TEST(Abi, AdoptRejectsBinaryThatImportsSiblingPlugin)
 {
     vase::PluginHost host;
-    // ① 先整局装一遍：登记路径（Adopt 的 KnownBinaries 兄弟表就建在这里）+ 证明两个
-    //    二进制本身都能装载（A 的 DT_NEEDED 在运行期解得开）。销毁不卸货（§8.1）。
+    // ① 先整局装一遍：证明两个二进制本身都能装载（A 的 DT_NEEDED 在运行期解得开），
+    //    并让它们的镜像驻留（销毁不卸货，§8.1）。路径账退役后兄弟集由请求自带（D71）。
     vase::LoadPlan registerBoth;
     registerBoth.Ordered.push_back({.Id = "Vase.BadLinkSiblingB", .BinaryPath = VASE_FIXTURE_BADLINKB});
     registerBoth.Ordered.push_back({.Id = "Vase.BadLinkSiblingA", .BinaryPath = VASE_FIXTURE_BADLINKA});
     host.DestroyPod(host.CreatePod(registerBoth).Value());
 
     // ② 只留 B 的一局，再 Adopt A：A 的导入表里有 B，执法在装配之前就该拦下。
+    //    兄弟集 = 本局喂的那只 B（按测试摆上场的名字原样入参）。
     vase::LoadPlan justB;
     justB.Ordered.push_back({.Id = "Vase.BadLinkSiblingB", .BinaryPath = VASE_FIXTURE_BADLINKB});
     const vase::PodHandle h = host.CreatePod(justB).Value();
 
-    const vase::Result<vase::AdoptReport> refused = host.AdoptPlugin(h, "Vase.BadLinkSiblingA");
+    const vase::ManifestExpectation siblingA = testing_support::MakeBadLinkSiblingAExpectation();
+    vase::AdoptRequest request;
+    request.Id = siblingA.Id;
+    request.BinaryPath = VASE_FIXTURE_BADLINKA;
+    request.Expected = &siblingA;
+    request.SiblingBinaries = {std::filesystem::path{VASE_FIXTURE_BADLINKB}.filename().string()};
+    const vase::Result<vase::AdoptReport> refused = host.AdoptPlugin(h, request);
     ASSERT_FALSE(refused.IsOk()); // ASSERT_：下面立刻取 GetError()，Ok 上取会终止进程
 
     // 消息的两段各证明一件事：**是哪条检查**（不是别的原因早退）与**点名了谁**。

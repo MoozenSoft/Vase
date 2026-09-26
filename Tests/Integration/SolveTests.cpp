@@ -84,6 +84,10 @@ std::string PlanText(const LoadPlan& plan)
                     {
                         text += v;
                     }
+                    else if constexpr (std::is_same_v<T, vase::ConfigBlob::EnumStored>)
+                    {
+                        text += std::to_string(v.Value); // 波 1 计划无 enum 值；此支只为 variant 穷尽占位
+                    }
                     else
                     {
                         text += std::to_string(v);
@@ -201,12 +205,12 @@ TEST_F(SolveA, NoteKindsAreFields)
     LoadRequest request;
     request.Preset = std::move(preset);
     const SolveOutcome outcome = SolveOrDie(Catalog, request);
-    ASSERT_EQ(outcome.Notes.size(), 2U); // 层内按 Entries() 的 Id 字典序：A 在 Ghost 前
+    ASSERT_EQ(outcome.Notes.size(), 2U); // D82 收尾排序：Kind 0（unknown id）在 Kind 1（unknown key）前
     const auto note = outcome.Notes.begin();
-    EXPECT_EQ(note->Kind, SolveNoteKind::kUnknownConfigKey);
-    EXPECT_EQ(note->Key, "nope");
-    EXPECT_EQ(std::next(note, 1)->Kind, SolveNoteKind::kUnknownPluginId);
-    EXPECT_EQ(std::next(note, 1)->PluginId, "Vase.Ghost");
+    EXPECT_EQ(note->Kind, SolveNoteKind::kUnknownPluginId);
+    EXPECT_EQ(note->PluginId, "Vase.Ghost");
+    EXPECT_EQ(std::next(note, 1)->Kind, SolveNoteKind::kUnknownConfigKey);
+    EXPECT_EQ(std::next(note, 1)->Key, "nope");
 }
 
 TEST_F(SolveA, TypeAndRangeErrors)
@@ -566,6 +570,223 @@ TEST_F(SolveB, DoubleRunIsByteIdenticalWithGraph) // D53（带图版）
     const std::string second = PlanText(SolveOrDie(Catalog, request).Plan);
     EXPECT_EQ(first, second);
     EXPECT_EQ(first.find("Vase.P|"), 0U); // 拓扑序在文本判据里同样成立：P 第一
+}
+
+// D82 终态归因证人：Reason/Notes 只在不动点收敛后产出，Notes 按 (Kind,PluginId,Key,Cause) 字典序 + 去重。
+class SolveAttribution : public ::testing::Test
+{
+public:
+    CatalogSandbox Sandbox{"solve-attribution"};
+    PluginCatalog Catalog;
+
+    void Stage(const std::vector<std::pair<std::string, std::string>>& dirToJson)
+    {
+        StageManifests(Sandbox, dirToJson);
+        RefreshOrFail(Catalog, Sandbox);
+    }
+
+    // 多半格用例的隔离带：各半格住独立子树，Refresh 只扫该子树（同沙箱互不沾染快照）。
+    void RefreshUnder(const std::string& sub, const std::vector<std::pair<std::string, std::string>>& dirToJson)
+    {
+        std::vector<std::pair<std::string, std::string>> under;
+        under.reserve(dirToJson.size());
+        for (const auto& [dir, json] : dirToJson)
+        {
+            std::string full = sub;
+            full += '/';
+            full += dir;
+            under.emplace_back(std::move(full), json);
+        }
+        StageManifests(Sandbox, under);
+        const auto refreshed = Catalog.Refresh(Sandbox.Root / sub);
+        ASSERT_TRUE(refreshed.IsOk()) << refreshed.GetError().Message();
+    }
+
+    // Kind 序号 cast 进文本前缀，与 PlanText 的 Reason 同族先例；判据是「同一序列逐字节等」。
+    static std::string NoteText(const std::vector<vase::SolveNote>& notes)
+    {
+        std::string text;
+        for (const vase::SolveNote& note : notes)
+        {
+            text += std::to_string(static_cast<int>(note.Kind)) + "|" + note.PluginId + "|" + note.Key + "|" +
+                    note.Cause + "|" + note.Message + "\n";
+        }
+        return text;
+    }
+};
+
+TEST_F(SolveAttribution, FinalStateNotIntermediate)
+{
+    // 半格 A←B←C：B、C 各一条 kProviderSkipped（Cause 沿链指直接提供方），Reason 皆 kMissingDependency。
+    RefreshUnder("chain",
+                 {
+                     {"a", ManifestWith("Vase.A", std::string(kProvS) + R"(,"enabledByDefault":false)")},
+                     {"b", ManifestWith("Vase.B", std::string(kReqS) + R"(,"provides":[{"service":"T","version":1}])")},
+                     {"c", ManifestWith("Vase.C", R"("requires":[{"service":"T","version":1}])")},
+                 });
+    LoadRequest request;
+    const SolveOutcome cascade = SolveOrDie(Catalog, request);
+    ASSERT_EQ(cascade.Plan.Ordered.size(), 3U); // 全 skip，Id 序
+    EXPECT_EQ(cascade.Plan.Ordered.begin()->Reason, vase::SkipReason::kDisabled);
+    EXPECT_EQ(std::next(cascade.Plan.Ordered.begin(), 1)->Reason, vase::SkipReason::kMissingDependency);
+    EXPECT_EQ(cascade.Plan.Ordered.back().Reason, vase::SkipReason::kMissingDependency);
+    EXPECT_EQ(NoteText(cascade.Notes), "2|Vase.B||Vase.A|provider disabled or skipped: S\n"
+                                       "2|Vase.C||Vase.B|provider disabled or skipped: T\n");
+
+    // 半格诱饵（迭代态归因在此抖动）：exact 提供方 Z 出局、同名异 major 的 X 在场。终态停在直接提供方 Z：
+    // kMissingDependency + kProviderSkipped@Z——中间态写法会误判 kVersionMismatch@X。
+    RefreshUnder(
+        "decoy",
+        {
+            {"z", ManifestWith("Vase.Z", R"("provides":[{"service":"S","version":2}],"enabledByDefault":false)")},
+            {"x", ManifestWith("Vase.X", kProvS)},
+            {"c", ManifestWith("Vase.C", R"("requires":[{"service":"S","version":2}])")},
+        });
+    const SolveOutcome decoy = SolveOrDie(Catalog, request);
+    ASSERT_EQ(decoy.Plan.Ordered.size(), 3U); // load [X] + skip [C, Z]
+    EXPECT_EQ(decoy.Plan.Ordered.begin()->Id, "Vase.X");
+    EXPECT_EQ(std::next(decoy.Plan.Ordered.begin(), 1)->Reason, vase::SkipReason::kMissingDependency);
+    EXPECT_EQ(decoy.Plan.Ordered.back().Reason, vase::SkipReason::kDisabled);
+    EXPECT_EQ(NoteText(decoy.Notes), "2|Vase.C||Vase.Z|provider disabled or skipped: S\n");
+}
+
+TEST_F(SolveAttribution, DisabledSelfKeepsKDisabled)
+{
+    // D 在 ① 即 disabled、自身上游也缺——Reason 恒 kDisabled（归因 pass 不碰自禁者）；其出局照常参与下游归因。
+    constexpr const char* kGhostReqDisabled =
+        R"(,"requires":[{"service":"Nowhere","version":1}],"enabledByDefault":false)";
+    Stage({
+        {"d", ManifestWith("Vase.D", std::string(kProvS) + kGhostReqDisabled)},
+        {"c", ManifestWith("Vase.C", kReqS)},
+    });
+    LoadRequest request;
+    const SolveOutcome outcome = SolveOrDie(Catalog, request);
+    ASSERT_EQ(outcome.Plan.Ordered.size(), 2U); // 全 skip：C 在前、D 在后（Id 序）
+    EXPECT_EQ(outcome.Plan.Ordered.begin()->Reason, vase::SkipReason::kMissingDependency);
+    EXPECT_EQ(outcome.Plan.Ordered.back().Reason, vase::SkipReason::kDisabled);
+    EXPECT_EQ(NoteText(outcome.Notes), "2|Vase.C||Vase.D|provider disabled or skipped: S\n");
+}
+
+TEST_F(SolveAttribution, NotesDeterministicSorted)
+{
+    Stage({
+        {"a", ManifestWith("Vase.A", std::string(kProvS) + R"(,"enabledByDefault":false)")},
+        {"m", ManifestWith("Vase.M", kReqS)},
+    });
+    const vase::Preset preset = LoadPresetOrDie(
+        Sandbox, "Client.preset.json",
+        R"({"schemaVersion":1,"overrides":{"Vase.Ghost":{"enabled":true},"Vase.Zeta":{"enabled":true}}})");
+    const std::vector<vase::PluginOverride> forward{
+        vase::PluginOverride{.Id = "Vase.Alpha", .Enabled = true, .Config = {}},
+        vase::PluginOverride{.Id = "Vase.Ghost", .Enabled = true, .Config = {}}, // 与 preset 层同元组 → 去重靶
+    };
+    const std::vector<vase::PluginOverride> reversed{
+        vase::PluginOverride{.Id = "Vase.Ghost", .Enabled = true, .Config = {}},
+        vase::PluginOverride{.Id = "Vase.Alpha", .Enabled = true, .Config = {}},
+    };
+    const std::string expected = "0|Vase.Alpha|||override references unknown plugin id\n"
+                                 "0|Vase.Ghost|||override references unknown plugin id\n"
+                                 "0|Vase.Zeta|||override references unknown plugin id\n"
+                                 "2|Vase.M||Vase.A|provider disabled or skipped: S\n";
+    for (const std::vector<vase::PluginOverride>* order : {&forward, &reversed, &forward})
+    {
+        LoadRequest request;
+        request.Preset = preset;
+        request.Overrides = *order;
+        EXPECT_EQ(NoteText(SolveOrDie(Catalog, request).Notes), expected); // 乱序喂入 + 双跑 → 逐字节等
+    }
+}
+
+class SolveEnum : public ::testing::Test
+{
+public:
+    CatalogSandbox Sandbox{"solve-enum"};
+    PluginCatalog Catalog;
+
+    void Stage(const std::vector<std::pair<std::string, std::string>>& dirToJson)
+    {
+        StageManifests(Sandbox, dirToJson);
+        RefreshOrFail(Catalog, Sandbox);
+    }
+};
+
+// enum 字段（安静=0 / 响亮=1，default 响亮）；清单侧 label 原样存，换 value 归 Solve（D80）。
+constexpr const char* kMoodConfig =
+    R"("config":[{"key":"mood","type":"enum","default":"响亮","choices":[{"value":0,"label":"安静"},{"value":1,"label":"响亮"}]}])";
+
+TEST_F(SolveEnum, LabelOverrideCoercedToValue)
+{
+    Stage({
+        {"a", ManifestWith("Vase.A", kMoodConfig)},
+    });
+    vase::Preset preset = LoadPresetOrDie(Sandbox, "Client.preset.json",
+                                          R"({"schemaVersion":1,"overrides":{"Vase.A":{"config":{"mood":"安静"}}}})");
+    LoadRequest request;
+    request.Preset = std::move(preset);
+    const SolveOutcome outcome = SolveOrDie(Catalog, request);
+    ASSERT_EQ(outcome.Plan.Ordered.size(), 1U);
+    const auto mood = Unwrap(outcome.Plan.Ordered.begin()->ResolvedConfig.Find("mood"));
+    EXPECT_EQ(mood.Kind, vase::ValueKind::kEnum);
+    EXPECT_EQ(mood.GetAs<std::int32_t>(), 0); // 取与 default 不同的 label：0 同时钉住换值与覆盖层生效
+}
+
+TEST_F(SolveEnum, UnknownLabelIsError) // D51 通道：成员闸消息点名合法集（清单文件序）
+{
+    Stage({
+        {"a", ManifestWith("Vase.A", kMoodConfig)},
+    });
+    vase::Preset preset = LoadPresetOrDie(Sandbox, "bad-label.json",
+                                          R"({"schemaVersion":1,"overrides":{"Vase.A":{"config":{"mood":"疯狂"}}}})");
+    LoadRequest request;
+    request.Preset = std::move(preset);
+    const auto solved = Catalog.Solve(request);
+    ASSERT_FALSE(solved.IsOk());
+    const std::string message = solved.GetError().Message();
+    EXPECT_NE(message.find("is not one of"), std::string::npos);
+    EXPECT_NE(message.find("安静"), std::string::npos);
+    EXPECT_NE(message.find("响亮"), std::string::npos);
+    EXPECT_LT(message.find("安静"), message.find("响亮")); // 合法集按文件序点名
+}
+
+TEST_F(SolveEnum, IntegerOverrideIsError) // enum 只认 label（D80）：整数位形不进门
+{
+    Stage({
+        {"a", ManifestWith("Vase.A", kMoodConfig)},
+    });
+    vase::Preset preset =
+        LoadPresetOrDie(Sandbox, "bad-int.json", R"({"schemaVersion":1,"overrides":{"Vase.A":{"config":{"mood":1}}}})");
+    LoadRequest request;
+    request.Preset = std::move(preset);
+    const auto solved = Catalog.Solve(request);
+    ASSERT_FALSE(solved.IsOk());
+    EXPECT_NE(solved.GetError().Message().find("is not one of"), std::string::npos);
+}
+
+TEST_F(SolveEnum, MissingFieldCoerce) // D66：被跳插件的 enum 覆盖类型错照样响
+{
+    Stage({
+        {"a", ManifestWith("Vase.A", std::string(kMoodConfig) + R"(,"enabledByDefault":false)")},
+    });
+    vase::Preset preset = LoadPresetOrDie(Sandbox, "bad-skipped.json",
+                                          R"({"schemaVersion":1,"overrides":{"Vase.A":{"config":{"mood":"疯狂"}}}})");
+    LoadRequest request;
+    request.Preset = std::move(preset);
+    const auto solved = Catalog.Solve(request);
+    ASSERT_FALSE(solved.IsOk());
+    EXPECT_NE(solved.GetError().Message().find("is not one of"), std::string::npos);
+}
+
+TEST_F(SolveEnum, DefaultsFlowAsEnumStored) // ⑥：default 的 label 中间形进 blob 前换成 value（D80）
+{
+    Stage({
+        {"a", ManifestWith("Vase.A", kMoodConfig)},
+    });
+    LoadRequest request;
+    const SolveOutcome outcome = SolveOrDie(Catalog, request);
+    ASSERT_EQ(outcome.Plan.Ordered.size(), 1U);
+    const auto mood = Unwrap(outcome.Plan.Ordered.begin()->ResolvedConfig.Find("mood"));
+    EXPECT_EQ(mood.Kind, vase::ValueKind::kEnum);
+    EXPECT_EQ(mood.GetAs<std::int32_t>(), 1); // default "响亮" → kEnum==1
 }
 
 } // namespace

@@ -48,6 +48,13 @@ Value ToView(const ConfigBlob::Storage& stored)
     {
         return Value::From<double>(*doublePtr);
     }
+    if (const auto* storedEnum = std::get_if<ConfigBlob::EnumStored>(&stored); storedEnum != nullptr)
+    {
+        // 位形与 From<int32_t> 逐位同形（D75），只换标签——避开裸联合成员初始化，与 Solve.cpp FromStorage 同写法。
+        Value view = Value::From<std::int32_t>(storedEnum->Value);
+        view.Kind = ValueKind::kEnum;
+        return view;
+    }
     detail::ProgrammerError("ConfigBlob::ToView: unreachable variant alternative");
 }
 
@@ -97,6 +104,9 @@ void ConfigBlob::Set(std::string_view key, const Value& view)
         break;
     case ValueKind::kString:
         converted = std::string(view.GetAs<const char*>()); // 深拷入：此后拥有存储就是唯一所有者
+        break;
+    case ValueKind::kEnum:
+        converted = EnumStored{.Value = view.GetAs<std::int32_t>()}; // kEnum 的位形低 32 位即其 int32 值
         break;
     default:
         detail::ProgrammerError("ConfigBlob::Set unknown kind");

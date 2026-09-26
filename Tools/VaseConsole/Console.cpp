@@ -3,6 +3,11 @@
 #include "Greeter.h"
 #include "PlanFile.h"
 #include "Shell.h"
+#include "Vase/Catalog/CatalogAdopt.h"
+#include "Vase/Catalog/LoadRequest.h"
+#include "Vase/Catalog/ManifestView.h"
+#include "Vase/Catalog/PluginCatalog.h"
+#include "Vase/Catalog/Preset.h"
 #include "Vase/Detail/ImageInspect.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Evidence.h"
@@ -21,6 +26,7 @@
 #include <iomanip>
 #include <ios>
 #include <iterator>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -162,7 +168,75 @@ void PrintAdoptReport(std::ostream& out, const vase::AdoptReport& report)
     out << "adopt " << report.PluginId << " reusedResidentImage=" << BoolText(report.ReusedResidentImage)
         << " identityVerified=" << BoolText(report.IdentityVerified)
         << " importEnforcementPassed=" << BoolText(report.ImportEnforcementPassed)
-        << " outgoingEdges=" << report.OutgoingEdges << '\n';
+        << " outgoingEdges=" << report.OutgoingEdges << " manifestVerified=" << BoolText(report.ManifestVerified)
+        << '\n';
+}
+
+const char* SkipReasonText(vase::SkipReason reason)
+{
+    switch (reason)
+    {
+    case vase::SkipReason::kDisabled:
+        return "disabled";
+    case vase::SkipReason::kMissingDependency:
+        return "missing-dependency";
+    case vase::SkipReason::kVersionMismatch:
+        return "version-mismatch";
+    }
+    return "?";
+}
+
+const char* SolveNoteKindText(vase::SolveNoteKind kind)
+{
+    switch (kind)
+    {
+    case vase::SolveNoteKind::kUnknownPluginId:
+        return "unknownPluginId";
+    case vase::SolveNoteKind::kUnknownConfigKey:
+        return "unknownConfigKey";
+    case vase::SolveNoteKind::kProviderSkipped:
+        return "providerSkipped";
+    case vase::SolveNoteKind::kVersionMismatchProvider:
+        return "versionMismatchProvider";
+    }
+    return "?";
+}
+
+// 暂存槽的读入腿（二进制与清单两条线同构）：逐字节经 istreambuf_iterator 收
+// （Source/Host/ImageInspectCommon.cpp 的 ReadImageFileBytes 同款写法）——ifstream::read
+// 要 char*，为取一个字节指针去 reinterpret_cast 不值当。
+vase::Result<std::vector<std::uint8_t>> ReadStagedBytes(const std::string& sourcePath)
+{
+    using ResultT = vase::Result<std::vector<std::uint8_t>>;
+    std::ifstream source{sourcePath, std::ios::binary};
+    if (!source.is_open())
+    {
+        return ResultT::Err(vase::Error{"cannot open source: " + sourcePath});
+    }
+    const std::istreambuf_iterator<char> reader{source};
+    const std::istreambuf_iterator<char> finish;
+    std::vector<std::uint8_t> bytes;
+    bytes.assign(reader, finish);
+    if (bytes.empty())
+    {
+        // 一个字节都没读到就不许进暂存区：install 会把它当成「把目标截成 0 字节」。
+        return ResultT::Err(vase::Error{"no bytes read from " + sourcePath});
+    }
+    return ResultT::Ok(std::move(bytes));
+}
+
+// 内存字节写去既有路径（两条 install 线共用）：ofstream 默认就是 out（不带 app 即截断），
+// 故只需 binary 一个 flag——顺带避开 openmode 按位或上的 bugprone-signed-bitwise。
+// ostreambuf_iterator 走未格式化的 sputc：write() 要 const char*，而 reinterpret_cast 本仓库禁用。
+bool WriteBytesTo(const std::vector<std::uint8_t>& bytes, const std::filesystem::path& target)
+{
+    std::ofstream stream{target, std::ios::binary};
+    if (!stream.is_open())
+    {
+        return false;
+    }
+    std::ranges::copy(bytes, std::ostreambuf_iterator<char>(stream));
+    return static_cast<bool>(stream);
 }
 
 } // namespace
@@ -182,8 +256,14 @@ std::vector<CommandSpec> Console::Commands()
         });
     };
 
-    add("pod", "new", {"planFile"}, "Create a pod from a plan file",
+    add("catalog", "refresh", {"pluginDir"}, "Refresh the session preview catalog and print ids/warnings",
+        [this](std::ostream& out, const std::vector<std::string>& args) { CmdCatalogRefresh(out, args); });
+    add("catalog", "solve", {"[presetFile]"}, "Solve the preview catalog and print the plan/notes",
+        [this](std::ostream& out, const std::vector<std::string>& args) { CmdCatalogSolve(out, args); });
+    add("pod", "new", {"pluginDir", "[presetFile]"}, "Create a pod via the catalog main chain",
         [this](std::ostream& out, const std::vector<std::string>& args) { CmdPodNew(out, args); });
+    add("pod", "new-raw", {"planFile"}, "Create a pod from a plan file (no manifest, no expected)",
+        [this](std::ostream& out, const std::vector<std::string>& args) { CmdPodNewRaw(out, args); });
     add("pod", "use", {"index"}, "Select the target pod",
         [this](std::ostream& out, const std::vector<std::string>& args) { CmdPodUse(out, args); });
     add("pod", "list", {}, "List live pods",
@@ -209,6 +289,11 @@ std::vector<CommandSpec> Console::Commands()
         [this](std::ostream& out, const std::vector<std::string>& args) { CmdFileStage(out, args); });
     add("file", "install", {"id"}, "Overwrite the id's registered path with the staged bytes",
         [this](std::ostream& out, const std::vector<std::string>& args) { CmdFileInstall(out, args); });
+    add("file", "stage-manifest", {"id", "srcPath"},
+        "Read manifest src bytes into the manifest staging slot (catalog pods only)",
+        [this](std::ostream& out, const std::vector<std::string>& args) { CmdFileStageManifest(out, args); });
+    add("file", "install-manifest", {"id"}, "Overwrite the id's plugin.json with the staged manifest bytes",
+        [this](std::ostream& out, const std::vector<std::string>& args) { CmdFileInstallManifest(out, args); });
     add("file", "show", {"id"}, "Print the id's registered path, size, mtime and on-disk identity",
         [this](std::ostream& out, const std::vector<std::string>& args) { CmdFileShow(out, args); });
     return commands;
@@ -228,9 +313,190 @@ bool Console::ParseIndex(std::string_view text, std::uint32_t& out)
     return true;
 }
 
+void Console::CmdCatalogRefresh(std::ostream& out, const std::vector<std::string>& args)
+{
+    if (!CheckArity(out, args, 1, "catalog refresh <pluginDir>"))
+    {
+        MarkFailed();
+        return;
+    }
+    auto catalog = std::make_unique<vase::PluginCatalog>();
+    const auto refreshed = catalog->Refresh(std::filesystem::path{*args.begin()});
+    if (!refreshed.IsOk())
+    {
+        out << "catalog refresh: " << refreshed.GetError().Message() << '\n';
+        MarkFailed();
+        return;
+    }
+    PreviewCatalog = std::move(catalog); // 事务性（D58）：成功才换预览——失败时旧快照照常可查
+    for (const std::string& id : PreviewCatalog->Ids())
+    {
+        out << "  plugin: " << id << '\n';
+    }
+    for (const vase::CatalogWarning& warning : PreviewCatalog->Warnings())
+    {
+        out << "  warning: " << warning.Subdirectory << " " << warning.Message << '\n';
+    }
+}
+
+void Console::CmdCatalogSolve(std::ostream& out, const std::vector<std::string>& args)
+{
+    if (args.size() > 1)
+    {
+        out << "usage: catalog solve [presetFile]  (got " << args.size() << " argument(s))\n";
+        MarkFailed();
+        return;
+    }
+    if (PreviewCatalog == nullptr)
+    {
+        out << "catalog solve: no session catalog (use: catalog refresh <pluginDir>)\n";
+        MarkFailed();
+        return;
+    }
+    vase::LoadRequest request; // HostProvided 传空集（spec 5.1）；Overrides 本台不摆
+    if (args.size() == 1)
+    {
+        auto loaded = vase::LoadPreset(std::filesystem::path{*args.begin()});
+        if (!loaded.IsOk())
+        {
+            out << "catalog solve: " << loaded.GetError().Message() << '\n';
+            MarkFailed();
+            return;
+        }
+        request.Preset = std::move(loaded.Value());
+    }
+    const auto solved = PreviewCatalog->Solve(request);
+    if (!solved.IsOk())
+    {
+        out << "catalog solve: " << solved.GetError().Message() << '\n';
+        MarkFailed();
+        return;
+    }
+    std::size_t index = 1;
+    for (const vase::LoadPlanEntry& entry : solved.Value().Plan.Ordered)
+    {
+        if (entry.Decision == vase::LoadDecision::kLoad)
+        {
+            out << "  " << index << ". " << entry.Id << " load\n";
+        }
+        else
+        {
+            out << "  " << index << ". " << entry.Id << " skip " << SkipReasonText(entry.Reason) << '\n';
+        }
+        ++index;
+    }
+    for (const vase::SolveNote& note : solved.Value().Notes)
+    {
+        out << "  note: " << SolveNoteKindText(note.Kind) << " " << note.PluginId;
+        if (!note.Key.empty())
+        {
+            out << " " << note.Key;
+        }
+        else if (!note.Cause.empty())
+        {
+            out << " " << note.Cause;
+        }
+        out << '\n';
+    }
+}
+
 void Console::CmdPodNew(std::ostream& out, const std::vector<std::string>& args)
 {
-    if (!CheckArity(out, args, 1, "pod new <planFile>"))
+    if (args.empty() || args.size() > 2)
+    {
+        out << "usage: pod new <pluginDir> [presetFile]  (got " << args.size() << " argument(s))\n";
+        MarkFailed();
+        return;
+    }
+    const std::filesystem::path pluginDir{*args.begin()};
+    vase::LoadRequest request;
+    if (args.size() == 2)
+    {
+        auto loaded = vase::LoadPreset(std::filesystem::path{*std::next(args.begin(), 1)});
+        if (!loaded.IsOk())
+        {
+            out << "pod new: " << loaded.GetError().Message() << '\n';
+            MarkFailed();
+            return;
+        }
+        request.Preset = std::move(loaded.Value());
+    }
+
+    // catalog 随局归属（D85）：这一局自持一份、当场 refresh——会话级预览 catalog 不掺和，
+    // 否则第二局 pod new 一换目录，第一局的 adopt 就在别人的快照里找 Id。
+    auto catalog = std::make_unique<vase::PluginCatalog>();
+    const auto refreshed = catalog->Refresh(pluginDir);
+    if (!refreshed.IsOk())
+    {
+        out << "pod new: " << refreshed.GetError().Message() << '\n';
+        MarkFailed();
+        return;
+    }
+    const auto solved = catalog->Solve(request);
+    if (!solved.IsOk())
+    {
+        out << "pod new: " << solved.GetError().Message() << '\n';
+        MarkFailed();
+        return;
+    }
+    const vase::LoadPlan& plan = solved.Value().Plan; // 条目 Id 借快照（D61），本次调用内有效
+
+    vase::PodOptions options;
+    options.Strict = true; // 验证台不接受"半成的局"：一局要么完整要么失败
+    // 主链的条目自动带 Expected（D84）——加载期比对在这条路上默认生效；kSkip 条目无二进制，无从比对。
+    auto created = Host.CreatePod(plan, options);
+    if (!created.IsOk())
+    {
+        out << "pod new: " << created.GetError().Message() << '\n';
+        MarkFailed();
+        return;
+    }
+
+    // 条目落表（拥有形）：file install/show 的路径 accessor 自此对两态局统一（spec 5.1）。
+    std::vector<Entry> entries;
+    entries.reserve(plan.Ordered.size());
+    for (const vase::LoadPlanEntry& entry : plan.Ordered)
+    {
+        entries.push_back(Entry{.Id = std::string{entry.Id}, .BinaryPath = entry.BinaryPath});
+    }
+
+    const vase::PodHandle handle = created.Value();
+    LivePod slot;
+    slot.Handle = handle;
+    slot.PlanPath = pluginDir;
+    slot.Entries = std::move(entries);
+    slot.Catalog = std::move(catalog);
+    Pods.insert_or_assign(handle.Index, std::move(slot));
+    ActiveIndex = handle.Index;
+    HasActive = true;
+
+    out << "pod created index=" << handle.Index << " generation=" << handle.Generation << '\n';
+    const vase::Pod* pod = Host.Resolve(handle);
+    if (pod == nullptr)
+    {
+        out << "pod new: handle did not resolve immediately\n"; // 不该发生，但报告比崩溃有用
+        MarkFailed();
+        return;
+    }
+    for (const std::string& id : pod->PluginIds())
+    {
+        out << "  plugin: " << id << '\n';
+    }
+    for (const vase::SkippedRecord& record : pod->Skips())
+    {
+        if (record.Class == vase::SkipClass::kStatic)
+        {
+            out << "  skip: " << record.Id << " (" << record.Cause << ")\n";
+        }
+    }
+    // Strict=true 下带失败记录的局交付不出来（规则 ① 由上面的 created 分支承担）；
+    // Solve 的 Notes 不在这里重打——那是 catalog solve 预览面的活。
+}
+
+// raw 旁路（D68/D85）：M1 的 plan 文件解析与行为整体在此续命，Expected 保持空。
+void Console::CmdPodNewRaw(std::ostream& out, const std::vector<std::string>& args)
+{
+    if (!CheckArity(out, args, 1, "pod new-raw <planFile>"))
     {
         MarkFailed();
         return;
@@ -239,7 +505,7 @@ void Console::CmdPodNew(std::ostream& out, const std::vector<std::string>& args)
     auto parsed = ParsePlanFile(std::filesystem::path{*args.begin()});
     if (!parsed.IsOk())
     {
-        out << "pod new: " << parsed.GetError().Message() << '\n';
+        out << "pod new-raw: " << parsed.GetError().Message() << '\n';
         MarkFailed();
         return;
     }
@@ -258,7 +524,7 @@ void Console::CmdPodNew(std::ostream& out, const std::vector<std::string>& args)
     auto created = Host.CreatePod(plan2, options);
     if (!created.IsOk())
     {
-        out << "pod new: " << created.GetError().Message() << '\n';
+        out << "pod new-raw: " << created.GetError().Message() << '\n';
         MarkFailed();
         return;
     }
@@ -276,7 +542,7 @@ void Console::CmdPodNew(std::ostream& out, const std::vector<std::string>& args)
     const vase::Pod* pod = Host.Resolve(handle);
     if (pod == nullptr)
     {
-        out << "pod new: handle did not resolve immediately\n"; // 不该发生，但报告比崩溃有用
+        out << "pod new-raw: handle did not resolve immediately\n"; // 不该发生，但报告比崩溃有用
         MarkFailed();
         return;
     }
@@ -351,7 +617,7 @@ vase::Pod* Console::ResolveActivePod(std::ostream& out, vase::PodHandle& handleO
     const LivePod* slot = Active();
     if (slot == nullptr)
     {
-        out << "no active pod (use: pod new <planFile>)\n";
+        out << "no active pod (use: pod new <pluginDir> or pod new-raw <planFile>)\n";
         return nullptr;
     }
     vase::Pod* pod = Host.Resolve(slot->Handle);
@@ -419,18 +685,39 @@ void Console::CmdAdopt(std::ostream& out, const std::vector<std::string>& args)
         MarkFailed();
         return;
     }
-    // 先把「这个 Id 登记自哪份 plan」打出来：M1 的 KnownBinaries 是 Host 级、不按局分账
-    // （spec §8.1），多局并存时它是用户最容易撞到的东西，报告里必须看得见来源。
-    const Entry* entry = FindEntry(*args.begin());
-    out << "adopt " << *args.begin()
-        << " registeredBy=" << (entry == nullptr ? "not-in-active-plan" : Active()->PlanPath.string()) << '\n';
+    // 先把「这个 Id 的清单从哪来」打出来（M1 的 registeredBy 换到 catalog 家）：多局并存时
+    // 路径账与期望都随局分账了（D85），报告里必须看得见来源。
+    const LivePod* slot = Active();
+    std::string source = "not-in-active-pod";
+    if (slot->Catalog != nullptr)
+    {
+        source = "catalog " + slot->Catalog->Directory().string();
+    }
+    else if (FindEntry(*args.begin()) != nullptr)
+    {
+        source = slot->PlanPath.string(); // raw 局的 adopt 稍后即拒，这行只为可见性保留来源标注
+    }
+    out << "adopt " << *args.begin() << " registeredBy=" << source << '\n';
+    static_cast<void>(AdoptActivePod(out, handle, *args.begin())); // 成败已计入 Failed（规则 ①）
+}
 
-    auto result = Host.AdoptPlugin(handle, std::string_view{*args.begin()});
+// adopt/swap 的共用腿（T12 单轨）：清单轨局走 AdoptInto（§5.6① 就地重读喂期望，D81），
+// raw 旁路局没有清单来源——响亮拒绝，不静默跳比（D85/D69）。
+bool Console::AdoptActivePod(std::ostream& out, vase::PodHandle handle, const std::string& id)
+{
+    const LivePod* slot = Active();
+    if (slot == nullptr || slot->Catalog == nullptr)
+    {
+        out << "adopt requires a catalog-backed pod (use: pod new <pluginDir>)\n";
+        MarkFailed();
+        return false;
+    }
+    auto result = vase::AdoptInto(*slot->Catalog, Host, handle, std::string_view{id});
     if (!result.IsOk())
     {
         out << "adopt failed: " << result.GetError().Message() << '\n'; // 环境/身份类与误用仍走 Err（§5.3 边界）
         MarkFailed();
-        return;
+        return false;
     }
     // Ok ≠ 成功（同 CmdEject 的 R9-1 裁定）：声明不齐 / Provides 碰撞两类执法走 Status，
     // 名单从 Missing / Collisions 字段现拼，话术沿用 M1 前缀。
@@ -438,16 +725,17 @@ void Console::CmdAdopt(std::ostream& out, const std::vector<std::string>& args)
     {
         out << "adopt refused: unresolved declarations [" << JoinRequirements(result.Value().Missing) << "]\n";
         MarkFailed();
-        return;
+        return false;
     }
     if (result.Value().Status == vase::AdoptStatus::kRejectedCollision)
     {
         out << "adopt refused: provides collision [" << JoinRequirementsForCollision(result.Value().Collisions)
             << "]\n";
         MarkFailed();
-        return;
+        return false;
     }
     PrintAdoptReport(out, result.Value());
+    return true;
 }
 
 void Console::CmdSwap(std::ostream& out, const std::vector<std::string>& args)
@@ -490,28 +778,12 @@ void Console::CmdSwap(std::ostream& out, const std::vector<std::string>& args)
             return;
         }
         PrintEjectReport(out, ejected.Value());
-        auto adopted = Host.AdoptPlugin(handle, std::string_view{*args.begin()});
-        if (!adopted.IsOk())
+        // adopt 腿与 CmdAdopt 同路（T12 单轨：catalog 局 AdoptInto、raw 局响亮拒绝）；
+        // 执法拒绝 / Err 都停环（与 eject 侧同形的既有语义，M1 起不变）。
+        if (!AdoptActivePod(out, handle, *args.begin()))
         {
-            out << "adopt failed: " << adopted.GetError().Message() << '\n';
-            MarkFailed();
             return;
         }
-        // 与 eject 侧同形：执法拒绝即停环（M1 的 Err 版语义只换通道，不换循环形状）。
-        if (adopted.Value().Status == vase::AdoptStatus::kRejectedDependencies)
-        {
-            out << "adopt refused: unresolved declarations [" << JoinRequirements(adopted.Value().Missing) << "]\n";
-            MarkFailed();
-            return;
-        }
-        if (adopted.Value().Status == vase::AdoptStatus::kRejectedCollision)
-        {
-            out << "adopt refused: provides collision [" << JoinRequirementsForCollision(adopted.Value().Collisions)
-                << "]\n";
-            MarkFailed();
-            return;
-        }
-        PrintAdoptReport(out, adopted.Value());
     }
 }
 
@@ -523,29 +795,17 @@ void Console::CmdFileStage(std::ostream& out, const std::vector<std::string>& ar
         return;
     }
     const std::string& sourcePath = *std::next(args.begin(), 1);
-    std::ifstream source{sourcePath, std::ios::binary};
-    if (!source.is_open())
+    auto bytes = ReadStagedBytes(sourcePath);
+    if (!bytes.IsOk())
     {
-        out << "file stage: cannot open source: " << sourcePath << '\n';
+        out << "file stage: " << bytes.GetError().Message() << '\n';
         MarkFailed();
         return;
     }
-    // 逐字节经 istreambuf_iterator 收（Source/Host/ImageInspectCommon.cpp 的 ReadImageFileBytes
-    // 同款写法）：ifstream::read 要 char*，为取一个字节指针去 reinterpret_cast 不值当。
-    const std::istreambuf_iterator<char> reader{source};
-    const std::istreambuf_iterator<char> finish;
-    std::vector<std::uint8_t> bytes;
-    bytes.assign(reader, finish);
-    if (bytes.empty())
-    {
-        // 一个字节都没读到就不许进暂存区：install 会把它当成「把 DLL 截成 0 字节」。
-        out << "file stage: no bytes read from " << sourcePath << '\n';
-        MarkFailed();
-        return;
-    }
-    // 「为哪个 Id 暂的存」与「暂了哪些字节」绑成一个值，两者不可能错配。
-    Staged = std::make_pair(*args.begin(), std::move(bytes));
-    out << "staged " << Staged->second.size() << " bytes for " << Staged->first << " (not written yet)\n";
+    // 「为哪个 Id 暂的存」与「暂了哪些字节」绑成一个值，两者不可能错配；二进制与清单各一条槽，
+    // install 系命令只消费自己那型（grilling Q4 裁）。
+    StagedBinary = std::make_pair(*args.begin(), std::move(bytes.Value()));
+    out << "staged " << StagedBinary->second.size() << " bytes for " << StagedBinary->first << " (not written yet)\n";
 }
 
 void Console::CmdFileInstall(std::ostream& out, const std::vector<std::string>& args)
@@ -556,15 +816,15 @@ void Console::CmdFileInstall(std::ostream& out, const std::vector<std::string>& 
         return;
     }
     const std::string& id = *args.begin();
-    if (!Staged || Staged->first != id)
+    if (!StagedBinary || StagedBinary->first != id)
     {
         out << "file install: nothing staged for " << id << '\n';
         MarkFailed();
         return;
     }
     // 本地引用紧贴校验点取：中间夹一次 FindEntry（非常量成员调用）之后，
-    // bugprone-unchecked-optional-access 不再认「Staged 有值」这份事实。
-    const std::vector<std::uint8_t>& staged = Staged->second;
+    // bugprone-unchecked-optional-access 不再认「StagedBinary 有值」这份事实。
+    const std::vector<std::uint8_t>& staged = StagedBinary->second;
     const Entry* entry = FindEntry(id);
     if (entry == nullptr)
     {
@@ -573,34 +833,19 @@ void Console::CmdFileInstall(std::ostream& out, const std::vector<std::string>& 
         return;
     }
 
+    if (!WriteBytesTo(staged, entry->BinaryPath))
     {
-        // ofstream 默认就是 out（不带 app 即截断），故只需 binary 一个 flag——顺带避开
-        // openmode 按位或上的 bugprone-signed-bitwise。暂存的是内存里的字节，用 ofstream
-        // 而不是 filesystem::copy_file：磁盘上没有源文件可整份拷贝。
-        std::ofstream target{entry->BinaryPath, std::ios::binary};
-        if (!target.is_open())
-        {
-            // Windows 上这一支就是 T12 那个 sharing-violation 探针：镜像还映射着就写不开。
-            out << "install " << id << " written=false path=" << entry->BinaryPath.string() << '\n';
-            // 判据力声明同样按平台分叉（与成功路径那对一致）：Linux 正常走不到这一支
-            // （truncate-in-place 总是开得成），到达只说明路径不可写，与 Eject 无关。
+        // Windows 上这一支就是 T12 那个 sharing-violation 探针：镜像还映射着就写不开。
+        out << "install " << id << " written=false path=" << entry->BinaryPath.string() << '\n';
+        // 判据力声明同样按平台分叉（与成功路径那对一致）：Linux 正常走不到这一支
+        // （truncate-in-place 总是开得成），到达只说明路径不可写，与 Eject 无关。
 #ifdef _WIN32
-            out << "  判据力：Windows → 写不开即「Eject 没真卸」（sharing violation）。本条**有**判据力\n";
+        out << "  判据力：Windows → 写不开即「Eject 没真卸」（sharing violation）。本条**有**判据力\n";
 #else
-            out << "  判据力：Linux → 写不开只说明路径不可写（只读挂载 / 目录已删），非「Eject 没真卸」\n";
+        out << "  判据力：Linux → 写不开只说明路径不可写（只读挂载 / 目录已删），非「Eject 没真卸」\n";
 #endif
-            MarkFailed();
-            return;
-        }
-        // ostreambuf_iterator 走未格式化的 sputc：write() 要 const char*，而
-        // reinterpret_cast 本仓库禁用。
-        std::ranges::copy(staged, std::ostreambuf_iterator<char>(target));
-        if (!target)
-        {
-            out << "install " << id << " written=false (short write)\n";
-            MarkFailed();
-            return;
-        }
+        MarkFailed();
+        return;
     }
     out << "install " << id << " written=true path=" << entry->BinaryPath.string() << '\n';
     // 这两行不是装饰，是这条命令存在的全部理由：同一个动作为什么在两平台证明的不是
@@ -610,6 +855,72 @@ void Console::CmdFileInstall(std::ostream& out, const std::vector<std::string>& 
 #else
     out << "  判据力：Linux → 覆盖是 truncate-in-place（同 inode），映射着也写得开。本条**为空转**\n";
 #endif
+}
+
+void Console::CmdFileStageManifest(std::ostream& out, const std::vector<std::string>& args)
+{
+    if (!CheckArity(out, args, 2, "file stage-manifest <id> <srcPath>") || Active() == nullptr)
+    {
+        MarkFailed();
+        return;
+    }
+    if (Active()->Catalog == nullptr)
+    {
+        out << "file stage-manifest requires a catalog-backed pod (use: pod new <pluginDir>)\n";
+        MarkFailed();
+        return;
+    }
+    auto bytes = ReadStagedBytes(*std::next(args.begin(), 1));
+    if (!bytes.IsOk())
+    {
+        out << "file stage-manifest: " << bytes.GetError().Message() << '\n';
+        MarkFailed();
+        return;
+    }
+    StagedManifest = std::make_pair(*args.begin(), std::move(bytes.Value()));
+    out << "staged manifest " << StagedManifest->second.size() << " bytes for " << StagedManifest->first
+        << " (not written yet)\n";
+}
+
+void Console::CmdFileInstallManifest(std::ostream& out, const std::vector<std::string>& args)
+{
+    if (!CheckArity(out, args, 1, "file install-manifest <id>") || Active() == nullptr)
+    {
+        MarkFailed();
+        return;
+    }
+    const LivePod* slot = Active();
+    if (slot->Catalog == nullptr)
+    {
+        out << "file install-manifest requires a catalog-backed pod (use: pod new <pluginDir>)\n";
+        MarkFailed();
+        return;
+    }
+    const std::string& id = *args.begin();
+    if (!StagedManifest || StagedManifest->first != id)
+    {
+        out << "file install-manifest: nothing staged for " << id << '\n';
+        MarkFailed();
+        return;
+    }
+    const std::vector<std::uint8_t>& staged = StagedManifest->second;
+    const vase::ManifestEntry* snapshot = slot->Catalog->Find(id);
+    if (snapshot == nullptr)
+    {
+        out << "file install-manifest: " << id << " is not in the catalog snapshot\n";
+        MarkFailed();
+        return;
+    }
+    // 落点即 AdoptInto 就地重读的那一家（<目录>/<子目录>/plugin.json，§5.6①/D81）——
+    // 换件双 install 的「同步」不是约定，是同一个路径。
+    const std::filesystem::path target = slot->Catalog->Directory() / snapshot->Subdirectory / "plugin.json";
+    if (!WriteBytesTo(staged, target))
+    {
+        out << "install-manifest " << id << " written=false path=" << target.string() << '\n';
+        MarkFailed();
+        return;
+    }
+    out << "install-manifest " << id << " written=true path=" << target.string() << '\n';
 }
 
 void Console::CmdFileShow(std::ostream& out, const std::vector<std::string>& args)

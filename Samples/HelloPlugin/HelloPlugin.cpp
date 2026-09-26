@@ -1,5 +1,6 @@
 // HelloPlugin.cpp —— §3.1 的最小形态：提供并消费，注册两个可数的 Effect。
 #include "Greeter.h"
+#include "Mood.h"
 #include "Vase/Plugin.h"
 
 #include <cstdint>
@@ -10,8 +11,11 @@
 namespace
 {
 
-// 作者侧配置形态证人（§14）：宿主不写 JSON 也能把值灌进来，play 肉眼可见 x<N>。
-VASE_CONFIG(HelloConfig, (std::int32_t, Repeats, 1, vase::Meta{.Label = "问候次数"}));
+// 作者侧配置形态证人（§14）：宿主不写 JSON 也能把值灌进来，play 肉眼可见 x<N>；
+// D87 起加七型中的 enum——默认「安静」，play 串尾缀直接打 label。
+VASE_CONFIG(HelloConfig, (std::int32_t, Repeats, 1, vase::Meta{.Label = "问候次数"}),
+            (samples::Mood, MoodValue, samples::Mood::kQuiet,
+             vase::Meta{.Label = "情绪", .Choices = vase::ChoicesOf(samples::kMoodChoices)}));
 
 class GreeterImpl final : public samples::IGreeter
 {
@@ -29,7 +33,8 @@ public:
     vase::Result<void> OnLoad(vase::Context& ctx) override
     {
         const auto& cfg = ctx.Config<HelloConfig>();
-        Greeter.SetGreeting("hello from Vase.Hello x" + std::to_string(cfg.Repeats));
+        Greeter.SetGreeting("hello from Vase.Hello x" + std::to_string(cfg.Repeats) + " [" +
+                            samples::MoodLabel(cfg.MoodValue) + "]");
         ctx.Provide<samples::IGreeter>(Greeter);                  // Effect #1：服务
         ctx.On<samples::GreetEvent>(&HelloPlugin::OnGreet, this); // Effect #2：订阅
         return vase::Result<void>::Ok();

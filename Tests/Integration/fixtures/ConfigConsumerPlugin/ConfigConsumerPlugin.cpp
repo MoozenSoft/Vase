@@ -3,18 +3,35 @@
 
 #include "../M2Common.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 
 namespace
 {
 
+// D79 装配点成员执法的材料：域 {0,1}，手写 blob 灌域外 kEnum 值 → Err；
+// 域内值 → Apply 落成员、MoodLabel 现场读回（正反两半共用这一个 fixture）。
+// NOLINTNEXTLINE(performance-enum-size) D75 钉 int32 基型（与 ConfigMacroTests 的 Mood 同因）。
+enum class Emotion : std::int32_t
+{
+    kQuiet = 0,
+    kLoud = 1,
+};
+inline constexpr std::array<vase::ChoiceInfo, 2> kMoodChoices = {
+    {
+        {.Value = 0, .Label = "安静"},
+        {.Value = 1, .Label = "响亮"},
+    },
+};
+
 VASE_CONFIG(ConsumerConfig,
             (std::int32_t, Echo, 1,
              vase::Meta{.Label = "回声",
                         .Min = vase::Value::From<std::int32_t>(0),
                         .Max = vase::Value::From<std::int32_t>(10)}),
-            (const char*, Banner, "default", vase::Meta{}));
+            (const char*, Banner, "default", vase::Meta{}),
+            (Emotion, Mood, Emotion::kQuiet, vase::Meta{.Label = "情绪", .Choices = vase::ChoicesOf(kMoodChoices)}));
 
 class EchoImpl final : public m2_fixture::IConfigEcho
 {
@@ -27,6 +44,12 @@ public:
     [[nodiscard]] int Value() const override { return Stored; }
     // 调用现场读配置结构体——正是 R-F1 修复前会悬空的那个读法（供体曾随计划先死）。
     [[nodiscard]] const char* Banner() const override { return Config.Banner; }
+    [[nodiscard]] const char* MoodLabel() const override
+    {
+        // 现场读已应用的成员再查作者侧表——不是重放 blob：证的是 Apply 写对了形。
+        const auto [quiet, loud] = kMoodChoices; // 解构取件，同 Mood.h 的理由
+        return Config.Mood == Emotion::kLoud ? loud.Label : quiet.Label;
+    }
 
 private:
     int Stored;

@@ -3,13 +3,19 @@
 
 #include "Vase/Catalog/PluginCatalog.h"
 
+#include "Vase/Catalog/LoadRequest.h"
 #include "Vase/Catalog/ManifestView.h"
+#include "Vase/Config/Value.h"
+#include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/ManifestExpectation.h"
 
 #include "CatalogSandbox.h"
 
 #include <gtest/gtest.h>
 #include <iterator>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace
 {
@@ -21,6 +27,18 @@ using vase::PluginCatalog;
 void PutManifest(const CatalogSandbox& sandbox, const std::string& dir, const std::string& id)
 {
     sandbox.WriteFile(dir + "/plugin.json", R"({"schemaVersion":1,"id":")" + id + R"("})");
+}
+
+// bugprone-unchecked-optional-access 不认 ASSERT/EXPECT 级 has_value 断言（同 SolveTests 的 Unwrap 裁定）。
+template <typename T>
+const T* Expect(const std::optional<T>& found)
+{
+    if (!found.has_value())
+    {
+        ADD_FAILURE() << "optional empty";
+        return nullptr;
+    }
+    return &*found;
 }
 
 TEST(CatalogScan, EmptyDirIsLegalEmptySnapshot)
@@ -118,6 +136,45 @@ TEST(CatalogScan, BorrowWindowFollowsRefresh)
     ASSERT_TRUE(catalog.Refresh(sandbox.Root).IsOk());
     EXPECT_EQ(catalog.Find("Vase.Old"), nullptr); // 旧快照随 Refresh 作废（D61 借用窗的另一半）
     EXPECT_NE(catalog.Find("Vase.New"), nullptr);
+}
+
+// §3.3/D61+D84：Refresh(A)→Solve→Refresh(B)→Solve 后新快照全量再绑定；旧 plan 的 Expected 是拥有深拷，
+// 跨窗完好——旧 plan 唯余的借用人 Id 在此不被触碰（纪律断言：证人自身遵守即成立）。
+TEST(CatalogWindow, RebindAfterSecondRefresh)
+{
+    CatalogSandbox sandbox{"scan-rebind"};
+    sandbox.WriteFile(
+        "snap-a/alpha/plugin.json",
+        R"({"schemaVersion":1,"id":"Vase.Alpha","version":"1.0.0","config":[{"key":"n","type":"int32","default":5}]})");
+    sandbox.WriteFile("snap-b/beta/plugin.json", R"({"schemaVersion":1,"id":"Vase.Beta","version":"9.9.9"})");
+    PluginCatalog catalog;
+    const vase::LoadRequest request;
+
+    ASSERT_TRUE(catalog.Refresh(sandbox.Root / "snap-a").IsOk());
+    auto first = catalog.Solve(request);
+    ASSERT_TRUE(first.IsOk()) << first.GetError().Message();
+    const vase::SolveOutcome planA = std::move(first.Value());
+
+    ASSERT_TRUE(catalog.Refresh(sandbox.Root / "snap-b").IsOk());
+    auto second = catalog.Solve(request);
+    ASSERT_TRUE(second.IsOk()) << second.GetError().Message();
+    const vase::SolveOutcome planB = std::move(second.Value());
+
+    ASSERT_EQ(planB.Plan.Ordered.size(), 1U); // 新 Plan 的 Id/内容全按快照 B
+    EXPECT_EQ(planB.Plan.Ordered.begin()->Id, "Vase.Beta");
+    EXPECT_EQ(catalog.Directory(), sandbox.Root / "snap-b");
+    EXPECT_EQ(catalog.Find("Vase.Alpha"), nullptr); // Find 只命中 B
+    EXPECT_NE(catalog.Find("Vase.Beta"), nullptr);
+
+    ASSERT_EQ(planA.Plan.Ordered.size(), 1U);
+    const vase::LoadPlanEntry& oldEntry = *planA.Plan.Ordered.begin();
+    const vase::ManifestExpectation* expected = Expect(oldEntry.Expected);
+    ASSERT_NE(expected, nullptr);
+    EXPECT_EQ(expected->Id, "Vase.Alpha"); // 旧 plan 的期望不随第二次 Refresh 改变（拥有形，D84）
+    EXPECT_EQ(expected->Version, "1.0.0");
+    ASSERT_EQ(expected->Config.size(), 1U);
+    EXPECT_EQ(expected->Config.begin()->Key, "n");
+    EXPECT_EQ(expected->Config.begin()->Kind, vase::ValueKind::kInt32);
 }
 
 } // namespace

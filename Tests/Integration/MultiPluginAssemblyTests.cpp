@@ -1,5 +1,7 @@
+#include "AdoptExpectations.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/Host/PluginHost.h"
 #include "Vase/Pod/Pod.h"
 
@@ -80,7 +82,12 @@ TEST(MultiPluginAssembly, StaticSkipRecordedAndAdoptableLater)
     EXPECT_EQ(pod->Skips().begin()->Id, "Vase.EdgeConsumer");
     EXPECT_NE(pod->Skips().begin()->Cause.find("disabled"), std::string::npos);
 
-    ASSERT_TRUE(host.AdoptPlugin(h, "Vase.EdgeConsumer").IsOk()); // 当初为什么没进局，Adopt 不关心（D30）
+    const vase::ManifestExpectation edge = testing_support::MakeEdgeConsumerExpectation();
+    vase::AdoptRequest edgeRequest;
+    edgeRequest.Id = edge.Id;
+    edgeRequest.BinaryPath = VASE_FIXTURE_EDGECONSUMER; // 路径随请求自带（D71），不再查计划注册
+    edgeRequest.Expected = &edge;
+    ASSERT_TRUE(host.AdoptPlugin(h, edgeRequest).IsOk()); // 当初为什么没进局，Adopt 不关心（D30）
     EXPECT_EQ(host.Resolve(h)->PluginCount(), 2U);
     const vase::PodReport report = host.DestroyPod(h);
     EXPECT_TRUE(report.Clean());        // D38：Skips 不进 Clean

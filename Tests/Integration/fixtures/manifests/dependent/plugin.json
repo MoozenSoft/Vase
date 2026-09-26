@@ -1,0 +1,9 @@
+{
+    "schemaVersion": 1,
+    "id": "Vase.Dependent",
+    "displayName": "依赖演示",
+    "version": "0.1.0",
+    "binary": "DependentPlugin",
+    "requires": [ { "service": "Vase.Hello.Greeter", "version": 1 } ],
+    "provides": [ { "service": "Vase.Farewell", "version": 1 } ]
+}

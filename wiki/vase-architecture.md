@@ -415,7 +415,7 @@ public:
 
 配置在代码里是**有类型的结构体**（插件直接成员访问，不做字符串查表），同时又要能被宿主反射出来生成界面。C++20 没有原生反射，所以用宏：**字段列表只写一次，展开两次**——一次生成结构体成员，一次生成元信息表。展开由库内部的 `VASE_FOR_EACH` 完成，用户看不见。
 
-> **[M2a 落地勘误（2026-09-24，spec `docs/superpowers/specs/2026-09-23-vase-m2a-assembly-foundation-design.md` 3.2/D22/D24）]** 落地值为**六型**：`bool` / `std::int32_t` / `std::int64_t` / `float` / `double` / `const char*`（`ValueKind` 标签 + 64 位位形存储；string 走同宽的借用指针）；`enum` 本节暂不提供，与 choices schema 同留 M2b 定案。宏名实为 `VASE_CONFIG`（机制宏在 `Include/Vase/Config/ConfigMacros.h`），`VASE_FOR_EACH` 以 `VASE_CONFIG_DETAIL_FOR_EACH` 的形态存在、住库内。
+> **[M2a 落地勘误（2026-09-24，spec `docs/superpowers/specs/2026-09-23-vase-m2a-assembly-foundation-design.md` 3.2/D22/D24）]** 落地值为**六型**：`bool` / `std::int32_t` / `std::int64_t` / `float` / `double` / `const char*`（`ValueKind` 标签 + 64 位位形存储；string 走同宽的借用指针）；`enum` 本节暂不提供，与 choices schema 同留 M2b 定案——**波 2 已定案**：`enum` 入列成第七型、choices 随字段作者侧命名表声明、`kHeaderVersion` 2→3（D75/D76/D77，spec `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md`）。宏名实为 `VASE_CONFIG`（机制宏在 `Include/Vase/Config/ConfigMacros.h`），`VASE_FOR_EACH` 以 `VASE_CONFIG_DETAIL_FOR_EACH` 的形态存在、住库内。
 
 ```cpp
 // ===== 作者写的（唯一一处）=====
@@ -591,9 +591,13 @@ struct CombatConfig
 
 好处是**插件升级不需要求解逻辑参与**——改个字符串、重新编译、扫描，就完事了。
 
+> **[M2b波2 勘误（2026-09-25，spec `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md` D72/grilling Q1）]** 上两段「不参与任何判断」「没有任何一处消费它」自此**限缩**：`version` 不参与**求解**判断，而 §3.4 的清单↔二进制一致性比对是它的**唯一消费点**——两侧版本不同即漂移，加载即拒。「插件升级不需要求解逻辑参与」句补半句：**但需重生成清单**——换二进制不换清单，比对就拒（这恰是 11.2 的本意）。
+
 关于 `schemaVersion`：与 6.1 的服务版本**同一条规律**——主版本不同即拒绝，次要差异（新增可选字段）容忍。而且**扫描期与加载期必须用同一规则**：`VaseCli scan` 和 `PluginHost` 若各自判断，就会出现「工具说没问题、运行时拒绝」的分歧，而 3.4 的整条流程恰恰建在「两边结论一致」上。
 
 > **[M2b波1 勘误（2026-09-24, spec `docs/superpowers/specs/2026-09-24-vase-m2b-catalog-solving-design.md` §4/D49）]** 上句「次要差异（新增可选字段）容忍」说的是**格式世代**方向（新解析器读旧世代的清单）；解析器随库版本**独一**，不做版本化多解析。「容忍」不延伸到 unknown：落地形态里 `plugin.json` 的顶层与条目级 unknown 键一律**解析期拒**（D49/D64 硬闸），「两边结论一致」正是由这个独一 parser + 硬闸兑现的。
+
+> **[M2b波2 勘误（2026-09-25, spec `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md` D74）]** 上上句「扫描期与加载期必须用同一规则」的兑现形态 = **读取处即闸**：扫描与加载共用独一 parser（公开 `ParseManifestFile` / `Refresh`），`schemaVersion` major≠1 在读取处即 `Err`。Host 比对面**不含**此字段——`ManifestExpectation` 没有 SchemaVersion 成员（描述符侧无对位物）；「加载期闸」不是第二道闸，是同一道闸。
 
 ### 3.4 清单的权威性与生成流程
 
@@ -621,6 +625,8 @@ VaseCombat/plugin.json          ← 外部副本，工具与宿主读它
     ▼
 Pod
 ```
+
+> **[M2b波2 勘误（2026-09-25, spec `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md` D72/D73/D74）]** 「全部由 C++ 声明生成」有一处豁免：`binary` / `enabledByDefault` 是**清单独有字段——免生成、免比对**（D73：binary 是部署事实，enabledByDefault 是编辑器缺省语义，描述符侧无对位物）。加载期「逐字段比对」落地形 = `ManifestExpectation` 全字段**严格等值、零规范化**（D72；服务数组按多重集、config 按 key 对齐逐比且 choices 序敏感），**不含 schemaVersion**（闸在读取处，见 §3.3 波 2 勘误）。
 
 三个时点各有职责：
 
@@ -933,6 +939,8 @@ EjectPlugin(pod, T)                        AdoptPlugin(pod, X)
 ```
 
 > **[M2a 落地勘误（2026-09-24，同上 spec 5.1–5.3/D20/D21）]** 报告字段已结构化：`EjectReport.Status` / `AdoptReport.Status` 为枚举——**执法拒绝走 Ok+Status**（被消费者挡 / 声明不齐 / Provides 碰撞，调用方按字段分支），误用与环境/身份类走 `Err`（D21 通道边界）；`provided by [ … ]` 与 `unresolved declarations` 两族子串契约自 M2a 起改按字段断言。`EjectReport.RemovedEdges` 实为被拆实例的**出边**清单——「有入边即拒」的执法在 `kRejectedConsumers` 分支点名消费者，故成功分支的入边清单可证为空。
+
+> **[M2b波2 勘误（2026-09-25, spec `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md` D67/D69/D71/D81）]** 判定流 ①「就地重读 X 的清单」的落点句：`PluginCatalog::AdoptInto` 吃快照定位子目录、经**独一公开 `ParseManifestFile` 重读该文件**（不再另立 LoadManifestFile 一名，计划期改判注 ③），构造 `ManifestExpectation` 随 `AdoptRequest` 进 `AdoptPlugin`——期望**必收**（nullptr = 误用 `Err`），兄弟集由调用方喂快照全量；类型住 Host、构造住 Catalog、搬运在调用方。`KnownBinaries` 路径账整体退役（D71），`unknown plugin id` 随之从 Adopt 面退役。
 
 **四条规则**：
 
@@ -1428,9 +1436,11 @@ Vase/
 │   └── VasePack/             把散落的插件组合编译成一个库（见 8.6）
 │
 ├── Samples/                  人可读的，演示怎么用
+│   ├── HelloCommon/          Hello 家族的共享头（Greeter / 事件 / Mood）——实有久矣，M2b 波 2 补列
 │   ├── HelloPlugin/          最小插件：提供并消费一个服务
-│   ├── DependentPlugin/      依赖声明与拓扑加载
-│   ├── FailingPlugin/        加载失败 → Skipped 语义
+│   ├── HelloPluginPrime/     Hello 的换件材料（同 Id、不同返回）——实有久矣，M2b 波 2 补列
+│   ├── DependentPlugin/      依赖声明与拓扑加载（M2b 波 2 成实，D86/D19）
+│   ├── FailingPlugin/        加载失败 → Skipped 语义（M2b 波 2 成实，D86/D19）
 │   └── Embedding/            最小验证宿主：play / stop / reload
 │
 ├── Tests/                    自动化的，验证契约
@@ -1445,6 +1455,8 @@ Vase/
 └── wiki/
     └── vase-architecture.md  本文
 ```
+
+> **[M2b波2 勘误（2026-09-25, spec `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md` D86）]** 本节标着「已确认」，此改动随该 spec 评审一并经需求方过目：`Samples/` 的 `DependentPlugin` / `FailingPlugin` 两格自提案转实有，树同步补列盘上久已实有的 `HelloCommon` / `HelloPluginPrime`。本节其余格未动。
 
 ### 10.1 关于 Samples
 
@@ -1558,19 +1570,19 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | 3c | Eject 后不再有回调命中已卸代码（7.6 永不重入） | `Tests/HotSwap`：带 10ms 定时器的插件被 Eject 后再跑 100 个 tick | 是 |
 | 3d | Eject 自动重置登记的进程级状态并写入报告（9.1） | `Tests/HotSwap` | 是 |
 | 3e | Adopt 拒绝导入表含兄弟插件的二进制（8.7） | `Tests/Abi`：伪造导入表的 fixture | 是 |
-| 4 | 静态预测与运行时装配的分歧**只**出现在「运行时失败」时（4.4） | `Tests/Integration`：同一输入下 `VaseCli plan` 与实际装配逐项比对；再注入一个 `OnLoad` 必失败的插件，断言分歧**恰好只在那里** | **是** |
+| 4 | 静态预测与运行时装配的分歧**只**出现在「运行时失败」时（4.4） | `Tests/Integration`：同一输入下 `PluginCatalog::Solve` 的计划（本行提议的 `VaseCli plan`，落地实形即此）与实际装配逐项比对；后半句（注入运行时必失败插件、断言分歧**恰好只在那里**）M2b 波 2 落——`LoadTimeComparisonTests` 与 `HotSwap/AdoptManifestTests` 吃 raw 旁路与 mismatch 证人 | **是** |
 | **装配语义** | | | |
 | 5 | `OnStart` 失败时下游被递归拆除，不留半活插件（5.2） | `Tests/Integration`：构造 `A→B→C`，令 B 的 `OnStart` **返回错误**（`OnStart` 返回 `Result<void>`，见 3.1；D17 之后「抛错」不再是可行做法——`try` / `throw` 在 Vase 的编译设置下基本是硬错误，只有 cl.exe 的裸 `throw` 是已知漏网，见根 `CMakeLists.txt`），断言 A、C 均回 `Skipped[运行时]` 且 `EffectScope` 已空 | **是** |
 | 6 | Eject 被依赖时拒绝、被卸为叶时放行（v3 改判：v2 的「有 Pod 存活即拒绝卸载」作废） | `Tests/HotSwap`：构造 A→B，A 活着时 Eject B 断言拒绝；Eject 无人依赖的 C 断言三档证据齐 | **是** |
 | 7 | 拓扑排序正确 | `Tests/Integration`：构造多级依赖图 | 否 |
-| 8 | 依赖缺失 / 版本不匹配导致跳过而非崩溃 | `Tests/Integration` + `Samples/FailingPlugin` | 否 |
+| 8 | 依赖缺失 / 版本不匹配导致跳过而非崩溃 | `Tests/Integration` + `Samples/FailingPlugin`（M2b 波 2 起该 Sample 实有，D86） | 否 |
 | **生命周期与清理** | | | |
 | 9 | 进程级状态跨 Pod 存活且幂等 | `Tests/Lifecycle`：登记状态，反复建销，断言行为一致 | 是 |
 | 10 | 泄漏可被诊断定位到插件 | `Tests/Lifecycle/fixtures/LeakyPlugin` | 否 |
 | 11 | 子作用域忘记 `Release` 不泄漏（7.5） | `Tests/Lifecycle`：创建子作用域、不释放、销毁 Pod，断言计数归零 | 否 |
 | **边界与防护** | | | |
 | 12 | `HeaderVersion` 不匹配时拒绝加载（3.1） | `Tests/Integration`：伪造一个旧版本号 | **是** |
-| 13 | 清单与二进制不一致时拒绝加载 | `Tests/Integration`：篡改清单字段 | 否 |
+| 13 | 清单与二进制不一致时拒绝加载 | M2b 波 2 现落于 `Tests/Integration/LoadTimeComparisonTests`：逐字段篡改清单 + 带期望装载 → `CreatePod` 走 Failed 记录拒；换件侧 `Tests/HotSwap/AdoptManifestTests` → `Adopt` 走 `Err`（D70 的通道分置） | 否 |
 | 14 | 插件 `Id` 重复在扫描期被拒（3.4） | `Tests/Integration`：两个 fixture 声明同一个 `Id` | 否 |
 | 15 | 用已销毁的 `PodHandle` 会被检出（5.1） | `Tests/Lifecycle`：销毁后 `Resolve` 返回 `nullptr` | 否 |
 | 16 | 非绑定线程上调用 API 被断言抓住（1.4） | `Tests/Integration`（Debug 断言） | 否 |
@@ -1680,6 +1692,8 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 结构性修法是让配置宏直接绑定到插件类（`VASE_CONFIG(CombatPlugin, CombatConfig)`），于是**没有一行可遗漏的引用**；代价是 `VASE_CONFIG` 必须写在 `VASE_PLUGIN` 之前。
 
 **当前选择接受这个风险**——因为后果在开发早期一撞就发现，而切换成本很低（下游读 `kFields`，与宏无关）。这是一条**有意的取舍，不是遗漏**。
+
+> **[M2b波2 勘误（2026-09-25, spec `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md` D89/grilling Q3）]** 「照旧」自此**限缩**：忘写 `.Config`（全零）而清单带 `config` 数组时，主链（条目自动带期望，D84）的加载期比对**即拒**——D72 的 key 集双向等值天然覆盖这一格。代价从「配置面板凭空消失」升为「加载被拒」；静默点只活在旁路（手写计划 / `Expected=nullptr`，D68）。
 
 **插件作者从插件里抛异常。** 宿主以关闭异常的方式编译（0.3 原则 7），而 8.5 明确允许插件由 `cl.exe` 或 `clang-cl` 构建——插件作者若用默认开启异常的编译器构建、并且真的 `throw`，异常会穿过**没有异常支持的栈帧**，是未定义行为，且宿主在加载期无法检测。这条属于 9.3 意义上的**契约束**：只能靠文档约束插件作者，不能靠机制拦截。
 

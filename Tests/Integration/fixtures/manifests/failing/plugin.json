@@ -1,0 +1,7 @@
+{
+    "schemaVersion": 1,
+    "id": "Vase.Failing",
+    "displayName": "失败演示",
+    "version": "0.1.0",
+    "binary": "FailingPlugin"
+}

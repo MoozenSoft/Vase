@@ -1,6 +1,8 @@
 {
     "schemaVersion": 1,
     "id": "Vase.SharedProvider",
+    "displayName": "共享服务提供方探针",
+    "version": "0.0.1",
     "binary": "SharedProviderPlugin",
     "provides": [ { "service": "Vase.Test.Shared", "version": 1 } ]
 }

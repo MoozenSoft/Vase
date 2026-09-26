@@ -1,7 +1,9 @@
 #pragma once
 
-// plan 文件：CLI 私有的「Id ↔ 二进制路径」文本，M1 用来代替还不存在的 Catalog。
-// **不是**架构文档 §5.1 的清单格式，M2 起与 KnownBinaries 一起退场（spec §8.2）。
+// plan 文件：CLI 私有的「Id ↔ 二进制路径」文本。M1 它代替还不存在的 Catalog；T12 起
+// KnownBinaries 与旧轨 Adopt 已退役，它退居 **raw 旁路**（`pod new-raw`，D68/D85）：
+// 无清单来源 → 局不带期望，adopt/清单换件命令对它响亮拒绝。
+// **不是**架构文档 §5.1 的清单格式。
 
 #include "Vase/Detail/Result.h"
 

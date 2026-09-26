@@ -5,9 +5,11 @@
 #include "Vase/Host/PluginHost.h"
 #include "fixtures/BCommon.h"
 
+#include "AdoptExpectations.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/Pod/Context.h"
 #include "Vase/Pod/Pod.h"
 
@@ -16,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <iterator>
 #include <string>
+#include <vector>
 // 两平台对 std::error_code 的归属判定不同（MSVC STL 的映射认 <filesystem> 也提供它，
 // libc++ 只认 <system_error>）：本行留着，Windows 报「未被直接使用」、Linux 报「没有头
 // 提供它」；摘掉则反过来。只有「留着 + 在 Windows 抑制」能同时过两条 debug 线。
@@ -81,6 +84,18 @@ vase::LoadPlan LoopPlan(const std::filesystem::path& aPath)
     return plan;
 }
 
+// 局内 A 的 Adopt 请求：路径 = 工作副本位（换件写字的地方），兄弟集 = 这局另一只二进制名。
+// 期望用 MakeVersionedAExpectation 一份到底——A/A′ 描述符逐字节相同（T5 评审），换件不换期望。
+vase::AdoptRequest LoopAdoptRequest(const vase::ManifestExpectation& expected, const std::filesystem::path& aPath)
+{
+    vase::AdoptRequest request;
+    request.Id = expected.Id;
+    request.BinaryPath = aPath;
+    request.Expected = &expected;
+    request.SiblingBinaries = {std::filesystem::path{VASE_FIXTURE_NEIGHBORB}.filename().string()};
+    return request;
+}
+
 // 宿主侧解析（§5.6：宿主的解析不落边）——Eject(A) 能过本身就是这条的活体证明：
 // 宿主「缓存」着指针，账本看不见也不需要看见（9.3 的宿主纪律在测试里的演练形态）。
 int CounterValue(vase::Pod* pod)
@@ -103,9 +118,10 @@ TEST(HotSwap, FullLoopFlipsBehaviorAndNeverTouchesNeighbor)
     }
     EXPECT_EQ(heart1->Beats(), 5); // 切换前恰好 5 次 tick：一次都不能丢
 
+    const vase::ManifestExpectation versionedA = testing_support::MakeVersionedAExpectation();
     ASSERT_TRUE(host.EjectPlugin(h, "Vase.VersionedA").IsOk()); // 三档之档一、档二在报告里结算
-    ws.InstallPrime();                                          // A′ 覆盖 A 的位置
-    const vase::Result<vase::AdoptReport> adopt = host.AdoptPlugin(h, "Vase.VersionedA");
+    ws.InstallPrime(); // A′ 覆盖 A 的位置；A/A′ 描述符逐字节相同，期望不需要跟着换
+    const vase::Result<vase::AdoptReport> adopt = host.AdoptPlugin(h, LoopAdoptRequest(versionedA, ws.APath));
     ASSERT_TRUE(adopt.IsOk()) << adopt.GetError().Message();
     // §12.1 要的是「真 Eject 之后走**全新装载**分支」。Linux 上 `ReusedResidentImage` 是唯一
     // 判据；Windows 上 `InstallPrime()` 的覆盖断言先红（镜像还映射着就写不动），它是语义锚点。
@@ -133,6 +149,7 @@ TEST(HotSwap, FiveRoundsBehaveLikeFirstTime)
     // 「可重复无数次」的 M1 剂量（5 轮；50 轮的全量形随 M3 的 3a 一起加）。
     const SwapWorkspace ws;
     vase::PluginHost host;
+    const vase::ManifestExpectation versionedA = testing_support::MakeVersionedAExpectation();
     const vase::PodHandle h = host.CreatePod(LoopPlan(ws.APath)).Value();
     bool prime = false;
     for (int round = 0; round < 5; ++round)
@@ -144,7 +161,8 @@ TEST(HotSwap, FiveRoundsBehaveLikeFirstTime)
         const std::filesystem::path src = prime ? VASE_FIXTURE_VERSIONEDA : VASE_FIXTURE_VERSIONEDAPRIME; // 装回另一版
         std::filesystem::copy_file(src, ws.APath, std::filesystem::copy_options::overwrite_existing, ec);
         ASSERT_FALSE(ec) << ec.message(); // Eject 之后写不动 = 锁没解，卸载路径坏了
-        ASSERT_TRUE(host.AdoptPlugin(h, "Vase.VersionedA").IsOk());
+        // 两版描述符逐字节相同（T5 评审）——一份期望跑完五轮换件。
+        ASSERT_TRUE(host.AdoptPlugin(h, LoopAdoptRequest(versionedA, ws.APath)).IsOk());
         prime = !prime;
         ASSERT_EQ(CounterValue(host.Resolve(h)), prime ? 2 : 1); // 换装后立刻对得上「如同首次」
     }

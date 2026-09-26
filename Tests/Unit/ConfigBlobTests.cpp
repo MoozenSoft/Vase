@@ -99,6 +99,33 @@ TEST(ConfigBlob, FromDefaultsLaysFieldsInDeclarationOrder)
     EXPECT_STREQ(Unwrap(blob.Find("Tag")).GetAs<const char*>(), "tag-default");
 }
 
+// NOLINTNEXTLINE(performance-enum-size) 与 ConfigValueTests 的 ET 同因（D75 要求 int32 基型）。
+enum class ET : std::int32_t
+{
+    kA = 0,
+    kB = 7,
+};
+
+TEST(ConfigBlobEnum, SetAndFindRoundTrip)
+{
+    vase::ConfigBlob blob;
+    blob.Set("e", vase::Value::From<ET>(ET::kB));
+    const vase::Value e = Unwrap(blob.Find("e"));
+    EXPECT_EQ(e.Kind, vase::ValueKind::kEnum);
+    EXPECT_EQ(e.GetAs<ET>(), ET::kB);
+    blob.Set("i", vase::Value::From<std::int32_t>(7));
+    EXPECT_NE(blob.Find("i"), std::nullopt); // 混入 int32 后两者不可混读
+}
+
+TEST(ConfigBlobEnum, DistinctFromInt32)
+{
+    vase::ConfigBlob blob;
+    blob.Set("i", vase::Value::From<std::int32_t>(7));
+    blob.Set("e", vase::Value::From<ET>(ET::kB));
+    EXPECT_EQ(Unwrap(blob.Find("i")).Kind, vase::ValueKind::kInt32);
+    EXPECT_EQ(Unwrap(blob.Find("e")).Kind, vase::ValueKind::kEnum); // 折进 int32 则此条红（D78 的第一红测）
+}
+
 TEST(ConfigBlob, ThreeLayerStackingOrder)
 {
     // §4.3：清单默认 ⊕ Preset ⊕ 本局临时。合并是左折叠。

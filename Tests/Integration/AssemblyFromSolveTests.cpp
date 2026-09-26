@@ -5,6 +5,7 @@
 
 #include "Vase/Catalog/LoadRequest.h"
 #include "Vase/Catalog/Preset.h"
+#include "Vase/Detail/Result.h"
 #include "Vase/Host/LoadPlan.h"
 #include "Vase/Host/PluginHost.h"
 #include "Vase/PluginDescriptor.h"
@@ -15,6 +16,7 @@
 #include "PodTestPeer.h"
 #include "fixtures/SharedCommon.h"
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <gtest/gtest.h>
@@ -72,6 +74,26 @@ public:
             const std::filesystem::path binary{item.BinaryMacro};
             Sandbox.CopyFile(std::string(item.Dir) + "/plugin.json", manifests / item.Dir / "plugin.json");
             Sandbox.CopyFile(std::string(item.Dir) + "/" + binary.filename().string(), binary);
+        }
+        const auto refreshed = Catalog.Refresh(Sandbox.Root);
+        ASSERT_TRUE(refreshed.IsOk()) << refreshed.GetError().Message();
+    }
+
+    // T11 沙箱：Samples 三件的任意子集逐个入格（manifest 与 DLL 同源 staging，StageAll 同法）。
+    struct StagedPlugin
+    {
+        std::string Dir;
+        std::string Binary;
+    };
+
+    void Stage(const std::vector<StagedPlugin>& items)
+    {
+        const std::filesystem::path manifests = VASE_FIXTURE_MANIFESTS;
+        for (const StagedPlugin& item : items)
+        {
+            const std::filesystem::path binary{item.Binary};
+            Sandbox.CopyFile(item.Dir + "/plugin.json", manifests / item.Dir / "plugin.json");
+            Sandbox.CopyFile(item.Dir + "/" + binary.filename().string(), binary);
         }
         const auto refreshed = Catalog.Refresh(Sandbox.Root);
         ASSERT_TRUE(refreshed.IsOk()) << refreshed.GetError().Message();
@@ -147,10 +169,86 @@ TEST_F(AssemblyFromSolve, SkippedEntriesPassThroughHost)
     PodOptions options;
     options.Stage0 = &ProvideHostOnly;
     const auto created = host.CreatePod(solved.Value().Plan, options);
-    ASSERT_TRUE(created.IsOk()) << created.GetError().Message(); // 跳过条目照进局（D30 KnownBinaries 语义不变）
+    ASSERT_TRUE(created.IsOk()) << created.GetError().Message(); // 跳过条目照进局（D30 的 kSkip 语义不变）
     auto* pod = host.Resolve(created.Value());
     ASSERT_NE(pod, nullptr);
     EXPECT_EQ(vase::PodTestPeer::InstanceOrder(*pod), std::vector<std::string>{"Vase.Hello"});
+    const auto report = host.DestroyPod(created.Value());
+    EXPECT_TRUE(report.Clean());
+}
+
+// 判据 4 后半的 Sample 面证人（T11/spec §5.2）：failing 无任何 Provides，OnStart 倒下的
+// 闭包炸不到 dependent；后者照常活——「失败不级联、依赖链通」各钉一侧。
+TEST_F(AssemblyFromSolve, SampleFailingStartKeepsDependentLive)
+{
+    Stage({
+        StagedPlugin{.Dir = "hello", .Binary = VASE_FIXTURE_HELLO},
+        StagedPlugin{.Dir = "dependent", .Binary = VASE_FIXTURE_DEPENDENT},
+        StagedPlugin{.Dir = "failing", .Binary = VASE_FIXTURE_FAILING},
+    });
+    const auto solved = Catalog.Solve(LoadRequest{});
+    ASSERT_TRUE(solved.IsOk()) << solved.GetError().Message();
+    ASSERT_EQ(solved.Value().Plan.Ordered.size(), 3U); // dependent 的 Greeter 由本局 hello 产出，无人被静态跳
+
+    PluginHost host;
+    const auto created = host.CreatePod(solved.Value().Plan); // 宽容模式：Failed 不翻整局（D70 同形）
+    ASSERT_TRUE(created.IsOk()) << created.GetError().Message();
+    auto* pod = host.Resolve(created.Value());
+    ASSERT_NE(pod, nullptr);
+
+    ASSERT_EQ(pod->Failures().size(), 1U);
+    const vase::FailedPluginRecord& failure = *pod->Failures().begin();
+    EXPECT_EQ(failure.Id, "Vase.Failing");
+    EXPECT_EQ(failure.Stage, vase::Phase::kStart);
+    EXPECT_NE(failure.Message.find("demo: OnStart always fails"), std::string::npos) << failure.Message;
+    EXPECT_TRUE(pod->Skips().empty()); // 级联缺席：failing 不提供任何东西
+    // 活体点名（评审 Minor-3）：dependent 的 OnStart 凭声明解析到了 Greeter——Get 失败在本
+    // 项目是 terminate，HasPlugin 为真本身就是链通的证人。
+    EXPECT_TRUE(pod->HasPlugin("Vase.Hello"));
+    EXPECT_TRUE(pod->HasPlugin("Vase.Dependent"));
+    EXPECT_FALSE(pod->HasPlugin("Vase.Failing"));
+    EXPECT_EQ(pod->PluginCount(), 2U);
+    EXPECT_EQ(vase::PodTestPeer::InstanceOrder(*pod),
+              (std::vector<std::string>{"Vase.Failing", "Vase.Hello", "Vase.Dependent"})); // 层0 同层 Id 序（D53）
+
+    const auto report = host.DestroyPod(created.Value());
+    EXPECT_TRUE(report.Clean());
+    EXPECT_EQ(host.ForTestCounters().PluginInstances, 0U);
+}
+
+// 判据 8 的 Sample 面：hello 缺席时 dependent 的硬需求在 Solve 就静态跳过（kMissingDependency），
+// 不进装载循环、不在运行期撞 Get 的 terminate；同局的 failing 照常倒下，互不相干。
+TEST_F(AssemblyFromSolve, DependentStaticallySkippedWithoutHello)
+{
+    Stage({
+        StagedPlugin{.Dir = "dependent", .Binary = VASE_FIXTURE_DEPENDENT},
+        StagedPlugin{.Dir = "failing", .Binary = VASE_FIXTURE_FAILING},
+    });
+    const auto solved = Catalog.Solve(LoadRequest{});
+    ASSERT_TRUE(solved.IsOk()) << solved.GetError().Message();
+    const auto& plan = solved.Value().Plan;
+    ASSERT_EQ(plan.Ordered.size(), 2U); // 跳过者照进计划示众（D53）
+    const auto dependent = std::ranges::find_if(plan.Ordered, [](const vase::LoadPlanEntry& entry)
+                                                { return entry.Id == "Vase.Dependent"; });
+    ASSERT_NE(dependent, plan.Ordered.end());
+    EXPECT_EQ(dependent->Decision, vase::LoadDecision::kSkip);
+    EXPECT_EQ(dependent->Reason, vase::SkipReason::kMissingDependency);
+
+    PluginHost host;
+    const auto created = host.CreatePod(plan);
+    ASSERT_TRUE(created.IsOk()) << created.GetError().Message();
+    auto* pod = host.Resolve(created.Value());
+    ASSERT_NE(pod, nullptr);
+
+    ASSERT_EQ(pod->Skips().size(), 1U);
+    const vase::SkippedRecord& skip = *pod->Skips().begin();
+    EXPECT_EQ(skip.Id, "Vase.Dependent");
+    EXPECT_EQ(skip.Class, vase::SkipClass::kStatic);
+    EXPECT_NE(skip.Cause.find("missing dependency"), std::string::npos) << skip.Cause;
+    ASSERT_EQ(pod->Failures().size(), 1U); // nobody depends on failing：它倒下，无人陪葬
+    EXPECT_EQ(pod->Failures().begin()->Id, "Vase.Failing");
+    EXPECT_EQ(pod->PluginCount(), 0U);
+
     const auto report = host.DestroyPod(created.Value());
     EXPECT_TRUE(report.Clean());
 }

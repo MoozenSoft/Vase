@@ -44,7 +44,7 @@ TEST(Descriptor, MetaPopulatedThroughBraceBlock)
 {
     const vase::PluginDescriptor* d = VasePluginDesc_DescriptorProbePlugin();
     EXPECT_EQ(d->HeaderVersion, vase::kHeaderVersion);
-    EXPECT_EQ(vase::kHeaderVersion, 2U); // 钉字面值：自比对拦不住常量被误改，而它是 §8.3 的描述符 ABI 闸
+    EXPECT_EQ(vase::kHeaderVersion, 3U); // 钉字面值：自比对拦不住常量被误改，而它是 §8.3 的描述符 ABI 闸
     EXPECT_EQ(d->Meta->Id, "Vase.DescriptorProbe");
     ASSERT_EQ(d->Meta->Requires.Size(), 2U);
     // 迭代器而非 operator[]：非常量下标过不了 cppcoreguidelines-pro-bounds-*（计划「tidy 形态约束」）。

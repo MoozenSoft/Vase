@@ -87,3 +87,8 @@ vase_add_plugin_fixture(CollisionProviderPlugin
 vase_add_plugin_fixture(DeadProvider2Plugin
     SOURCES DeadProvider2Plugin/DeadProvider2Plugin.cpp
     LINK_LIBRARIES VasePod)
+
+# 加载期比对材料（M2b 波 2-T7）：双服务逆序声明 + 无 .Config（序不敏感与 D89 两判据共用）。
+vase_add_plugin_fixture(TwoProvidersPlugin
+    SOURCES TwoProvidersPlugin/TwoProvidersPlugin.cpp
+    LINK_LIBRARIES VasePod)
