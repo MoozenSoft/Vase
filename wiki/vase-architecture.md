@@ -1360,6 +1360,8 @@ constexpr vase::ProcessStateDesc kProcessStates[] = {
 
 **v3 追加一条硬契约：跨插件共享的任何值必须走服务边（受账本保护），不得经由进程级状态中转。** 否则会出现图上看不见的「语义依赖」——U 没声明依赖 T，手里却攥着从 T 的缓存派生的裸值（纹理句柄之类）；Eject(T) 重置缓存后 U 拿着陈旧值继续跑，账本与导入表都看不见这条边。v2 靠「卸货必在四下无人时」天然免疫，v3 的免疫不再免费，只能靠这条契约 + `EjectReport` 的提示面兜底。
 
+> **[M4 落地（2026-09-27，D110）]** 提示面的实形是 `EjectReport::SemanticDependencyPossible`：置位条件 = **`ProcessStatesReset` 非空 ∧ 进程内任一 Pod 仍有活插件实例**（只数活实例——Failed 记录与空壳攥不住派生值）。它**不是检出**：经进程级状态中转的共享值账本与导入表都看不见，这个字段只把「重置发生了、而且还有别人」如实写进报告，不宣称「查过了、没有语义依赖」。`Status == kRejectedConsumers` 时恒 `false`（那一路没有重置发生）；**kept-resident 分支可以合法为 `true`**——Reset 闸问的是「这份 binary 还有没有活实例」，这一位问的是「进程内还有没有别的活实例」，不是同一个问题。
+
 ### 9.2 诊断基线
 
 `DestroyPod` 时断言所有 Vase 可见的计数回到基线：
@@ -1566,12 +1568,13 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | **核心承诺** | | | |
 | 1 | 反复 create / destroy Pod 无残留 | `Tests/Lifecycle`：建销 N 次后断言全部计数归零 | **是** |
 | 2 | 卸载后二进制真的可释放 | `Tests/Abi`：卸载后以写方式打开文件 | **是** |
-| 3 | 重载后拿到的是新代码而非缓存（8.2 档三） | `Tests/HotSwap`（见 12.1） | **是** |
+| 3 | 重载后拿到的是新代码而非缓存（8.2 档三） | `Tests/HotSwap`（见 12.1）。Windows 侧的档三负例自 M4/D108 起有证人（`Adopt.RenameReplacementCaughtByTierThree` 两平台同序列，M1 的登记账已还） | **是** |
 | 3a | 局内 Eject / Adopt 不伤及相邻实例（v3 档 ①） | `Tests/HotSwap`：三插件局中对叶做 50 轮 Eject+Adopt，断言其余实例的计数与行为不变——**已落**（M3，D98/D103）：`HotSwap.FiftyRoundsBehaveLikeFirstTime`（叶 `VersionedA` + 邻居 `NeighborB` / `NeighborC` 三插件局；每轮派固定 2 拍、循环内断言两只邻居的累计 `Beats()`——原 5 轮两插件形就地改名扩形，不另立用例） | **是** |
 | 3b | 账本执法：未声明解析被拒；声明未用仍拦 Eject；拒绝报告点名消费者（5.6） | `Tests/Integration`——**已落**（M2a 起，三条腿各自有证人）：凭声明执法 + 解析落账在 `Source/Pod/Context.cpp` 的 `ResolveRaw`，反查与点名消费者在 `PluginHost::EjectPlugin`；`Tests/Integration/LedgerSemanticsTests.cpp`（含未声明解析的 death test）与 `Eject.RefusedWithConsumersNamedInStructuredReport` | **是** |
 | 3c | Eject 后不再有回调命中已卸代码（7.6 永不重入） | `Tests/HotSwap`：带 10ms 定时器的插件被 Eject 后再跑 100 个 tick——**已落**：`HotSwap.NoCallbackFiresIntoEjectedCode` | 是 |
 | 3d | Eject 自动重置登记的进程级状态并写入报告（9.1） | `Tests/HotSwap`——**已落**（M3）：`Eject.ProcessStatesResetMakesReloadLikeFirstTime`（Reset 真跑、再 Adopt 读数回到首次——D91/D99 的正半句）与 `Eject.ProcessStatesKeptWhenOtherPodHoldsLiveInstance`（别局有活实例→不重置、最后一局离场才重置——D91 的反半句与 kept 判读；三条 Eject 分支一概跑 Reset 的口径 D99 在实现里，证人取的是活实例与 kept 两支）。登记机制已进磁盘：`ProcessStateDesc{Name, Reset}` 入 `PluginMeta` 尾槽（`kHeaderVersion` 3→4，D92）、清单顶层 `processStates` 名字数组与描述符按 Name 集双向等值（D93，证人在 `LoadTimeComparison.ProcessStates*`） | 是 |
 | 3e | Adopt 拒绝导入表含兄弟插件的二进制（8.7） | `Tests/Abi`：伪造导入表的 fixture——**已落**：`Abi.AdoptRejectsBinaryThatImportsSiblingPlugin`（规矩 6 的 `-R 'HotSwap\|Eject\|Adopt'` 超集亦把它捎上） | 是 |
+| 3f | Eject 如实上报「语义依赖可能已陈旧」而**不宣称查过**（§9.1 提示面） | `Tests/HotSwap`——**已落**（M4/D110）：`Eject.SemanticDependencyPossibleWhenResetAndOthersLive`（重置发生 ∧ 进程内仍有活实例 → 置位）、`Eject.SemanticDependencyAbsentWhenNothingElseLive`（重置了但没人活着 → 不置位）、`Eject.SemanticDependencyAbsentWithoutProcessStateReset`（有人活着但无重置 → 不置位）。**空壳局一支无证人可写**（空壳攥不住值、条件本就不该置位），如实标注 | 否 |
 | 4 | 静态预测与运行时装配的分歧**只**出现在「运行时失败」时（4.4） | `Tests/Integration`：同一输入下 `PluginCatalog::Solve` 的计划（本行提议的 `VaseCli plan`，落地实形即此）与实际装配逐项比对；后半句（注入运行时必失败插件、断言分歧**恰好只在那里**）M2b 波 2 落——`LoadTimeComparisonTests` 与 `HotSwap/AdoptManifestTests` 吃 raw 旁路与 mismatch 证人 | **是** |
 | **装配语义** | | | |
 | 5 | `OnStart` 失败时下游被递归拆除，不留半活插件（5.2） | `Tests/Integration`：构造 `A→B→C`，令 B 的 `OnStart` **返回错误**（`OnStart` 返回 `Result<void>`，见 3.1；D17 之后「抛错」不再是可行做法——`try` / `throw` 在 Vase 的编译设置下基本是硬错误，只有 cl.exe 的裸 `throw` 是已知漏网，见根 `CMakeLists.txt`），断言 A、C 均回 `Skipped[运行时]` 且 `EffectScope` 已空 | **是** |
@@ -1644,7 +1647,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | M1 闭环 | + 单插件 Eject / Adopt 全循环，三档判据首次于 **Win / Linux** 跑通（macOS 的 neverUnload 风险面见 8.2，M5 判定）——**热插拔是骨架，不是尾巴** |
 | M2 求解 | + 依赖账本执法与解析记录（3b） |
 | M3 多插件 | + 叶判定的图反查与拒绝报告（3a，全量形 = 三插件局中对叶 50 轮）；+ Eject 自动重置登记的进程级状态并写入报告（3d）。**判据 19 的完整属主追踪器经核查否决（D97，spec §4）**——不新增可达检出情形，M3 行自此只有这两笔 |
-| M4 热替换 | v2「Reload」扩为 HotSwap 全谱：双版本 fixture、三平台档二/档三、语义依赖提示面 |
+| M4 热替换 | **已落（Win / Linux，2026-09-27）**：换件谱扩到**描述符维含回退方向**（五步阶梯，每步只差一维；D105/D113）、**Windows 侧档三负例**（换件序列两平台统一为「改名离开+落新字节」；D108）、**语义依赖知情位**（`EjectReport::SemanticDependencyPossible`，如实上报不可知；D110/D115）。**macOS 腿顺延 M5**（与 M0–M3 平台口径一致） |
 | M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外） |
 
 **连带文书义务**：v3 落地（M1 更名）时同步更新 `CLAUDE.md`（目录名、构建命令、ctest 基数预期）；M0/M1 设计文档不改史，挂一条指向本文的勘误标注（涉及其 2.4 判据表与 3.3(4) 的 Linux 判据去向）。

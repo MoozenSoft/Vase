@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 即核心关注点是**模块的选取、挂载与干净卸载**。M1 已把它的最小形落成代码，M2a 补了装配地基那一层，M2b 两波补了清单解析/Catalog 求解与加载期比对执法（见「项目状态」；具体机制以磁盘上的头文件与实现为准，`wiki/vase-architecture.md` 里其余部分仍是提案）。**不要在文档或代码注释中把提案写成既定事实**——新增或变更机制前先与需求方确认。
 
-### 项目状态：M0、M1 完成；M2a 完成（M2 第一波），M2b 波 1 完成（清单解析/Catalog/Solve/Preset），M2b 第二波完成（加载期比对/Adopt 单轨/enum+bump/前端），M3 完成（判据 3a 全量形/3d 进程级状态登记）
+### 项目状态：M0、M1 完成；M2a 完成（M2 第一波），M2b 波 1 完成（清单解析/Catalog/Solve/Preset），M2b 第二波完成（加载期比对/Adopt 单轨/enum+bump/前端），M3 完成（判据 3a 全量形/3d 进程级状态登记），M4 完成（换件谱描述符维含回退/Windows 档三负例还清 M1 登记账/语义依赖知情位）
 
 
 **M0（构建地基）、M1（Pod 闭环 + 热插拔骨架）、M2a（M2 第一波：装配地基——配置面、`LoadPlan` 定形、
@@ -69,6 +69,25 @@ Eject**（D94——`not in pod` 自此只剩「本局无此 Id」一支，见规
 Reset 闸维持只数活实例，与 §3.4 记载的 kept-resident×重置并存组合对上——并补两枚并存证人
 `Eject.ProcessStatesResetCoexistsWithKeptResidentImage`/`…Shell`，前者是 `state.Reset()` 调用点的**首个可证伪
 证人**——原单局证人因全卸重装、读数落在全新镜像上而对该调用失明，勘误见 plan 偏离登记 6）。现值见「构建与测试」两张表。
+**M4（热替换）也已完成**（spec `docs/superpowers/specs/2026-09-27-vase-m4-hot-replacement-design.md`，
+D104–D116；**macOS 腿顺延 M5**，与 M0–M3 的平台口径一致）。三条腿：**换件谱扩到描述符维含回退方向**
+——五步阶梯（`VersionedA` →（代码）→ `VersionedAPrime` →（`Version` 1.0.0→1.1.0）→
+`VersionedAStampDrift` →（`Provides` v1→v2）→ `VersionedAServiceDrift` → 回退两步），
+**每步只差一维**（回滚拆两步即为守住这条），一条用例走完
+（`HotSwap.DescriptorDriftLadderSwapsBothWays`），每步三条证人——负例（一维 tamper）/ 复用分支
+正例 / 全新装载正例，`ReusedResidentImage` 的真假两值因此在一趟里都有证人；两个新 fixture 同 `OUTPUT_NAME`、
+各自 stage 目录（D105/D106/D113）；**Windows 侧档三负例还清 M1 登记账**——换件序列两平台统一为
+「改名离开（`P → P.old`）+ 落新字节」，拆掉 `#ifndef _WIN32` 那道闸，**Linux 侧实跑亦绿**故该统一序列成立、
+无任何为它而设的 `#ifdef`；`NoBuildIdPlugin` 跨平台化并改名 `NoIdentityPlugin`（Windows 侧 per-target
+`/DEBUG:NONE`、Linux 侧维持 `-Wl,--build-id=none`，**两平台各摘各的身份特征**；`P.old` 残留归
+`ProbeSwapGuard` 析构清理，D108/D109/D114）；**语义依赖知情位**——`EjectReport` 尾追加
+`bool SemanticDependencyPossible`，置位 = `ProcessStatesReset` 非空 ∧ 进程内任一 Pod 仍有活插件实例
+（只数活实例），**不是检出**、如实上报不可知；`Status == kRejectedConsumers` 时恒 `false`（那一路没有
+重置发生），而 **kept-resident 分支可以合法为 `true`**——Reset 闸问的是「这份 binary 还有没有活实例」，
+这一位问的是「进程内还有没有别的活实例」，不是同一个问题；前端两份 `PrintEjectReport` 只在
+`kEjected` 时打点（D110/D111/D115）。连带 **判据 3f** 入 v3 §12 判据表（与 3d 分立，D115）。
+**后果之一是平台形状变了**：`linux − win` 的 +2 差值归零——那两条档三负例不再 Linux-only，
+**平台差没了，六条线只在 `debug − release` 那一维上有差**（267/267/266/266/267/266，见「构建与测试」两张表）。
 当前仓库里有什么：
 
 - **构建系统已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（三个工具链文件）、
@@ -175,7 +194,7 @@ Reset 闸维持只数活实例，与 §3.4 记载的 kept-resident×重置并存
 |---|---|---|
 | 构建系统 | 已决定：CMake + vcpkg（13.2） | **已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（3 个）、`Cmake/Triplets/x64-linux-libcxx.cmake`、`Cmake/VasePluginHelpers.cmake`，六个 preset 全绿（见「构建与测试」） |
 | 目录布局与模块划分 | **已确认**（第 10 节） | **磁盘上是这些**：`Include/Vase/`（`Plugin.h` / `PluginDescriptor.h` / `Config` / `Catalog` / `Effect` / `Service` / `Event` / `Pod` / `Host` / `Detail`）、`Source/{Pod,Host,Catalog}` 三 target、`Samples/{HelloCommon,HelloPlugin,HelloPluginPrime,DependentPlugin,FailingPlugin,Embedding}`、`Tools/VaseConsole/`、`Tests/{Smoke,Unit,Lifecycle,Integration,HotSwap,Abi,TestingSupport}`、`ThirdParty/cli`；第 10 节里此前未出现的 `Catalog/` 实体已于 M2b 波 1 立起（清单解析面住在 `Source/Catalog`，`Host/` 下不另立）。**但别把这一格读成"§10 是当前状态的描述"**：§10 的 `Samples/` 子树那两格空位（`DependentPlugin` / `FailingPlugin`）自 M2b 波 2 起**提案已成真**（D86，该树随之标注），其时漏列的实有两目录（`HelloCommon` / `HelloPluginPrime`）亦已随勘误补进树；它提议的 `Tools/VaseCli/`（清单扫描、校验、索引生成，M5）与实有的 `Tools/VaseConsole/`（交互式验证台）**不是一回事**——两者同在 `Tools/` 下、名字只差一个词，别混；后者原名 `Samples/VaseCli`，2026-09-23 因「CLI 这个名字不体现它是交互式验证台」而更名并移出 `Samples/`，同一轮的 spec / plan 在 `docs/superpowers/` 下同步改名为 `vase-console-*`。**改 §10 本身要需求方过目**（它标着"已确认"），不要顺手修 |
-| 测试框架与运行方式 | 有分层与验证策略（12 节） | **已落成**：GoogleTest 1.18.0（vcpkg manifest）+ `ctest` + `gtest_discover_tests`；分层即 12.2 那五类（Unit / Integration / Lifecycle / HotSwap / Abi，外加 M0 的 Smoke），各线基数见「构建与测试」的按线分账表。12 节里依赖 M2 起的部分：Catalog 求解链已于 M2b 波 1 落成、加载期比对与 Adopt 单轨已于波 2 落成（判据 13 自此有现形证人）；**判据 3b 亦已落地**（凭声明执法 + 解析落账在 `Source/Pod/Context.cpp` 的 `ResolveRaw`，Eject 反查与拒绝点名消费者在 `PluginHost::EjectPlugin`，证人 `Tests/Integration/LedgerSemanticsTests.cpp` 含未声明解析的 death test；D20 的「薄面」是刻意收窄外向 API，不是欠账）——本行原先记的「账本 3b 完整执法仍未起」与磁盘不符，2026-09-26 更正。§12 判据表的 M3 两项亦已落：**3a 全量形**——三插件局 50 轮 `HotSwap.FiftyRoundsBehaveLikeFirstTime`（新 fixture `NeighborC`，每轮派拍、循环内断两只邻居累计 `Beats()`）；**3d 进程级状态登记**——`Eject.ProcessStatesResetMakesReloadLikeFirstTime` 与 `Eject.ProcessStatesKeptWhenOtherPodHoldsLiveInstance`（`Evidence.h` 的 `ProcessStatesReset` 自此有内容，不再恒空），空壳可拆证人 `RecursiveTeardown.TornShellCanBeEjectedAndThenReAdopted`（D94）。属主追踪器经核查否决（D97）——判据表至此无未起项（判据 19 按设计即「无法自动化验证」的契约束，维持原判） |
+| 测试框架与运行方式 | 有分层与验证策略（12 节） | **已落成**：GoogleTest 1.18.0（vcpkg manifest）+ `ctest` + `gtest_discover_tests`；分层即 12.2 那五类（Unit / Integration / Lifecycle / HotSwap / Abi，外加 M0 的 Smoke），各线基数见「构建与测试」的按线分账表。12 节里依赖 M2 起的部分：Catalog 求解链已于 M2b 波 1 落成、加载期比对与 Adopt 单轨已于波 2 落成（判据 13 自此有现形证人）；**判据 3b 亦已落地**（凭声明执法 + 解析落账在 `Source/Pod/Context.cpp` 的 `ResolveRaw`，Eject 反查与拒绝点名消费者在 `PluginHost::EjectPlugin`，证人 `Tests/Integration/LedgerSemanticsTests.cpp` 含未声明解析的 death test；D20 的「薄面」是刻意收窄外向 API，不是欠账）——本行原先记的「账本 3b 完整执法仍未起」与磁盘不符，2026-09-26 更正。§12 判据表的 M3 两项亦已落：**3a 全量形**——三插件局 50 轮 `HotSwap.FiftyRoundsBehaveLikeFirstTime`（新 fixture `NeighborC`，每轮派拍、循环内断两只邻居累计 `Beats()`）；**3d 进程级状态登记**——`Eject.ProcessStatesResetMakesReloadLikeFirstTime` 与 `Eject.ProcessStatesKeptWhenOtherPodHoldsLiveInstance`（`Evidence.h` 的 `ProcessStatesReset` 自此有内容，不再恒空），空壳可拆证人 `RecursiveTeardown.TornShellCanBeEjectedAndThenReAdopted`（D94）。属主追踪器经核查否决（D97）。**M4 新增判据 3f 亦已落**（§12 判据表：Eject 如实上报「语义依赖可能已陈旧」而不宣称查过）——三条证人 `Eject.SemanticDependency{PossibleWhenResetAndOthersLive, AbsentWhenNothingElseLive, AbsentWithoutProcessStateReset}` 的真假两侧都钉住；**空壳局一支无证人可写**（空壳攥不住值、条件本就不该置位），如实标注而非跳过。判据表至此无未起项（判据 19 按设计即「无法自动化验证」的契约束，维持原判） |
 | 插件接口 / ABI 约定 | 有完整设计（第 3、8 节） | **已落地最小形**：§3.1 的宏（`VASE_PLUGIN`）、插件基类、描述符结构体与 `kHeaderVersion` 都在 M1；M2a 补配置面（`VASE_CONFIG`、`ConfigInfo`/`ConfigBlob`，其时为六型）；M2b 波 1 已落 **清单/`Preset` 格式与 `Catalog` 解析**（`Source/Catalog`，结构/语法段 D59 + Solve 两段）；M2b 波 2 已落 **`enum`（七型）与 `kHeaderVersion` 2→3**（`FieldInfo` 尾追加 choices 两槽，D75/D76）、**加载期全字段比对**与 **`AdoptRequest` 单轨**（D67/D69/D72）；M3 已落 **`ProcessStateDesc{Name, Reset}` 进 `PluginMeta` 尾槽 `ProcessStates` 与 `kHeaderVersion` 3→4**（D92），连带清单顶层 `processStates` 名字数组的双向等值比对（D93）。接口以磁盘上的 `Include/Vase/Plugin.h` 与 `PluginDescriptor.h` 为准，第 3、8 节其余部分仍是提案 |
 
 **不要从文档推断出可用的命令、路径或接口签名**——文档写的是「打算怎么做」，本文件负责说明「现在有什么」。
@@ -186,18 +205,14 @@ Reset 闸维持只数活实例，与 §3.4 记载的 kept-resident×重置并存
 ### 构建与测试
 
 
-**六个 preset，全部已实测可用**。基数的最近一次复核（M3 终审修复波，2026-09-27）：**六条 preset 线
-各自 configure → build → ctest → `ctest -N`，六线全绿、构建零警告**。本轮改动（③ 闸计入空壳持有者、
-新 fixture `SharedFailProviderPlugin`、两枚并存证人）走**增量重配复测**而非删树：改动面是单函数闸代码
-与测试的追加，不触工具链文件、`CMAKE_*_FLAGS_INIT` 与 `#ifndef NDEBUG`/平台门形，新 target 经
-`fixtures/CMakeLists.txt` 无条件追加进编译数据库（tidy 的 TU 数 +1 即其证人），删树→增量的可加性
-已由 83bd297/b1a0cc5 两轮先例证过；而它命中 HotSwap 路径的 ③ 闸，**规矩 6 双平台选择子强制**，两侧
-全量 `ctest` 亦逐条跑过。更早的收口复测为另一段：删树重配全量（四棵 Windows 树与两棵 Linux 树，
-`rm -rf` 后从零 configure；两脚本并行一次跑完）跑在 T9 末位 83bd297 上，其中 `win-x64-clang-release`
-首跑撞到下面记的那类 `z-applocal` 文件锁假红（本轮目标 `NeighborC.dll`），单线删树重跑一次即全绿；
-其后 T6 修复轮 2（b1a0cc5，`HotSwapLoopTests.cpp` 一处初始化列表补尾逗号，回捕 tidy 正文 warning）
-按增量重编译复测六线，读数与删树全量同值（该类假红本轮未再撞——增量档未触发 z-applocal 步）。
-tidy 三条 debug 线各自跑（见「静态检查与格式」；b1a0cc5 后与 M3 终审修复波后各全量重跑三线），format 一条命令。
+**六个 preset，全部已实测可用**。基数的最近一次复核（M4 收口，2026-09-27，跑在 `m4-hot-replacement`
+分支收口位）：**六条 preset 线各自删树重配 → configure → build → ctest → `ctest -N`，六线全绿、
+构建零警告**（`Scripts/win-verify.cmd` 与 `Scripts/linux-verify.sh` 两脚本并行一次跑完；Windows 侧
+`win-x64-msvc-release` 首跑撞到下面记的那类 `z-applocal` 文件锁假红，目标 `VaseEmbedding.exe`——
+链接已成功、`vcpkg z-applocal` 拷贝步撞锁致 build 步 RC=1，连带该树 ctest 80 条红；按协议单线
+删树重跑一次即 266/266 全绿零警告）。tidy 三条 debug 线各自跑（见「静态检查与格式」，本轮三线全量重跑），
+format 一条命令。**更早两段保留为历史**：M3 终审修复波走增量重配复测、其前的收口复测走删树重配全量
+（另一棵 `win-x64-clang-release` 撞到同一类假红，目标 `NeighborC.dll`，单线重跑即绿）。
 
 | 平台 | preset |
 |---|---|
@@ -205,45 +220,46 @@ tidy 三条 debug 线各自跑（见「静态检查与格式」；b1a0cc5 后与
 | Windows / cl.exe | `win-x64-msvc-debug`、`win-x64-msvc-release` |
 | Linux / clang + libc++ | `linux-x64-clang-debug`、`linux-x64-clang-release` |
 
-**各线 `ctest -N` 基数**（六线现值为 M3 终审修复波 2026-09-27 实测——删树重配全量在 83bd297，
-b1a0cc5（T6 修复轮 2，一个测试语句的尾逗号）与 M3 终审修复波（闸代码 + 新 fixture + 两用例）后两轮
-六线增量重编译 + 全量 `ctest` + `ctest -N` 读数同形。
-M3 相对波 2 收口表（249/248/251/250）各线净 +12：T1 +1、T2 +3、T3 +2、T4 +2、T5 +2、
-T6（Five→Fifty）与 T7（空壳用例替换）均为 1:1 改写净 0、M3 终审修复波 +2（并存证人
-`Eject.ProcessStatesResetCoexistsWithKeptResidentImage`/`…Shell` 两条，无门控）；按 `git diff main` 的
-TEST 宏增减独立核过——新增 14 处、删除 2 处，无一受 `#ifndef NDEBUG` 门或平台门，六线同幅 +12。
-历史口径：波 2 相对波 1（194/193/196/195）各线净 +54（枚举 `enum` 七型、加载期比对/Adopt 单轨、
-Catalog 求解扩簇、Console 双入口与各证人族；其中含收口波 T14a 退役孤儿 `VaseConsoleSwapStage` 的 −1
-与 T14c synced 族自足化新增 `…ReplayReason` 证人的 +1），同日还账波再加账① Unit 用例 1 条、
-六线同幅 +1、无一受门控（账② 零用例）；
+**各线 `ctest -N` 基数**（六线现值为 **M4 收口 2026-09-27 实测**，六条 preset 线删树重配全量、
+`ctest` 与 `ctest -N` 一并跑完）：
+M4 相对 M3 终审修复波表（261/260/263/262）**Windows 各线净 +6、Linux 各线净 +4**，两笔来源——**新增用例六线同幅 +4**
+（阶梯 `HotSwap.DescriptorDriftLadderSwapsBothWays` 1 条 + 知情位 3 条
+`Eject.SemanticDependency{PossibleWhenResetAndOthersLive, AbsentWhenNothingElseLive, AbsentWithoutProcessStateReset}`），
+**加上档三两条由 Linux-only 转六线同跑**（`Adopt.MissingIdentityFeatureRejectedWithPointer`、
+`Adopt.RenameReplacementCaughtByTierThree`——**Windows 各线 +2、Linux 各线 +0**，那两条本来就在
+Linux 的计数里，D109）；按 `git diff main` 的 TEST 宏增减独立核过，新增用例无一受
+`#ifndef NDEBUG` 门或平台门。
+历史口径：M3 相对波 2 收口表（249/248/251/250）各线净 +12（T1 +1、T2 +3、T3 +2、T4 +2、T5 +2，
+T6 Five→Fifty 与 T7 空壳用例替换均 1:1 改写净 0，M3 终审修复波 +2 为两枚并存证人）；波 2 相对波 1
+（194/193/196/195）各线净 +54（枚举 `enum` 七型、加载期比对/Adopt 单轨、Catalog 求解扩簇、Console
+双入口与各证人族；其中含收口波 T14a 退役孤儿 `VaseConsoleSwapStage` 的 −1 与 T14c synced 族自足化
+新增 `…ReplayReason` 证人的 +1），同日还账波再加账① Unit 用例 1 条、六线同幅 +1
+（账② 零用例）；
 `ctest` 在没发现测试时同样返回 0，故基数要按线单独记，见「四、怎么验」下的「核这些门禁时，退出码单独用是不够的」）：
 
 | preset | `Total Tests` | 与 Win debug 的差 |
 |---|---|---|
-| `win-x64-{clang,msvc}-debug` | 261 | —（基线） |
-| `win-x64-{clang,msvc}-release` | 260 | −1：T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门 |
-| `linux-x64-clang-debug` | 263 | +2：T11 的两条 Linux-only（`Adopt.MissingIdentityFeatureRejectedWithPointer`、`Adopt.RenameReplacementCaughtByTierThree`——`NoBuildIdPlugin` 这个 fixture 在 `if(NOT WIN32)` 里） |
-| `linux-x64-clang-release` | 262 | 同上两点相抵：+2 −1 |
+| `win-x64-{clang,msvc}-debug` | 267 | —（基线） |
+| `win-x64-{clang,msvc}-release` | 266 | −1：T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门 |
+| `linux-x64-clang-debug` | 267 | **0**——M4 起与 Windows 同值（见下） |
+| `linux-x64-clang-release` | 266 | −1——与 win release 同值（平台差为 0）；那 −1 仍是 T3 那道 debug 门 |
 
-**基数差是设计，不是漏注册**：debug 与 release 差的 1 条仍是 T3 的 death test（`#ifndef NDEBUG`）——
-M2a 新增的 `ConfigApply.LayoutMismatchTerminates` 同为 death test 但**不带**这道门，
-debug/release 同计（两条 release 线实测全绿），故 −1 差值不因它而变；
-Linux 与 Windows 差的 2 条仍是 T11 的 Linux-only 用例（`-Wl,--build-id=none` 的 fixture 只在 Linux 存在），
-波 2 新 fixture 群（`TwoProvidersPlugin` 与 `DependentPlugin` / `FailingPlugin` 两示例位）与
-M3 新 fixture 群（`NeighborC` / `StatefulPlugin` / `SharedFailProviderPlugin`）无一 Linux-only，
-+2 不变；波 2 新增的用例（净 54 条）、还账波新增的 1 条（账① 的 Unit 用例）与 M3 新增的净 12 条（含
-M3 终审修复波的 2 条并存证人）无一受
-`#ifndef NDEBUG` 门或平台门，差值亦不因它们而变。
-两侧都与预期值逐位对上（用例名集合的 debug/release 差集与 win/linux 差集在 M3 收口的删树重配
-新鲜树（83bd297）、b1a0cc5 修复后的增量重编译树与 M3 终审修复波的增量重编译树上**三轮**实测同形、恰为上面那三条——debug−release
-恰为 T3 那条、linux−win 恰为 T11 两条、win−linux 反向为空、M3 新用例六线全在，且 clang-debug
-与 msvc-debug 名集合逐条相同；波 2 收口与还账波 2026-09-26 的同形复测保留为历史。规矩 6 的选择子
-`-R 'HotSwap|Eject|Adopt'` 在 M3 收口重数为 win 48 / linux 50（较还账波的 46 / 48 各 +2，恰为
-T5 的 `Eject.ProcessStates` 两条被 `Eject` 子串拉进），M3 终审修复波重数 win 50 / linux 52（各再 +2，
-恰为两枚 `Eject.ProcessStatesResetCoexistsWith…` 被拉进；差集始终是那两条 Linux-only），且六线全量
-`ctest` 本就逐条跑过族内全部用例并通过，说明 `gtest_discover_tests` 没有静默漏掉任何一条。
-console 套件（`ctest -R VaseConsole` M3 收口与 M3 终审修复波两侧重数均仍 33 条）与 Embedding 回放**不含**
-`#ifndef NDEBUG` 门与平台门，所以上面这两处差值不因它们而变。
+**基数差是设计，不是漏注册**：**`linux − win` 的 +2 差值在 M4 归零**——T11 那两条档三用例自 M4/D109 起
+**两平台同跑**：fixture `NoBuildIdPlugin` 跨平台化并更名 `NoIdentityPlugin`（Windows 侧 per-target
+`/DEBUG:NONE` 摘掉 CodeView，Linux 侧维持 `-Wl,--build-id=none` 摘掉 `.note.gnu.build-id`，**两平台各摘
+各的身份特征**）。**这一格不是「洞被填上」，是刻意的平台不对称被消掉**——D109 的理由正在于此，
+所以差值变小是**设计**而非计数异常。debug 与 release 差的 1 条**不变**，仍是 T3 的 death test
+（`#ifndef NDEBUG`）——M2a 新增的 `ConfigApply.LayoutMismatchTerminates` 同为 death test 但**不带**
+这道门，debug/release 同计（两条 release 线实测全绿），故 −1 不因它而变。M4 新增的净 4 条与那两条
+改平台的用例**无一受** `#ifndef NDEBUG` 门或平台门。
+两侧都与预期值逐位对上（用例名集合的**差集本轮实测**：debug − release 在三条 debug 线上恰为 T3 那一条、
+`linux − win` 与 `win − linux` **两个方向都为空**、clang-debug 与 msvc-debug 名集合逐条相同、
+两条 release 线的名集合也逐条相同；M3 收口/修复波三轮与波 2 收口/还账波 2026-09-26 的同形复测保留为历史。
+规矩 6 的选择子 `-R 'HotSwap|Eject|Adopt'` 在 M4 收口重数为 **win 56 / linux 56**（较 M3 终审的
+50 / 52：+4 是新建用例名含 HotSwap / Eject、+2 是档三那两条不再 Linux-only——**两侧之差随之消失**），
+且六线全量 `ctest` 本就逐条跑过族内全部用例并通过，说明 `gtest_discover_tests` 没有静默漏掉任何一条。
+console 套件（`ctest -R VaseConsole` 六线均 33 条，自 M3 起未变）与 Embedding 回放**不含**
+`#ifndef NDEBUG` 门与平台门，所以上面的差值不因它们而变。
 
 **这一档有环境性假红**（2026-09-22 实测）：`win-x64-clang-release` 的首次删树重配在一个
 `vcpkg z-applocal` 步上撞到 `The process cannot access the file ... being used by another process`
@@ -255,6 +271,11 @@ M2b 终审修复波复测两轮全量与波 2 收口波复测（2026-09-26）均
 M3 收口复测（2026-09-27，跑在 83bd297）再撞一次：`win-x64-clang-release` 的 `NeighborC.dll` 链接已成功、
 其后 `z-applocal` 拷贝步撞锁致 build 步 RC=1（该树 ctest 当时也 258 全过，仍按协议单线删树重跑一次，
 即 258/258 全绿零警告）。
+**M4 收口（2026-09-27）同一类步上再撞一次，且第一次落到另一条线**：这次是 `win-x64-msvc-release`
+（此前三次都在 clang-release 侧），`VaseEmbedding.exe` 链接已成功、`z-applocal` 拷贝步撞锁致 build 步
+RC=1，构建立即中止（后续 target 未产出），该树 ctest 连带 **80 条红**（Not Run 为主，缺的可执行与 DLL
+是中止的下游）；按协议**单线删树重跑一次**即 266/266 全绿零警告。**读这一类红时先看是不是缺产物**——
+「80 条红」看着像大面积回归，其实是缺文件。
 
 #### Windows（在 Git Bash 里直接跑）
 
@@ -611,7 +632,7 @@ tidy 与 format 怎么跑、退出码为什么单独不够、基数怎么读。�
 
 
 ```bash
-run-clang-tidy -p build-win/win-x64-clang-debug          # clang-cl 线（96 个 TU）
+run-clang-tidy -p build-win/win-x64-clang-debug          # clang-cl 线（99 个 TU）
 run-clang-tidy -p build-win/win-x64-msvc-debug -extra-arg=-Wno-unused-command-line-argument
 run-clang-tidy -p build-linux/linux-x64-clang-debug      # Linux 线**必须单独跑**
 git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc' '*.ixx' \
@@ -627,16 +648,18 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
 两者同契约：日志落在脚本旁边（`*.log`，已被 gitignore），stdout 打全「退出码 + 正文
 `error:` 条数 + 正文 `warning:` 条数」三判据与摘要计数，**退出码非 0 即门禁未过**，
 不必再手工 grep 日志。基数见「核这些门禁时，退出码单独用是不够的」那节的实测表，脚本不复制阈值。
-实测两侧输出与该表逐位对上：Linux 97 TU / 264835 / NOLINT 命中 4273，Windows 两线各 96 TU /
-602497 / NOLINT 命中 4197（M3 终审修复波复测，2026-09-27——本轮 tidy 网先在 `EjectTests.cpp` 捕得一条
-`readability-trailing-comma` 正文 warning（并存证人的多行初始化列表），补尾逗号后三线全量重跑正文双 0；
-较 M3 收口口径（Windows 597415 / 4131，Linux 262694 / 4207）的上跳 = 新 fixture TU
-`SharedFailProviderPlugin` 一条编译数据库条目带来的乘法形状，本波新增代码零 NOLINT 位点
-（`git diff HEAD` 可数），**单 TU 极值未动**。更早两段保留为历史：b1a0cc5 尾逗号修复前后各跑一轮、
-合计逐数相同（尾逗号不是抑制位点）；M3 收口较还账波（Windows 587140 / 3895，Linux 258300 / 3970）
-的上跳是 `StatefulPlugin` 与 `NeighborC` 两个新 TU 各带一份 nlohmann/gtest 模板量）。
-还账波 2026-09-26 较波 2 收口各 +1 的成因（逐 TU 定位到 `ConfigMacroTests.cpp` 一个 TU 的**非用户代码桶**：
-新取件器的实例化拖出的系统头模板实例化，打开 header filter 在我们自己的头上查不到任何诊断）保留为历史）。
+实测两侧输出与该表逐位对上：**三线各 99 TU** / Windows 两线 617742、Linux 269117 / NOLINT 命中
+Windows 4394、Linux 4405（**M4 收口 2026-09-27，三线全量重跑，三线首跑即三判据全过、正文双 0**。
+较 M3 终审修复波口径（Windows 96 TU / 602497 / 4197，Linux 97 TU / 264835 / 4273）的上跳 =
+**Windows 增 3 个、Linux 增 2 个编译数据库条目**（两个新 fixture 与 `NoIdentityPlugin` 跨平台化）
+带来的乘法形状，
+本波新增代码零 NOLINT 位点（`git diff main..HEAD -U0 -- '*.h' '*.cpp' '*.cmake' '*.txt' | grep NOLINT`
+零命中），**单 TU 极值未动**。更早几段保留为历史：M3 两轮各捕得一条 `readability-trailing-comma` 并补
+尾逗号归零；b1a0cc5 尾逗号修复前后各跑一轮、合计逐数相同（尾逗号不是抑制位点）；M3 收口较还账波
+（Windows 587140 / 3895，Linux 258300 / 3970）的上跳是 `StatefulPlugin` 与 `NeighborC` 两个新 TU
+各带一份 nlohmann/gtest 模板量；还账波 2026-09-26 较波 2 收口各 +1 的成因（逐 TU 定位到
+`ConfigMacroTests.cpp` 一个 TU 的**非用户代码桶**：新取件器的实例化拖出的系统头模板实例化，
+打开 header filter 在我们自己的头上查不到任何诊断））。
 
 > **tidy 的树必须是构建过的**（T8 实测坑）：compile_commands 里每条命令以 `@...modmap` 引用
 > CMake 模块扫描的响应文件，那是**构建产物**——只 configure 未 build 的新树里它不存在，
@@ -702,63 +725,54 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
 
   所以「无新 warning」的判据是三条一起：**退出 0 + 正文 `error:` 0 条 +
   正文 `warning:` 0 条**，再连摘要行一起读。只 grep `warning:` 会漏掉全部被抑制的量。
-  实测基数（M3 终审修复波复测，2026-09-27——删树重配全量在 83bd297、b1a0cc5 与本波修复后各三线全量重跑；
-  波 1 遗留的正文 warning 自 M2b 终审修复波起保持清零，M3 收口首测曾在 `HotSwapLoopTests.cpp` 捕得
-  一条 `readability-trailing-comma`（T6 新增语句）、M3 终审修复波在同一检查上又捕得 `EjectTests.cpp`
-  一条（并存证人的多行初始化列表），两笔补尾逗号后三线重跑均回零——这是该网两轮实证；
-  各任务新增的位形/宏机制代码全部就地 NOLINT+理由（出处见下），
-  正文双 0 之外，抑制仍全部落在第三方头、gtest/nlohmann 模板与被 NOLINT 豁免的
-  自有位形/宏机制代码里，我们自己的代码零正文 warning）：
+  实测基数（**M4 收口 2026-09-27，三线全量重跑**；波 1 遗留的正文 warning 自 M2b 终审修复波起保持
+  清零，M3 两轮曾在 `readability-trailing-comma` 上连捕两条（`HotSwapLoopTests.cpp` / `EjectTests.cpp`）
+  并均补尾逗号归零——那是该网的两轮实证，M4 本波三线首跑即双 0）。正文双 0 之外，
+  抑制仍全部落在第三方头、gtest/nlohmann 模板与被 NOLINT 豁免的自有位形/宏机制代码里，
+  我们自己的代码零正文 warning：
 
   | 线 | 文件数 | 摘要行 Suppressed 合计 | 单 TU 最小 / 最大 |
   |---|---|---|---|
-  | clang-cl（`win-x64-clang-debug`） | 96 | 602497 | 998 / 45609 |
-  | cl.exe（`win-x64-msvc-debug`） | 96 | 602497 | 998 / 45609 |
-  | Linux（`linux-x64-clang-debug`） | 97 | 264835 | 359 / 11337 |
+  | clang-cl（`win-x64-clang-debug`） | 99 | 617742 | 998 / 45609 |
+  | cl.exe（`win-x64-msvc-debug`） | 99 | 617742 | 998 / 45609 |
+  | Linux（`linux-x64-clang-debug`） | 99 | 269117 | 359 / 11337 |
 
-  **TU 数 87→93 / 88→94 的构成**（2026-09-26 实测）：波 2 新增六个编译数据库条目——
-  `Source/Host/Detail/ManifestCompare.cpp`、测试源 `AdoptManifestTests.cpp` 与
-  `LoadTimeComparisonTests.cpp`、fixture `TwoProvidersPlugin`、示例插件 `DependentPlugin` 与
-  `FailingPlugin`（每个源都是独立条目，`run-clang-tidy` 的按路径去重只合并同一文件多次入库，
-  如 LoadProbe 双 target 那一例）。Suppressed 合计上跳（555223→587139 / 241510→258299，波 2 口径；
-  其后的还账波 +1 成因见「静态检查与格式」末段的收尾句、M3 再 +2 见下段）是新 TU 各带一份
-  nlohmann/gtest 模板量的乘法形状，**单 TU 极值未动**即为证。
-  **M3 再 +2 至 95 / 96**（2026-09-27 实测）：fixture `StatefulPlugin` 与 `NeighborC` 各一条编译数据库条目
-  （均经 `vase_add_plugin_fixture` 无条件入列，与按线基数那 +10 同源）；Suppressed 合计随之上跳
-  （587140→597415 / 258300→262694），单 TU 极值仍未动——同一乘法形状。
-  **M3 终审修复波再 +1 至 96 / 97**（同日实测）：新 fixture `SharedFailProviderPlugin` 一条条目
-  （经 `vase_add_plugin_fixture` 无条件入列——它带来的两枚用例住在既有 TU `EjectTests.cpp`，与基数那
-  再 +2 同波但不同源）；Suppressed 合计随之上跳（597415→602497 / 262694→264835），单 TU 极值照旧未动。
+  **TU 数两侧同为 99**（M4 收口实测；Windows 96 → +3 = **两个新 fixture**
+  `VersionedAStampDrift` / `VersionedAServiceDrift`（D106）+ **`NoIdentityPlugin` 跨平台化**——
+  它原来是 `if(NOT WIN32)` 里的 `NoBuildIdPlugin`，D109 把它拿到两平台都编；Linux 97 → +2 = 只那两个
+  新 fixture）。**平台差随之消失**：M3 时「Linux 比 Windows 多 1 个 TU，就是 `NoBuildIdPlugin`」，
+  现在两侧条目数相同。每个源都是独立条目，`run-clang-tidy` 的按路径去重只合并同一文件多次入库
+  （如 LoadProbe 双 target 那一例）；**文件数比编译数据库条目数少 1**，原因是
+  `fixtures/LoadProbe/LoadProbe.cpp` 同时编进 `LoadProbe` 与 `UnloadProbe` 两个 fixture（两条线都一样）。
+  历史口径：波 2 时 87→93 / 88→94（新增六个条目）、M3 再 +2 至 95 / 96、M3 终审修复波再 +1 至 96 / 97。
 
-  **Linux 比 Windows 多 1 个 TU**，就是 `Tests/HotSwap/fixtures/NoBuildIdPlugin`——它在
-  `if(NOT WIN32)` 里（与按线基数那 +2 条同源）。两侧的 `*Windows.cpp` / `*Posix.cpp` 是成对的，
-  不贡献差。文件数比编译数据库的条目数少 1：`fixtures/LoadProbe/LoadProbe.cpp` 同时编进
-  `LoadProbe` 与 `UnloadProbe` 两个 fixture，`run-clang-tidy` 按路径去重（两条线都一样）。
+  Suppressed 合计的上跳（602497→617742 / 264835→269117）**是新 TU 各带一份 nlohmann/gtest 模板量的
+  乘法形状**，**单 TU 极值未动（998 / 45609 与 359 / 11337 与 M3 三个口径逐数相同）即为证**——
+  这条判据比合计数本身可靠：真出现新诊断时，变的是某个 TU 的极值，而不是所有 TU 一起平移。
 
   数字变了不一定是错，但**要看它变在哪一类**——摘要行里还会出现 `N NOLINT`
-  （M3 终审修复波口径的抑制命中次数：Windows 两线 4197、Linux 4273，较 M3 收口（4131 / 4207）各 +66 /
-  +66——本波新增代码零 NOLINT 位点（`git diff HEAD -U0 | grep '^+.*NOLINT'` 零命中），增量全属既有位点
-  乘上新 fixture TU 的乘法形状。更早：较还账波（3895 / 3970）各 +236 / +237——
-  M3 代码侧净新增位点 2 处：`PluginDescriptor.h` 尾追加槽 NSDMI 的
-  `readability-redundant-member-init`（被广泛包含的头，乘出增量大头）与 `DescriptorTests.cpp`
-  仿 `VASE_PLUGIN` 生成名的 `readability-identifier-naming`，均就地写了理由；b1a0cc5 的尾逗号不是位点，
-  修复前后三线计数逐数相同。历史口径：波 2 时 Windows 两线 3895、Linux 3970，较波 1 各 +997 / +1022——
-  还账波的新增代码零 NOLINT，三线一个数都没动；命中数的大跳
-  远超**位点**增量——波 2 净新增位点是 10 处（`git diff main..HEAD -U0 | grep '^+.*NOLINT'` 可数，
-  排除 docs/ 两处计划文本）：`readability-redundant-member-init` 3（`ManifestExpectation.h` 与
-  `PluginHost.h` 两个 NOLINTBEGIN 区 + `LoadPlan.h` 一处 NEXTLINE——`= {}` NSDMI 是指定初始化
-  省略豁免的前提）、`performance-enum-size` 5（D75 钉 int32 基型：`Mood.h`、`ConfigConsumerPlugin.cpp`
-  与 `ConfigValue/ConfigMacro/ConfigBlob` 三个 Unit 测）、`misc-include-cleaner` 1
-  （`AdoptManifestTests.cpp` 的 `<system_error>` 镜像位，T9 勘误入账）与
-  `cppcoreguidelines-pro-type-union-access` 1（`ConfigValueTests.cpp` 位形测试）。**这不是仓库里的
-  抑制处数**：同一个抑制会被每个包含它的 TU 各计一次，而新增位点里有三处在被广泛包含的头上
-  （`PluginHost.h` / `LoadPlan.h` 各有二十多个直接包含者、`ManifestExpectation.h` 十六个，
-  传递包含再放大），一处指令乘出几百次命中是这一乘法的形状——账面以 canonical 位点清单为准，
-  命中数只核方向。M2a 的 `Value.h` 与 `ConfigMacros.h` 两处 NOLINTBEGIN 区同理），
+  （**M4 收口口径的抑制命中次数：Windows 两线 4394、Linux 4405**。本波新增代码**零 NOLINT 位点**
+  ——`git diff main..HEAD -U0 -- '*.h' '*.cpp' '*.cmake' '*.txt' | grep '^+.*NOLINT'` 零命中，
+  增量全属既有位点乘上新 fixture TU 的乘法形状：Windows +3 个 TU 乘出 +197，Linux +2 个乘出 +132。
+  更早：M3 终审修复波 4197 / 4273，M3 收口 4131 / 4207，还账波 3895 / 3970（较波 2 一个数没动），
+  波 2 3895 / 3970（较波 1 各 +997 / +1022）。**这不是仓库里的抑制处数**：同一个抑制会被每个包含它的
+  TU 各计一次，而 M2b 波 2
+  的 10 处新位点里有三处在被广泛包含的头上（`PluginHost.h` / `LoadPlan.h` 各有二十多个直接包含者、
+  `ManifestExpectation.h` 十六个，传递包含再放大），一处指令乘出几百次命中是这一乘法的形状——
+  账面以 canonical 位点清单为准，命中数只核方向。**M2b 波 2 那 10 处**（`git diff main..HEAD -U0 |
+  grep '^+.*NOLINT'` 可数，排除 docs/ 计划文本）是：`readability-redundant-member-init` 3
+  （`ManifestExpectation.h` 与 `PluginHost.h` 两个 NOLINTBEGIN 区 + `LoadPlan.h` 一处 NEXTLINE——`= {}`
+  NSDMI 是指定初始化省略豁免的前提）、`performance-enum-size` 5（D75 钉 int32 基型：`Mood.h`、
+  `ConfigConsumerPlugin.cpp` 与 `ConfigValue/ConfigMacro/ConfigBlob` 三个 Unit 测）、
+  `misc-include-cleaner` 1（`AdoptManifestTests.cpp` 的 `<system_error>` 镜像位，T9 勘误入账）与
+  `cppcoreguidelines-pro-type-union-access` 1（`ConfigValueTests.cpp` 位形测试）；M3 侧净新增 2 处
+  （`PluginDescriptor.h` 尾追加槽 NSDMI 的 `readability-redundant-member-init`，被广泛包含的头，乘出
+  增量大头；与 `DescriptorTests.cpp` 仿 `VASE_PLUGIN` 生成名的 `readability-identifier-naming`），
+  均就地写了理由；M4 侧 0 处。M2a 的 `Value.h` 与 `ConfigMacros.h` 两处 NOLINTBEGIN 区同理），
   以及 gtest 模板实例化带来的巨量非用户代码告警。
   三线正文里的 `ThirdParty/` 路径 diagnostic 实测 **0 条**（`ExcludeHeaderFilterRegex: '.*ThirdParty.*'` 如期生效）。
 
 - **`ctest` 在一个测试都没发现时同样返回 0。** 所以「测试全绿」不能只跑
   `ctest --preset <p>`，必须另跑一次 `ctest --preset <p> -N`，把 `Total Tests`
-  与「构建与测试」一节那张**按线分账的基数表**逐位对上（波 2 收口波复测六线全部对上，见该表）。`gtest_discover_tests` 用的是 `DISCOVERY_MODE PRE_TEST`，
+  与「构建与测试」一节那张**按线分账的基数表**逐位对上（M4 收口复测六线全部对上，见该表）。`gtest_discover_tests` 用的是 `DISCOVERY_MODE PRE_TEST`，
   枚举发生在 ctest 运行时——测试被漏注册时，`ctest` 会一声不吭地报成功。

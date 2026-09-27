@@ -24,8 +24,7 @@
 preset 清单、各线 `Total Tests` 与按线差值那一列，读根 `CLAUDE.md`「构建与测试」的表——数字与差值都不进本文件（规矩 7：基数只住一处）。**要背的是差值的成因，不是差值本身**：
 
 - **death test 一族受 `#ifndef NDEBUG` 门**（T3 的）：release 下它根本不注册，所以 release 的基数低于 debug。
-- **Linux-only fixture 一族包在 `if(NOT WIN32)` 里**（T11 的 `NoBuildIdPlugin`）：所以 Linux 的基数高于 Windows。
-- 两道门在 Linux release 上同时生效，各线最终数字以那张表为准。
+- 这道门在 Linux release 上同样生效，各线最终数字以那张表为准。
 
 **数字变了不一定是错，但要能说清变在哪一条**——说不出成因就去读那张表，别凭记忆报数。实测教训：把基数直接递到手上的回答，只会复述「差值是设计不是漏注册」；机制要自己去读那张表才拿得到。
 

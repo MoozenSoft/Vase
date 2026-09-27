@@ -63,6 +63,11 @@ struct EjectReport
     // 可以并存为「非空 + false」**（kept-resident 分支 + 别局只留 Failed 记录）——读侧勿当互斥。
     std::vector<std::string> ProcessStatesReset;
 
+    // §9.1 提示面 / M4-D110：**不是检出**——经进程级状态中转的共享值账本与导入表都看不见，
+    // 本字段只如实上报「本次重置了进程态 ∧ 进程内仍有活实例 ⇒ 持派生值者可能已陈旧」。
+    // 只数活实例（Failed 记录与空壳攥不住值，③ 闸另计）；无重置时恒 false。
+    bool SemanticDependencyPossible = false;
+
     std::string HotSwapNote; // 「failed-record ejected」/「kept resident: other pod holds instances」等
 };
 

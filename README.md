@@ -89,28 +89,22 @@ configure + build + ctest + `ctest -N`，每步打印退出码，末尾汇总失
 Scripts\win-verify.cmd
 ```
 
-六个 preset 全绿（最近一次全量验收：M1-T14，2026-09-17——六棵树**全部删树重配**后逐线
-configure → build → ctest → `ctest -N`，构建零警告）：`win-x64-{clang,msvc}-{debug,release}`、
-`linux-x64-clang-{debug,release}`。Windows 侧构建树落 `build-win/<presetName>/`，
+六个 preset：`win-x64-{clang,msvc}-{debug,release}`、`linux-x64-clang-{debug,release}`。
+**最近一次全量验收的读数（六线是否全绿、各线 `ctest -N` 基数、构建是否零警告）只住 `CLAUDE.md`
+的「构建与测试」一节**——README 不复制它。Windows 侧构建树落 `build-win/<presetName>/`，
 可执行与 DLL 同处 `bin/`——这是 Windows 运行时能找到 DLL 的前提，
 不要改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`。
 
 > `ctest` 在一个测试都没发现时**同样返回 0**。所以「测试全绿」不能只看退出码，
-> 要另跑一次 `ctest --preset <p> -N`，把 `Total Tests` 与下表逐位对上。
-> `gtest_discover_tests` 用的是 `DISCOVERY_MODE PRE_TEST`，用例枚举发生在 ctest
-> 运行时，测试被漏注册时 `ctest` 会一声不吭地报成功。
+> 要另跑一次 `ctest --preset <p> -N`，把 `Total Tests` 与 `CLAUDE.md`「构建与测试」
+> 那张**按线分账的基数表**逐位对上。`gtest_discover_tests` 用的是 `DISCOVERY_MODE PRE_TEST`，
+> 用例枚举发生在 ctest 运行时，测试被漏注册时 `ctest` 会一声不吭地报成功。
 
-**各线 `ctest -N` 基数**（与 `CLAUDE.md` 同源）：
-
-| preset | `Total Tests` | 与 Win debug 的差 |
-|---|---|---|
-| `win-x64-{clang,msvc}-debug` | 75 | —（基线） |
-| `win-x64-{clang,msvc}-release` | 74 | −1：T3 的 death test 受 `#ifndef NDEBUG` 门 |
-| `linux-x64-clang-debug` | 77 | +2：T11 的两条 Linux-only（`Adopt.MissingIdentityFeatureRejectedWithPointer`、`Adopt.RenameReplacementCaughtByTierThree`） |
-| `linux-x64-clang-release` | 76 | 同上两点相抵：+2 −1 |
-
-**基数差是设计，不是漏注册**：debug/release 差的 1 条是 death test（`#ifndef NDEBUG` 门），
-Linux/Windows 差的 2 条是 Linux-only 用例（`-Wl,--build-id=none` 的 fixture 只在 Linux 存在）。
+**各线 `ctest -N` 基数（以及差值为什么是设计、不是漏注册）只住 `CLAUDE.md` 的「构建与测试」一节**，
+README 不复制它：第二处真值必腐。这里曾有一份自称「与 `CLAUDE.md` 同源」的副本，停在
+`75/74/77/76`（落后约 185 条注册），并把 Linux/Windows 的差值归因于「`-Wl,--build-id=none` 的
+fixture 只在 Linux 存在」——M4 已把那个 fixture 跨平台化并更名 `NoIdentityPlugin`，该差值归零。
+**要基数与差值读法，去 `CLAUDE.md`。**
 
 ### Linux / WSL
 
@@ -182,10 +176,11 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
   Suppressed 998 warnings (998 in non-user code).
   ```
 
-  （摘要行**每个 TU 各打一次**。2026-09-17 实测基数：clang-cl 与 cl.exe 两条线各 48 个 TU、
-  Suppressed 合计 **309464**；Linux 线 49 个 TU、合计 **133833**。两者都**全部落在非用户代码**里，
-  我们自己的代码零正文 warning。摘要行里还会出现 `N NOLINT`——那是抑制的**命中次数**
-  （同一处抑制会被每个包含它的 TU 各计一次），不是仓库里的抑制处数。）
+  （摘要行**每个 TU 各打一次**。实测基数——各线 TU 数、Suppressed 合计、`N NOLINT` 命中数——
+  **只住 `CLAUDE.md` 的「静态检查与格式」与「核这些门禁时，退出码单独用是不够的」两节**，
+  README 不复制。被抑制的那些**全部落在非用户代码**里，我们自己的代码零正文 warning。
+  摘要行里还会出现 `N NOLINT`——那是抑制的**命中次数**（同一处抑制会被每个包含它的 TU 各计一次），
+  不是仓库里的抑制处数。）
 
   所以「没有新 warning」的判据是**三条一起**：**退出 0 + 正文 `error:` 0 条 +
   正文 `warning:` 0 条**，再连摘要行一起读。只看退出码会漏掉全部被抑制的量；

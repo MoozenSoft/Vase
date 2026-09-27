@@ -35,13 +35,14 @@ echo "3) 正文 warning = $BODY_WARN 条"
 # error 与 warning 都 0 而这一条不为 0 时，说明来了个新种类的诊断，值得去日志里看一眼。
 echo "   （参考）正文形态行 = $(grep -cE '\.(cpp|h|hpp|cc|ixx):[0-9]+:[0-9]+:' "$LOG") 条"
 
-# 摘要行。基数（49 个 TU / Suppressed 合计 133833 / NOLINT 命中 18）以 CLAUDE.md 的表
-# 为准，这里不复制阈值，只把数打出来对。逐 TU 的明细不进 stdout，在日志里。
+# 摘要行。基数（各线 TU 数 / Suppressed 合计 / NOLINT 命中数）以 CLAUDE.md 的表为准，
+# 这里不复制阈值，只把数打出来对——首版注释里写过 "49 个 TU / 133833 / 18" 三个数，
+# 收口时三个都已经腐了。逐 TU 的明细不进 stdout，在日志里。
 #
-# 下面两个行数**天生不相等**，不是漏跑：compile_commands.json 有 50 条，而
+# 下面两个行数**天生不相等**，不是漏跑：compile_commands.json 的条目数比 TU 数多 1，而
 # Tests/Unit/fixtures/LoadProbe/LoadProbe.cpp 同时编进 LoadProbe 与 UnloadProbe 两个
-# fixture target，run-clang-tidy 按路径去重后是 49 个 TU（它打的 "49 files out of 49"
-# 也是去重后的数）。所以 generated 行 50、Suppressed 行 49。
+# fixture target，run-clang-tidy 按路径去重后少一个（它打的 "N files out of N"
+# 也是去重后的数）。所以 generated 行比 Suppressed 行多 1。
 echo "--- 摘要行 ---"
 grep -E 'clang-tidy in [0-9]+ threads' "$LOG"
 echo "摘要行数：warnings generated = $(grep -c 'warnings generated' "$LOG")，Suppressed = $(grep -c 'Suppressed [0-9]* warnings' "$LOG")"

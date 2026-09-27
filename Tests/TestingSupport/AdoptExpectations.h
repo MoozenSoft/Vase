@@ -55,6 +55,28 @@ inline vase::ManifestExpectation MakeVersionedAExpectation()
     return expected;
 }
 
+// VersionedAStampDrift.cpp 逐字抄（M4 换件谱 rung2）：与 MakeVersionedAExpectation 只差 Version 串。
+inline vase::ManifestExpectation MakeVersionedAStampDriftExpectation()
+{
+    vase::ManifestExpectation expected;
+    expected.Id = "Vase.VersionedA";
+    expected.DisplayName = "双版本探针";
+    expected.Version = "1.1.0"; // ← 与 rung1 的唯一差异
+    expected.Provides = {vase::ExpectedService{.Name = "Vase.Test.Counter", .Version = 1}};
+    return expected;
+}
+
+// VersionedAServiceDrift.cpp 逐字抄（M4 换件谱 rung3）：与 rung2 只差 Provides 的服务版本。
+inline vase::ManifestExpectation MakeVersionedAServiceDriftExpectation()
+{
+    vase::ManifestExpectation expected;
+    expected.Id = "Vase.VersionedA";
+    expected.DisplayName = "双版本探针";
+    expected.Version = "1.1.0";
+    expected.Provides = {vase::ExpectedService{.Name = "Vase.Test.Counter", .Version = 2}}; // ← 与 rung2 的唯一差异
+    return expected;
+}
+
 // EdgeConsumerPlugin.cpp 逐字抄。
 inline vase::ManifestExpectation MakeEdgeConsumerExpectation()
 {
@@ -120,12 +142,12 @@ inline vase::ManifestExpectation MakeConfigConsumerExpectation()
     return expected;
 }
 
-// NoBuildIdPlugin.cpp 逐字抄（Linux-only fixture）。
-inline vase::ManifestExpectation MakeNoBuildIdExpectation()
+// NoIdentityPlugin.cpp 逐字抄（M4/D109 起两平台都在）。
+inline vase::ManifestExpectation MakeNoIdentityExpectation()
 {
     vase::ManifestExpectation expected;
-    expected.Id = "Vase.NoBuildId";
-    expected.DisplayName = "无建置 ID 探针";
+    expected.Id = "Vase.NoIdentity";
+    expected.DisplayName = "无身份特征探针";
     expected.Version = "0.0.1";
     return expected;
 }

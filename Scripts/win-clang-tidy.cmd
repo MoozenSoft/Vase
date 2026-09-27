@@ -15,9 +15,10 @@ rem e.g. bad argument or missing tools). All three judgments must hold, because
 rem run-clang-tidy returns 0 even when the log is full of warnings -- .clang-tidy
 rem leaves WarningsAsErrors empty.
 rem
-rem The baseline numbers (48 files, Suppressed sum 309464, NOLINT hits 30 per line)
-rem live in CLAUDE.md's table and are deliberately NOT duplicated here as thresholds
-rem -- a second copy of the truth drifts. This script prints them, you compare.
+rem The baseline numbers (per-line TU count, Suppressed sum, NOLINT hits) live in
+rem CLAUDE.md's tables and are deliberately NOT duplicated here -- a second copy of
+rem the truth drifts, which is not hypothetical: the first draft of this comment
+rem named "48 files / Suppressed 309464 / NOLINT hits 30", and all three were stale.
 rem
 rem Five cmd.exe facts are load-bearing below, not style:
 rem

@@ -277,6 +277,9 @@ TEST(Eject, ProcessStatesResetCoexistsWithKeptResidentImage)
     EXPECT_EQ(*ejected.Value().ProcessStatesReset.begin(), "Vase.Test.StateProbe.Loads");
     EXPECT_FALSE(ejected.Value().BinaryActuallyUnloaded);
     EXPECT_NE(ejected.Value().HotSwapNote.find("kept resident"), std::string::npos);
+    // 而这一位不置位：判据是「进程内还有没有**活实例**」（别局只剩 Failed 记录、本局被卸者已摘除），
+    // 不是「镜像有没有留下」——kept-resident ≠ 置位，这正是这一位与 Reset 闸「问持有者」的分野。
+    EXPECT_FALSE(ejected.Value().SemanticDependencyPossible);
 
     // 镜像还在架上，复用腿重装——这条读数才是 state.Reset() 的证人。
     const vase::ManifestExpectation stateful = testing_support::MakeStatefulExpectation();
@@ -319,6 +322,9 @@ TEST(Eject, ProcessStatesResetCoexistsWithKeptResidentShell)
     EXPECT_EQ(*ejected.Value().ProcessStatesReset.begin(), "Vase.Test.EdgeConsumer.Loads");
     EXPECT_FALSE(ejected.Value().BinaryActuallyUnloaded);
     EXPECT_NE(ejected.Value().HotSwapNote.find("kept resident"), std::string::npos);
+    // spec §6 预判的组合（kept-resident 而仍该置位）在此取得证人：重置发生了 ∧ 进程内还有活实例
+    // （本局的 SharedProvider 活着；别局 EdgeConsumer 虽成了空壳，但那是「镜像留不留」的口径）。
+    EXPECT_TRUE(ejected.Value().SemanticDependencyPossible);
 
     // 镜像因此还在架上：re-Adopt 复用旧记录。旧闸下这里已全卸——ReusedResidentImage 成 false。
     const vase::ManifestExpectation edge = testing_support::MakeEdgeConsumerExpectation();
@@ -332,6 +338,49 @@ TEST(Eject, ProcessStatesResetCoexistsWithKeptResidentShell)
     EXPECT_TRUE(adopted.Value().ReusedResidentImage);
     host.DestroyPod(first);
     host.DestroyPod(second);
+}
+
+TEST(Eject, SemanticDependencyPossibleWhenResetAndOthersLive)
+{
+    // M4/D110 正例：重置发生 ∧ 进程内仍有活实例 → 置位。B 还活着——它可能攥着从
+    // StateProbe 派生的值，而那条边账本看不见（§9.1）。
+    vase::PluginHost host;
+    const vase::PodHandle h =
+        host.CreatePod(Plan({{"Vase.Stateful", VASE_FIXTURE_STATEFUL}, {"Vase.NeighborB", VASE_FIXTURE_NEIGHBORB}}))
+            .Value();
+    const vase::Result<vase::EjectReport> r = host.EjectPlugin(h, "Vase.Stateful");
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    EXPECT_FALSE(r.Value().ProcessStatesReset.empty());
+    EXPECT_TRUE(r.Value().SemanticDependencyPossible);
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+TEST(Eject, SemanticDependencyAbsentWhenNothingElseLive)
+{
+    // M4/D110 反例 a：重置确实跑了，但全进程再无活实例 → 不置位（没人可能拿着派生值）。
+    vase::PluginHost host;
+    const vase::PodHandle h = host.CreatePod(Plan({{"Vase.Stateful", VASE_FIXTURE_STATEFUL}})).Value();
+    const vase::Result<vase::EjectReport> r = host.EjectPlugin(h, "Vase.Stateful");
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    EXPECT_FALSE(r.Value().ProcessStatesReset.empty());
+    EXPECT_FALSE(r.Value().SemanticDependencyPossible);
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+TEST(Eject, SemanticDependencyAbsentWithoutProcessStateReset)
+{
+    // M4/D110 反例 b：有人活着，但被卸者根本没有进程级状态 → 不置位。
+    vase::PluginHost host;
+    const vase::PodHandle h =
+        host.CreatePod(Plan({{"Vase.NeighborB", VASE_FIXTURE_NEIGHBORB}, {"Vase.NeighborC", VASE_FIXTURE_NEIGHBORC}}))
+            .Value();
+    const vase::Result<vase::EjectReport> r = host.EjectPlugin(h, "Vase.NeighborB");
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    // 下面两条读数在 kRejectedConsumers 的报告（默认构造）上同样成立——先钉住这一条真来自 kEjected。
+    EXPECT_EQ(r.Value().Status, vase::EjectStatus::kEjected);
+    EXPECT_TRUE(r.Value().ProcessStatesReset.empty());
+    EXPECT_FALSE(r.Value().SemanticDependencyPossible);
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
 }
 
 } // namespace

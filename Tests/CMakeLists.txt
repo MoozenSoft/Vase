@@ -95,26 +95,31 @@ target_compile_definitions(VaseTests PRIVATE
     VASE_FIXTURE_NEIGHBORC="$<PATH:CMAKE_PATH,$<TARGET_FILE:NeighborC>>"
     VASE_FIXTURE_TIMER="$<PATH:CMAKE_PATH,$<TARGET_FILE:TimerPlugin>>"
     VASE_FIXTURE_STATEFUL="$<PATH:CMAKE_PATH,$<TARGET_FILE:StatefulPlugin>>"
+    VASE_FIXTURE_VERSIONEDASTAMPDRIFT="$<PATH:CMAKE_PATH,$<TARGET_FILE:VersionedAStampDrift>>"
+    VASE_FIXTURE_VERSIONEDASERVICEDRIFT="$<PATH:CMAKE_PATH,$<TARGET_FILE:VersionedAServiceDrift>>"
     VASE_FIXTURE_BADLINKA="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingA>>"
     VASE_FIXTURE_BADLINKB="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingB>>"
     VASE_FIXTURE_MANIFESTS="$<PATH:CMAKE_PATH,${CMAKE_CURRENT_SOURCE_DIR}/Integration/fixtures/manifests>")
 
-# 档三「特征缺失」fixture（T11）：**整个 if 块（target 与它的宏定义）必须在同一道
-# `if(NOT WIN32)` 里**——宏的值是 `$<TARGET_FILE:NoBuildIdPlugin>`，而生成器表达式
-# 提到一个不存在的 target 会在 **configure 期**炸掉整棵树（不是只掉两条 Linux 用例）。
+# 档三「特征缺失」fixture（T11；M4/D109 跨平台化）：两个平台各摘各的身份特征——
+# Linux 是 .note.gnu.build-id，Windows 是 PE 调试目录里的 CodeView(RSDS)。
 #
-# 链接顺序是**实测**钉住的，不是照抄文档结论：`target_link_options` 排在工具链
-# `CMAKE_SHARED_LINKER_FLAGS_INIT` 的 `-Wl,--build-id=sha1` 之后，ld 后者胜，产物确实
-# 没有 .note.gnu.build-id（实验记录见 task-11-report.md）。若某天顺序变了，退路是
-# POST_BUILD `llvm-objcopy --remove-section .note.gnu.build-id`——两条路通向同一个断言。
-if(NOT WIN32)
-    vase_add_plugin_fixture(NoBuildIdPlugin
-        SOURCES HotSwap/fixtures/NoBuildIdPlugin/NoBuildIdPlugin.cpp
-        LINK_LIBRARIES VasePod)
-    target_link_options(NoBuildIdPlugin PRIVATE "-Wl,--build-id=none")
-    target_compile_definitions(VaseTests PRIVATE
-        VASE_FIXTURE_NOBUILDID="$<PATH:CMAKE_PATH,$<TARGET_FILE:NoBuildIdPlugin>>")
+# 链接顺序是**实测**钉住的：`target_link_options` 排在工具链 `CMAKE_SHARED_LINKER_FLAGS_INIT`
+# 之后，后者胜——Linux 侧 M1 已用 GNU ld 证过（记录见 task-11-report.md），Windows 侧
+# `/DEBUG:NONE` 压过 `/DEBUG:FULL` 也已实测（M4 探针 P2），两平台产物均无身份特征。
+#
+# **这个 fixture 自守**：标志一旦失效，产物就长出身份特征，Adopt 会走到装配并返回 Ok，
+# `ASSERT_FALSE(r.IsOk())` 当场变红——静默失效不可能产生假绿。
+vase_add_plugin_fixture(NoIdentityPlugin
+    SOURCES HotSwap/fixtures/NoIdentityPlugin/NoIdentityPlugin.cpp
+    LINK_LIBRARIES VasePod)
+if(WIN32)
+    target_link_options(NoIdentityPlugin PRIVATE "/DEBUG:NONE")
+else()
+    target_link_options(NoIdentityPlugin PRIVATE "-Wl,--build-id=none")
 endif()
+target_compile_definitions(VaseTests PRIVATE
+    VASE_FIXTURE_NOIDENTITY="$<PATH:CMAKE_PATH,$<TARGET_FILE:NoIdentityPlugin>>")
 
 # gtest 头文件在本仓库看到的异常配置，与预编译的 gtest DLL **不一致**（实测两边）：
 #

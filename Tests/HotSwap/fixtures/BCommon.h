@@ -1,9 +1,8 @@
 #pragma once
 
-// T12 热插拔主循环的一份测试材料，三个 fixture 与 HotSwapLoopTests 共用：
-// Counter（A 与 A′ 同名双版本，返回值就是版本身份）、Heart（邻居 B 的心跳）、
-// Tick（B 订阅的事件）。解析靠 kName 字符串跨模块匹配（§6.1：不用 type_index）——
-// C++ 类型是否同名不是判据，标识一致才是。
+// T12 热插拔主循环的一份测试材料，HotSwap 的 fixture 与测试 TU 共用：本文件声明测试所需的
+// 全部接口与事件（**不逐项列举**——它还在长，列举出去必腐）。
+// 解析靠 kName 字符串跨模块匹配——C++ 类型同名不是判据，标识一致才是（§6.1）。
 
 #include <cstdint>
 #include <string_view>
@@ -25,6 +24,25 @@ public:
     ICounter(ICounter&&) = delete;
     ICounter& operator=(ICounter&&) = delete;
     virtual ~ICounter() = default;
+
+    [[nodiscard]] virtual int Value() const = 0;
+};
+
+// rung3 的漂移维（M4/D106）：与 ICounter **同名、主版本 2**。存在的理由：`Context::Provide<T>()`
+// 的注册键来自接口常量（T::kVersion）而非描述符，所以「声明提供 v2」的 fixture 必须真有
+// 一个 v2 接口可注册，否则描述符就是在撒谎。
+class ICounterV2
+{
+public:
+    static constexpr std::string_view kName = "Vase.Test.Counter";
+    static constexpr std::uint32_t kVersion = 2;
+
+    ICounterV2() = default;
+    ICounterV2(const ICounterV2&) = delete;
+    ICounterV2& operator=(const ICounterV2&) = delete;
+    ICounterV2(ICounterV2&&) = delete;
+    ICounterV2& operator=(ICounterV2&&) = delete;
+    virtual ~ICounterV2() = default;
 
     [[nodiscard]] virtual int Value() const = 0;
 };

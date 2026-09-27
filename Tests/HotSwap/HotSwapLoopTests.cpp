@@ -71,6 +71,15 @@ public:
         EXPECT_FALSE(ec) << ec.message();
     }
 
+    // 与 InstallPrime 同一动作、只是参数化：换件谱的每一级要落不同的字节。
+    // 与 InstallPrime 同一条断言——写不动（Windows sharing violation）就是卸载路径坏了。
+    void Install(const std::filesystem::path& source) const
+    {
+        std::error_code ec;
+        std::filesystem::copy_file(source, APath, std::filesystem::copy_options::overwrite_existing, ec);
+        EXPECT_FALSE(ec) << ec.message();
+    }
+
     std::filesystem::path Dir;
     std::filesystem::path APath;
 };
@@ -100,10 +109,14 @@ vase::AdoptRequest LoopAdoptRequest(const vase::ManifestExpectation& expected, c
     return request;
 }
 
-// 宿主侧解析（§5.6：宿主的解析不落边）——Eject(A) 能过本身就是这条的活体证明：
-// 宿主「缓存」着指针，账本看不见也不需要看见（9.3 的宿主纪律在测试里的演练形态）。
-int CounterValue(vase::Pod* pod)
+// 宿主侧解析（§5.6：宿主的解析不落边）。`readsV2` = 被读的那一版提供的是 v2 接口
+// （rung3 声明并注册 v2；其余级都是 v1）——`Provide<T>` 的键来自接口常量，不是描述符。
+int CounterValue(vase::Pod* pod, bool readsV2)
 {
+    if (readsV2)
+    {
+        return pod->Root().Get<samples_fixture::ICounterV2>().Value();
+    }
     return pod->Root().Get<samples_fixture::ICounter>().Value(); // Get<T>() 返回 T&（R112）
 }
 
@@ -114,7 +127,7 @@ TEST(HotSwap, FullLoopFlipsBehaviorAndNeverTouchesNeighbor)
     const vase::PodHandle h = host.CreatePod(LoopPlan(ws.APath)).Value();
     vase::Pod* const pod = host.Resolve(h);
 
-    EXPECT_EQ(CounterValue(pod), 1); // 行为 == A
+    EXPECT_EQ(CounterValue(pod, false), 1); // 行为 == A
     const auto* const heart1 = &pod->Root().Get<samples_fixture::IHeart>();
     const auto* const pulse1 = &pod->Root().Get<samples_fixture::IPulse>();
     for (int i = 1; i <= 5; ++i)
@@ -134,7 +147,7 @@ TEST(HotSwap, FullLoopFlipsBehaviorAndNeverTouchesNeighbor)
     // IdentityVerified 在成功路径上被无条件置 true（PluginHost.cpp），是报告字段不是判据。
     EXPECT_FALSE(adopt.Value().ReusedResidentImage);
 
-    EXPECT_EQ(CounterValue(pod), 2); // 行为 == A′（不是 A！）
+    EXPECT_EQ(CounterValue(pod, false), 2); // 行为 == A′（不是 A！）
     const auto* const heart2 = &pod->Root().Get<samples_fixture::IHeart>();
     const auto* const pulse2 = &pod->Root().Get<samples_fixture::IPulse>();
     // B/C 实例指针在这里不能判别：新对象会落回被释放的堆块（实测同一二进制时红时绿）——
@@ -167,7 +180,7 @@ TEST(HotSwap, FiftyRoundsBehaveLikeFirstTime)
     for (int round = 0; round < 50; ++round)
     {
         vase::Pod* const pod = host.Resolve(h);
-        ASSERT_EQ(CounterValue(pod), prime ? 2 : 1) << "round " << round;
+        ASSERT_EQ(CounterValue(pod, false), prime ? 2 : 1) << "round " << round;
         for (int step = 0; step < kTicksPerRound; ++step)
         {
             pod->Root().Emit(samples_fixture::TickEvent{ticks});
@@ -185,12 +198,139 @@ TEST(HotSwap, FiftyRoundsBehaveLikeFirstTime)
         // 两版描述符逐字节相同（T5 评审）——一份期望跑完 50 轮换件。
         ASSERT_TRUE(host.AdoptPlugin(h, LoopAdoptRequest(versionedA, ws.APath)).IsOk());
         prime = !prime;
-        ASSERT_EQ(CounterValue(host.Resolve(h)), prime ? 2 : 1) << "round " << round; // 换装后立刻对得上「如同首次」
+        ASSERT_EQ(CounterValue(host.Resolve(h), false), prime ? 2 : 1)
+            << "round " << round; // 换装后立刻对得上「如同首次」
     }
     EXPECT_EQ(ticks, 100); // 50 轮 × 2 拍——本行同时拦住「循环轮数被悄悄改小」
     // 尾巴一轮也得有账：循环内断言在 Eject 之前，最后一轮 Adopt 之后的邻居态由这两行收口（R-T6-1）。
     EXPECT_EQ(host.Resolve(h)->Root().Get<samples_fixture::IHeart>().Beats(), 100);
     EXPECT_EQ(host.Resolve(h)->Root().Get<samples_fixture::IPulse>().Pulses(), 100);
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+// §12.3 的 M4 行（换件谱，M4/D113）：五步阶梯，每步只差**一维**描述符；含**回退方向**（回滚拆两步，
+// 否则一次退两维、归因说不清）。正例是主体——描述符变了的版本也能走完 Eject→落字节→换期望→Adopt；
+// 负例是附属——把本步期望沿本步那一维 tamper 回上一级的值，比对拒。
+//
+// 每步三条证人的由来：负例那次 Adopt 在 ③.5 比对处被拒，而 AdoptImpl 的 EnsureResident **先于**
+// CompareDescriptor——所以它已经把新字节装载驻留了。于是紧接着换对期望必然走**复用分支**，
+// `ReusedResidentImage` 的真值在这一趟里就有证人；再 Eject 一次换回**全新装载**分支。两个分支都断。
+//
+// 例外：S1（代码维）**没有负例**——rung0 与 rung1 描述符逐字节相同，没有字段可漂；硬造一条只能去
+// 篡改一个与本步无关的字段，那测的是比对器不是换件谱。故 S1 只做一条全新装载正例。
+TEST(HotSwap, DescriptorDriftLadderSwapsBothWays)
+{
+    const SwapWorkspace ws; // 先于 host 声明：见 SwapWorkspace 的析构序说明
+    vase::PluginHost host;
+
+    const vase::ManifestExpectation rung01 = testing_support::MakeVersionedAExpectation();            // rung0 / rung1
+    const vase::ManifestExpectation rung2 = testing_support::MakeVersionedAStampDriftExpectation();   // Version 1.1.0
+    const vase::ManifestExpectation rung3 = testing_support::MakeVersionedAServiceDriftExpectation(); // + Provides v2
+
+    struct Step
+    {
+        const char* Label;
+        const char* Source; // 本步落在 A 位置上的字节（宏，运行期解成路径）
+        const vase::ManifestExpectation* Current;
+        const vase::ManifestExpectation* Stale; // 一维 tamper 后的期望；nullptr = 本步无负例
+        bool ReadsV2;                           // rung3 提供的是 v2，行为读数随之换接口
+        int ExpectedCounter;
+    };
+
+    const std::vector<Step> steps = {
+        {
+            .Label = "S1 代码",
+            .Source = VASE_FIXTURE_VERSIONEDAPRIME,
+            .Current = &rung01,
+            .Stale = nullptr,
+            .ReadsV2 = false,
+            .ExpectedCounter = 2,
+        },
+        {
+            .Label = "S2 Version 去",
+            .Source = VASE_FIXTURE_VERSIONEDASTAMPDRIFT,
+            .Current = &rung2,
+            .Stale = &rung01,
+            .ReadsV2 = false,
+            .ExpectedCounter = 2,
+        },
+        {
+            .Label = "S3 Provides 去",
+            .Source = VASE_FIXTURE_VERSIONEDASERVICEDRIFT,
+            .Current = &rung3,
+            .Stale = &rung2,
+            .ReadsV2 = true,
+            .ExpectedCounter = 2,
+        },
+        {
+            .Label = "S4 Provides 回",
+            .Source = VASE_FIXTURE_VERSIONEDASTAMPDRIFT,
+            .Current = &rung2,
+            .Stale = &rung3,
+            .ReadsV2 = false,
+            .ExpectedCounter = 2,
+        },
+        {
+            .Label = "S5 Version 回",
+            .Source = VASE_FIXTURE_VERSIONEDA,
+            .Current = &rung01,
+            .Stale = &rung2,
+            .ReadsV2 = false,
+            .ExpectedCounter = 1,
+        },
+    };
+
+    const vase::PodHandle h = host.CreatePod(LoopPlan(ws.APath)).Value();
+    EXPECT_EQ(CounterValue(host.Resolve(h), false), 1); // 起点 = rung0
+
+    int ticks = 0;
+    for (const Step& step : steps)
+    {
+        SCOPED_TRACE(step.Label); // 失败定位到步（50 轮循环用 << "round " << round，同一用意）
+        ASSERT_TRUE(host.EjectPlugin(h, "Vase.VersionedA").IsOk());
+        ws.Install(step.Source);
+
+        if (step.Stale == nullptr)
+        {
+            // S1：本维无描述符可漂 ⇒ 无负例，也就没有「负例留下驻留」这回事。
+            const vase::Result<vase::AdoptReport> only = host.AdoptPlugin(h, LoopAdoptRequest(*step.Current, ws.APath));
+            ASSERT_TRUE(only.IsOk()) << only.GetError().Message();
+            EXPECT_FALSE(only.Value().ReusedResidentImage); // 全新装载分支
+        }
+        else
+        {
+            // 负例：期望停在本步之前那一级的取值 → 比对拒。
+            // 只钉总 token——D88 口径：一个子串即够，字段细节留给人（不为此扩格式器）。
+            const vase::Result<vase::AdoptReport> stale = host.AdoptPlugin(h, LoopAdoptRequest(*step.Stale, ws.APath));
+            ASSERT_FALSE(stale.IsOk()); // ASSERT_：下一行取 GetError()，Ok 上取会终止进程
+            EXPECT_NE(stale.GetError().Message().find("manifest/binary mismatch"), std::string::npos)
+                << stale.GetError().Message();
+
+            // 正例甲：上一次调用已把二进制装载驻留 ⇒ 这一次走**复用分支**。
+            const vase::Result<vase::AdoptReport> reused =
+                host.AdoptPlugin(h, LoopAdoptRequest(*step.Current, ws.APath));
+            ASSERT_TRUE(reused.IsOk()) << reused.GetError().Message();
+            EXPECT_TRUE(reused.Value().ReusedResidentImage);
+            EXPECT_EQ(CounterValue(host.Resolve(h), step.ReadsV2), step.ExpectedCounter);
+
+            // 正例乙：再卸一次 → **全新装载分支**。
+            ASSERT_TRUE(host.EjectPlugin(h, "Vase.VersionedA").IsOk());
+            const vase::Result<vase::AdoptReport> fresh =
+                host.AdoptPlugin(h, LoopAdoptRequest(*step.Current, ws.APath));
+            ASSERT_TRUE(fresh.IsOk()) << fresh.GetError().Message();
+            EXPECT_FALSE(fresh.Value().ReusedResidentImage);
+        }
+
+        // 每步派两拍，并核两只邻居的**精确**累计数（不派拍则两端皆 0、断言恒真）。
+        vase::Pod* const pod = host.Resolve(h);
+        pod->Root().Emit(samples_fixture::TickEvent{ticks});
+        ++ticks;
+        pod->Root().Emit(samples_fixture::TickEvent{ticks});
+        ++ticks;
+        EXPECT_EQ(pod->Root().Get<samples_fixture::IHeart>().Beats(), ticks) << step.Label;
+        EXPECT_EQ(pod->Root().Get<samples_fixture::IPulse>().Pulses(), ticks) << step.Label;
+    }
+
     EXPECT_TRUE(host.DestroyPod(h).Clean());
 }
 

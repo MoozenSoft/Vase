@@ -871,6 +871,9 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
     std::size_t crossPodInstances = 0;
     std::size_t crossPodFailedRecords = 0;
     std::size_t crossPodShellRefs = 0;
+    // M4/D110：知情位要问的是「进程内还有没有别的活插件」——与 crossPodInstances（问的是
+    // 「这份 binary 还有没有人指着」）不是同一个问题，故另计一个总数。被卸者此刻已从活集合摘除。
+    std::size_t liveInstancesElsewhere = 0;
     for (const std::unique_ptr<PodSlot>& other : Slots)
     {
         if (!other->Alive || other->Inner == nullptr)
@@ -879,11 +882,15 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
         }
         for (const std::unique_ptr<Pod::LiveInstance>& instance : other->Inner->Instances)
         {
-            if (instance->Instance != nullptr && instance->Binary == binary)
+            if (instance->Instance != nullptr)
             {
-                ++crossPodInstances;
+                ++liveInstancesElsewhere;
+                if (instance->Binary == binary)
+                {
+                    ++crossPodInstances;
+                }
             }
-            else if (instance->Instance == nullptr && instance->Binary == binary)
+            else if (instance->Binary == binary)
             {
                 ++crossPodShellRefs; // D94 起空壳可被 Eject——它同样读 Binary，不计即悬垂（M3/C1）
             }
@@ -911,6 +918,11 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
             report.ProcessStatesReset.emplace_back(state.Name); // 报告是返回值，必须拥有（借用教训同格）
         }
     }
+
+    // M4/D110：语义依赖知情位。**不假装查过**——经进程级状态中转的共享在图上看不见（§9.1），
+    // 这里只如实说「重置发生了、而且进程内还有别人」。范围取进程内而非本局：进程级状态是
+    // 进程级的（跨 Pod 存活），pod2 里的另一个插件照样可能攥着派生值。
+    report.SemanticDependencyPossible = !report.ProcessStatesReset.empty() && liveInstancesElsewhere > 0;
 
     if (crossPodInstances > 0 || crossPodFailedRecords > 0 || crossPodShellRefs > 0)
     {

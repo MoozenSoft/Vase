@@ -128,9 +128,9 @@ bool ParseCount(std::string_view text, int& out)
 
 const char* BoolText(bool value) { return value ? "true" : "false"; }
 
-// §9.2「每次进出必须有账可查」的演示形态：打 EjectReport 14 字段中的 8 个——PluginId、档二×5（两个
-// Is… 是 §8.2「哪个字段有判据力」的声明）、processStatesReset 与注记。**不打 6 个**：Status/Consumers
-// 走拒绝支，本演示结构性不可达（见 SwapDemo 处注释）；档一×3 与 RemovedEdges 另立一笔（spec §3.5/D100）。
+// §9.2「每次进出必须有账可查」的演示形态：打 EjectReport 15 字段中的 9 个——PluginId、档二×5、
+// processStatesReset、semanticDependencyPossible 与注记。**不打 6 个**：Status/Consumers 走拒绝支，
+// 本演示结构性不可达（见 SwapDemo 处注释）；档一×3 与 RemovedEdges 另立一笔（spec §3.5/D100）。
 void PrintEjectReport(const vase::EjectReport& report)
 {
     std::string line{"eject " + report.PluginId};
@@ -156,6 +156,12 @@ void PrintEjectReport(const vase::EjectReport& report)
         }
         reset += '\n';
         Out(reset);
+    }
+    // M4/D111：只在成功态打——bool 没有「空」，靠「拒绝态整行不打」把「判定无风险」与
+    // 「根本没走到这一步」分开（字段语义见 Evidence.h）。
+    if (report.Status == vase::EjectStatus::kEjected)
+    {
+        Out("  semanticDependencyPossible=" + std::string{BoolText(report.SemanticDependencyPossible)} + "\n");
     }
     if (!report.HotSwapNote.empty())
     {

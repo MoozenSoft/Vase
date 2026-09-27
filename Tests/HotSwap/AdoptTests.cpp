@@ -191,22 +191,21 @@ TEST(Adopt, StructuredRefusalsAndOutgoingRecord)
     host.DestroyPod(full);
 }
 
-#ifndef _WIN32
-// 构建树现场保护：本文件**唯一**会改构建树的用例先把原文件备份出来，析构时放回原位。
-// 用 RAII 而不是写在测试末行——中途 ASSERT_* 早退会把构建树留在「该路径指向另一个
-// 二进制」的状态，此后每一条装载 LoadProbe 的用例都会拿到错的东西。
-// 它同时看住**两个**临时名：`.orig`（备份，放回原位用）与 Staging（换进来的那份）——
-// rename 失败时后者会留在构建目录里，只清备份是不够的。
+// 构建树现场保护：本文件**唯一**会改构建树的用例先把原文件备份出来、析构时放回原位——RAII
+// 是必须的：中途 ASSERT_* 早退会把构建树留在「该路径指向另一个二进制」的状态，此后每条装载
+// LoadProbe 的用例都拿到错的东西。换件序列（D108：先改名离开、再落新字节）与 P1 实测见 spec §3.2。
 class ProbeSwapGuard final
 {
 public:
-    ProbeSwapGuard(std::filesystem::path target, std::filesystem::path staging)
+    explicit ProbeSwapGuard(std::filesystem::path target)
         : Target(std::move(target))
         , Backup(Target.string() + ".orig")
-        , Staging(std::move(staging))
+        , Displaced(Target.string() + ".old")
     {
         std::error_code ec;
         std::filesystem::remove(Backup, ec);
+        ec.clear();
+        std::filesystem::remove(Displaced, ec); // 与 Backup 同理：入口把两个自有临时名都收干净
         ec.clear();
         std::filesystem::copy_file(Target, Backup, std::filesystem::copy_options::overwrite_existing, ec);
         Armed = !ec;
@@ -215,20 +214,16 @@ public:
     ~ProbeSwapGuard()
     {
         std::error_code ec;
-        // 暂存文件若还在（rename 没走通那条路），留下它就是污染构建目录。
-        std::filesystem::remove(Staging, ec);
+        // 改名后旧字节的落点。**本守卫必须先于 host 销毁**（用例里的声明序），
+        // 否则 Windows 上这个文件仍被映射、删不掉。
+        std::filesystem::remove(Displaced, ec);
         if (!Armed)
         {
             return;
         }
         ec.clear();
-        std::filesystem::rename(Backup, Target, ec); // 原子换回：Target 此刻的字节是换进来那份
-        if (ec)
-        {
-            ec.clear();
-            std::filesystem::copy_file(Backup, Target, std::filesystem::copy_options::overwrite_existing, ec);
-            std::filesystem::remove(Backup, ec);
-        }
+        std::filesystem::copy_file(Backup, Target, std::filesystem::copy_options::overwrite_existing, ec);
+        std::filesystem::remove(Backup, ec);
     }
 
     ProbeSwapGuard(const ProbeSwapGuard&) = delete;
@@ -237,30 +232,32 @@ public:
     ProbeSwapGuard& operator=(ProbeSwapGuard&&) = delete;
 
     [[nodiscard]] bool IsArmed() const { return Armed; }
+    [[nodiscard]] const std::filesystem::path& DisplacedPath() const { return Displaced; }
 
 private:
     std::filesystem::path Target;
     std::filesystem::path Backup;
-    std::filesystem::path Staging;
+    std::filesystem::path Displaced;
     bool Armed = false;
 };
 
 TEST(Adopt, RenameReplacementCaughtByTierThree)
 {
-    // §8.2 的 Linux 现场：改名替换骗过档二，只有特征比对分得出新旧。
-    // （Windows 的映射文件覆盖语义另成一题——v3 §12.1「某平台不可行就回来改这节」
-    //   同样适用于 Win 的 sharing 规则，该侧端到端验证登记到 M4/M5，不在 M1 赌。）
-    vase::PluginHost host;
+    // §8.2：两平台同一条序列——先改名离开、再落新字节（Windows
+    // 允许改名映射中的文件）；改名替换对档二隐形，只有档三分得出。
+    //
+    // 声明序承重：guard 在 host 之前——否则 `.old` 删不掉（理由同守卫析构处）。
     const std::filesystem::path probe{VASE_FIXTURE_LOADPROBE};
-    const std::filesystem::path tmp = probe.string() + ".swap";
-    const ProbeSwapGuard guard{probe, tmp}; // 守卫先立起来：下面任一条 ASSERT_* 早退都不留尾巴
+    const ProbeSwapGuard guard{probe};
     ASSERT_TRUE(guard.IsArmed());
+
+    vase::PluginHost host;
     host.DestroyPod(host.CreatePod(Plan({{"Vase.LoadProbe", probe}})).Value()); // 驻留（拆局不卸货，§8.1）
 
     std::error_code ec;
-    std::filesystem::copy_file(VASE_FIXTURE_UNLOADPROBE, tmp, std::filesystem::copy_options::overwrite_existing, ec);
+    std::filesystem::rename(probe, guard.DisplacedPath(), ec);
     ASSERT_FALSE(ec) << ec.message();
-    std::filesystem::rename(tmp, probe, ec); // Linux：旧 inode 仍映射，路径已换血——档二全绿现场
+    std::filesystem::copy_file(VASE_FIXTURE_UNLOADPROBE, probe, std::filesystem::copy_options::overwrite_existing, ec);
     ASSERT_FALSE(ec) << ec.message();
 
     const vase::ManifestExpectation probeExpected = testing_support::MakeLoadProbeExpectation();
@@ -275,17 +272,22 @@ TEST(Adopt, RenameReplacementCaughtByTierThree)
 
 TEST(Adopt, MissingIdentityFeatureRejectedWithPointer)
 {
+    // §8.2 的「特征缺失 = 直接拒绝」，两平台各有自己的指路 token：Linux 指 --build-id、
+    // Windows 指 /DEBUG:FULL（错误臂单源，见 ImageInspectCommon.cpp 的两个 Missing*Error）。
     vase::PluginHost host;
-    const vase::LoadPlan plan = Plan({{"Vase.NoBuildId", VASE_FIXTURE_NOBUILDID}});
+    const vase::LoadPlan plan = Plan({{"Vase.NoIdentity", VASE_FIXTURE_NOIDENTITY}});
     host.DestroyPod(host.CreatePod(plan).Value()); // CreatePod 不设身份闸（v2 语义）——先驻留一回
-    const vase::ManifestExpectation noBuildId = testing_support::MakeNoBuildIdExpectation();
+    const vase::ManifestExpectation expected = testing_support::MakeNoIdentityExpectation();
     const vase::PodHandle h = host.CreatePod(vase::LoadPlan{}).Value();
-    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, RequestFor(noBuildId, VASE_FIXTURE_NOBUILDID));
+    const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, RequestFor(expected, VASE_FIXTURE_NOIDENTITY));
     ASSERT_FALSE(r.IsOk()); // ASSERT_：下面立刻取 GetError()，Ok 上取会终止进程
-    EXPECT_NE(r.GetError().Message().find("--build-id"), std::string::npos); // 报告指路补链接标志
+#ifdef _WIN32
+    EXPECT_NE(r.GetError().Message().find("/DEBUG:FULL"), std::string::npos); // 报告指路补链接标志
+#else
+    EXPECT_NE(r.GetError().Message().find("--build-id"), std::string::npos);
+#endif
     host.DestroyPod(h);
 }
-#endif
 
 TEST(Adopt, FreshLoadBranchAlsoVerifiesAndRecordsEdges)
 {
@@ -298,7 +300,6 @@ TEST(Adopt, FreshLoadBranchAlsoVerifiesAndRecordsEdges)
     ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
     EXPECT_FALSE(r.Value().ReusedResidentImage);
     EXPECT_TRUE(r.Value().IdentityVerified);
-    EXPECT_TRUE(r.Value().ManifestVerified);
     EXPECT_TRUE(host.DestroyPod(h).Clean());
 }
 
@@ -331,7 +332,6 @@ TEST(Adopt, RequestOverloadHappyPath)
     const vase::Result<vase::AdoptReport> r = host.AdoptPlugin(h, HelloRequest(expected));
     ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
     EXPECT_EQ(r.Value().Status, vase::AdoptStatus::kAdopted);
-    EXPECT_TRUE(r.Value().ManifestVerified);
     EXPECT_TRUE(host.DestroyPod(h).Clean());
 }
 

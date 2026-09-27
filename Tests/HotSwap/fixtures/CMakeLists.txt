@@ -1,7 +1,6 @@
-# 热插拔主循环 fixture（T12）：三个 target，与 Integration/fixtures 同——共用本目录一份
-# CMakeLists，只有 Unit/fixtures/LoadProbe 那种「每目录各带一份」的形态才不这样。
-# 插件形态定义只走 vase_add_plugin_fixture（Cmake/VasePluginHelpers.cmake），不手写
-# add_library(... SHARED)。
+# Tests/HotSwap 的 fixture（T12 热插拔主循环起）：与 Integration/fixtures 同——共用本目录
+# 一份 CMakeLists（只有 Unit/fixtures/LoadProbe 那种「每目录各带一份」的形态才不这样）。
+# 插件形态定义只走 vase_add_plugin_fixture（Cmake/VasePluginHelpers.cmake），不手写 add_library(... SHARED)。
 vase_add_plugin_fixture(VersionedA
     SOURCES VersionedA/VersionedA.cpp
     LINK_LIBRARIES VasePod)
@@ -36,6 +35,24 @@ set_target_properties(VersionedAPrime PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageAPrime"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageAPrime"
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageAPrime")
+
+# 换件谱的另两版（M4/D106）：与 A′ 同 OUTPUT_NAME、各自 stage 目录（同 A′ 的既有处理）。
+vase_add_plugin_fixture(VersionedAStampDrift
+    SOURCES VersionedAStampDrift/VersionedAStampDrift.cpp
+    LINK_LIBRARIES VasePod)
+vase_add_plugin_fixture(VersionedAServiceDrift
+    SOURCES VersionedAServiceDrift/VersionedAServiceDrift.cpp
+    LINK_LIBRARIES VasePod)
+set_target_properties(VersionedAStampDrift PROPERTIES OUTPUT_NAME VersionedA)
+set_target_properties(VersionedAServiceDrift PROPERTIES OUTPUT_NAME VersionedA)
+set_target_properties(VersionedAStampDrift PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageStampDrift"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageStampDrift"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageStampDrift")
+set_target_properties(VersionedAServiceDrift PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageServiceDrift"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageServiceDrift"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageServiceDrift")
 
 # 进程级状态探针（M3/D91）：3d 的行为证人。
 vase_add_plugin_fixture(StatefulPlugin
