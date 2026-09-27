@@ -182,8 +182,8 @@ private:
     std::unordered_map<std::string, detail::BinaryRecord*> FailedBinaries;
 
     // #10（D14）的最小验证形态：**测试注入**的未回收 Scope 清单。插件侧真泄漏通道
-    // （绕 Effect 渠道的注册）是 9.3 契约束，其检测属 M3 完整属主追踪器——这里先把
-    // 「报告要点名残留归属」的机制立住（PodTestPeer 注入，正常装配路径永不写入）。
+    // （绕 Effect 渠道的注册）是 §9.3 契约束，无机制可拦（M3/D97 已核查：无可达形态——拿不到 Pod 的
+    // ScopePool）；这里先把「报告要点名残留归属」的机制立住（PodTestPeer 注入，正常装配路径永不写入）。
     std::vector<std::unique_ptr<EffectScope>> LeakedScopesForTest;
 };
 

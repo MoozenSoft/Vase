@@ -10,7 +10,9 @@
 #include "CatalogSandbox.h"
 
 #include <bit>
+#include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <gtest/gtest.h>
 #include <iterator>
 #include <string>
@@ -25,6 +27,17 @@ using vase::ManifestEntry;
 using vase::ParseManifestFile;
 using vase::Result;
 using vase::ValueKind;
+
+// M3/D93 用例的临时清单写手：temp 根下的一次性树（与 CatalogSandbox 同法，进程退出随静态树
+// 清；残留只是 temp 垃圾，不判据）。整份 JSON 原样落盘，返回清单路径。
+std::filesystem::path WriteTempManifest(std::string_view content)
+{
+    static CatalogSandbox gSandbox{"manifest-json-temp"};
+    const auto ns = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+    const std::string rel = "m" + std::to_string(ns) + "/plugin.json";
+    gSandbox.WriteFile(rel, content);
+    return gSandbox.Root / rel;
+}
 
 class ManifestJson : public ::testing::Test
 {
@@ -259,6 +272,38 @@ TEST_F(ManifestEnum, ChoicesOnlyOnEnum)
 {
     ExpectRejectMsg(R"("config":[{"key":"a","type":"int32","default":1,"choices":[{"value":0,"label":"a"}]}])",
                     "choices");
+}
+
+TEST_F(ManifestJson, ProcessStatesParsedInOrder)
+{
+    const auto file = WriteTempManifest(R"({
+        "schemaVersion": 1, "id": "Vase.PS", "version": "0.0.1",
+        "processStates": ["Vase.PS.Registry", "Vase.PS.Cache"]
+    })");
+    const auto parsed = vase::ParseManifestFile(file, "ps");
+    ASSERT_TRUE(parsed.IsOk());
+    ASSERT_EQ(parsed.Value().ProcessStates.size(), 2U);
+    EXPECT_EQ(*parsed.Value().ProcessStates.begin(), "Vase.PS.Registry");
+    EXPECT_EQ(*std::next(parsed.Value().ProcessStates.begin()), "Vase.PS.Cache");
+}
+
+TEST_F(ManifestJson, ProcessStatesMissingIsEmpty)
+{
+    const auto file = WriteTempManifest(R"({ "schemaVersion": 1, "id": "Vase.PS2", "version": "0.0.1" })");
+    const auto parsed = vase::ParseManifestFile(file, "ps2");
+    ASSERT_TRUE(parsed.IsOk()); // 缺键 = 空集，向后兼容（D93）
+    EXPECT_TRUE(parsed.Value().ProcessStates.empty());
+}
+
+TEST_F(ManifestJson, ProcessStatesDuplicateRefused)
+{
+    const auto file = WriteTempManifest(R"({
+        "schemaVersion": 1, "id": "Vase.PS3", "version": "0.0.1",
+        "processStates": ["Vase.PS3.A", "Vase.PS3.A"]
+    })");
+    const auto parsed = vase::ParseManifestFile(file, "ps3");
+    ASSERT_FALSE(parsed.IsOk());
+    EXPECT_NE(parsed.GetError().Message().find("duplicate"), std::string::npos);
 }
 
 } // namespace

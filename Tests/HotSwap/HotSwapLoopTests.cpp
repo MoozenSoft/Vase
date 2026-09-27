@@ -1,6 +1,6 @@
 // T12 §12.1：热插拔主循环的端到端——M1 核心承诺的唯一证伪者。
-// 流程 = CreatePod{A,B} → 行为==A → Eject(A) → A′ 覆盖 A 的位置（覆盖本身即
-// 「锁真解了」的断言）→ Adopt(A) → 行为==A′ → B 的实例从第一步起没被碰过。
+// 流程 = CreatePod{A,B,C} → 行为==A → Eject(A) → A′ 覆盖 A 的位置（覆盖本身即
+// 「锁真解了」的断言）→ Adopt(A) → 行为==A′ → B/C 的实例从第一步起没被碰过。
 // 12.2：本目录自 M1 起按主干对待——此后任何动 Loader / 账本 / Eject 路径的改动都必须跑它。
 #include "Vase/Host/PluginHost.h"
 #include "fixtures/BCommon.h"
@@ -75,16 +75,17 @@ public:
     std::filesystem::path APath;
 };
 
-// A 与 B 同一局；A 的路径是工作副本（会被覆盖），B 是构建产物本体（只读地加载）。
+// A 与 B、C 同一局；A 的路径是工作副本（会被覆盖），B/C 是构建产物本体（只读地加载）。
 vase::LoadPlan LoopPlan(const std::filesystem::path& aPath)
 {
     vase::LoadPlan plan;
     plan.Ordered.push_back({.Id = "Vase.VersionedA", .BinaryPath = aPath});
     plan.Ordered.push_back({.Id = "Vase.NeighborB", .BinaryPath = VASE_FIXTURE_NEIGHBORB});
+    plan.Ordered.push_back({.Id = "Vase.NeighborC", .BinaryPath = VASE_FIXTURE_NEIGHBORC});
     return plan;
 }
 
-// 局内 A 的 Adopt 请求：路径 = 工作副本位（换件写字的地方），兄弟集 = 这局另一只二进制名。
+// 局内 A 的 Adopt 请求：路径 = 工作副本位（换件写字的地方），兄弟集 = 这局另两只二进制名。
 // 期望用 MakeVersionedAExpectation 一份到底——A/A′ 描述符逐字节相同（T5 评审），换件不换期望。
 vase::AdoptRequest LoopAdoptRequest(const vase::ManifestExpectation& expected, const std::filesystem::path& aPath)
 {
@@ -92,7 +93,10 @@ vase::AdoptRequest LoopAdoptRequest(const vase::ManifestExpectation& expected, c
     request.Id = expected.Id;
     request.BinaryPath = aPath;
     request.Expected = &expected;
-    request.SiblingBinaries = {std::filesystem::path{VASE_FIXTURE_NEIGHBORB}.filename().string()};
+    request.SiblingBinaries = {
+        std::filesystem::path{VASE_FIXTURE_NEIGHBORB}.filename().string(),
+        std::filesystem::path{VASE_FIXTURE_NEIGHBORC}.filename().string(),
+    };
     return request;
 }
 
@@ -112,11 +116,13 @@ TEST(HotSwap, FullLoopFlipsBehaviorAndNeverTouchesNeighbor)
 
     EXPECT_EQ(CounterValue(pod), 1); // 行为 == A
     const auto* const heart1 = &pod->Root().Get<samples_fixture::IHeart>();
+    const auto* const pulse1 = &pod->Root().Get<samples_fixture::IPulse>();
     for (int i = 1; i <= 5; ++i)
     {
-        pod->Root().Emit(samples_fixture::TickEvent{i}); // B 心跳正常
+        pod->Root().Emit(samples_fixture::TickEvent{i}); // B、C 心跳/脉冲正常
     }
-    EXPECT_EQ(heart1->Beats(), 5); // 切换前恰好 5 次 tick：一次都不能丢
+    EXPECT_EQ(heart1->Beats(), 5);  // 切换前恰好 5 次 tick：一次都不能丢
+    EXPECT_EQ(pulse1->Pulses(), 5); // C 同刻度（M3/D90：两只邻居都要有证人）
 
     const vase::ManifestExpectation versionedA = testing_support::MakeVersionedAExpectation();
     ASSERT_TRUE(host.EjectPlugin(h, "Vase.VersionedA").IsOk()); // 三档之档一、档二在报告里结算
@@ -130,10 +136,12 @@ TEST(HotSwap, FullLoopFlipsBehaviorAndNeverTouchesNeighbor)
 
     EXPECT_EQ(CounterValue(pod), 2); // 行为 == A′（不是 A！）
     const auto* const heart2 = &pod->Root().Get<samples_fixture::IHeart>();
-    // B 实例指针在这里不能判别：新对象会落回被释放的堆块（实测同一二进制时红时绿）——
-    // 「邻居未被触碰」由下面那条精确计数承担。
+    const auto* const pulse2 = &pod->Root().Get<samples_fixture::IPulse>();
+    // B/C 实例指针在这里不能判别：新对象会落回被释放的堆块（实测同一二进制时红时绿）——
+    // 「邻居未被触碰」由下面两条精确计数承担。
     pod->Root().Emit(samples_fixture::TickEvent{99});
     EXPECT_EQ(heart2->Beats(), 6); // 5 次 tick + 这一次恰好 6：计数没被重置过（真正承重的那条）
+    EXPECT_EQ(pulse2->Pulses(), 6);
 
     const vase::PodReport report = host.DestroyPod(h);
     EXPECT_TRUE(report.Clean());
@@ -144,28 +152,45 @@ TEST(HotSwap, FullLoopFlipsBehaviorAndNeverTouchesNeighbor)
     EXPECT_NE(std::next(ejectEntry)->find("adopt:Vase.VersionedA"), std::string::npos);
 }
 
-TEST(HotSwap, FiveRoundsBehaveLikeFirstTime)
+TEST(HotSwap, FiftyRoundsBehaveLikeFirstTime)
 {
-    // 「可重复无数次」的 M1 剂量（5 轮；50 轮的全量形随 M3 的 3a 一起加）。
+    // §12.1 判据 3a 的全量形（M3/D90/D98）：三插件局、对叶 A 做 50 轮 Eject+Adopt，
+    // 断言**其余实例从第一步起全程未受扰**。每轮派 k 拍是承重的——不派拍的话
+    // 「Beats 恰为累计拍数」两端都是 0、断言恒真（TimerNoReentryTests 注释点名的假绿世界）。
+    constexpr int kTicksPerRound = 2;
     const SwapWorkspace ws;
     vase::PluginHost host;
     const vase::ManifestExpectation versionedA = testing_support::MakeVersionedAExpectation();
     const vase::PodHandle h = host.CreatePod(LoopPlan(ws.APath)).Value();
     bool prime = false;
-    for (int round = 0; round < 5; ++round)
+    int ticks = 0;
+    for (int round = 0; round < 50; ++round)
     {
         vase::Pod* const pod = host.Resolve(h);
         ASSERT_EQ(CounterValue(pod), prime ? 2 : 1) << "round " << round;
+        for (int step = 0; step < kTicksPerRound; ++step)
+        {
+            pod->Root().Emit(samples_fixture::TickEvent{ticks});
+            ++ticks;
+        }
+        // 两只邻居的**精确计数**：循环内每轮都断（失败能定位到轮次）。
+        ASSERT_EQ(pod->Root().Get<samples_fixture::IHeart>().Beats(), ticks) << "round " << round;
+        ASSERT_EQ(pod->Root().Get<samples_fixture::IPulse>().Pulses(), ticks) << "round " << round;
+
         ASSERT_TRUE(host.EjectPlugin(h, "Vase.VersionedA").IsOk());
         std::error_code ec;
         const std::filesystem::path src = prime ? VASE_FIXTURE_VERSIONEDA : VASE_FIXTURE_VERSIONEDAPRIME; // 装回另一版
         std::filesystem::copy_file(src, ws.APath, std::filesystem::copy_options::overwrite_existing, ec);
         ASSERT_FALSE(ec) << ec.message(); // Eject 之后写不动 = 锁没解，卸载路径坏了
-        // 两版描述符逐字节相同（T5 评审）——一份期望跑完五轮换件。
+        // 两版描述符逐字节相同（T5 评审）——一份期望跑完 50 轮换件。
         ASSERT_TRUE(host.AdoptPlugin(h, LoopAdoptRequest(versionedA, ws.APath)).IsOk());
         prime = !prime;
-        ASSERT_EQ(CounterValue(host.Resolve(h)), prime ? 2 : 1); // 换装后立刻对得上「如同首次」
+        ASSERT_EQ(CounterValue(host.Resolve(h)), prime ? 2 : 1) << "round " << round; // 换装后立刻对得上「如同首次」
     }
+    EXPECT_EQ(ticks, 100); // 50 轮 × 2 拍——本行同时拦住「循环轮数被悄悄改小」
+    // 尾巴一轮也得有账：循环内断言在 Eject 之前，最后一轮 Adopt 之后的邻居态由这两行收口（R-T6-1）。
+    EXPECT_EQ(host.Resolve(h)->Root().Get<samples_fixture::IHeart>().Beats(), 100);
+    EXPECT_EQ(host.Resolve(h)->Root().Get<samples_fixture::IPulse>().Pulses(), 100);
     EXPECT_TRUE(host.DestroyPod(h).Clean());
 }
 

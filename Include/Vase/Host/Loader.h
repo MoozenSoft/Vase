@@ -20,6 +20,11 @@
 #include <string_view>
 #include <vector>
 
+namespace vase
+{
+struct ProcessStateDesc; // M3/D92：BinaryRecord 只存指针，不需要完整类型
+} // namespace vase
+
 namespace vase::detail
 {
 
@@ -27,6 +32,11 @@ struct BinaryRecord
 {
     std::filesystem::path Path; // 绝对化后的路径（表内去重键）
     void* Raw = nullptr;        // 平台句柄（HMODULE / dlopen 返回值）
+    // M3/D92：描述符里的进程级状态表（指向镜像只读数据段，**不拥有**）。记在**记录**上而不是
+    // 实例上：进程级状态跟着二进制走（§9.1），而记录的生命周期正是镜像驻留期；空壳与 Failed
+    // 两条 Eject 分支没有实例、只有记录，Reset 要靠它。
+    const ProcessStateDesc* ProcessStates = nullptr;
+    std::size_t ProcessStateCount = 0;
 };
 
 struct UnloadEvidence
@@ -87,8 +97,9 @@ private:
     static bool PlatformReopenWritable(const std::filesystem::path& path);
     static bool PlatformMappingRemoved(const std::filesystem::path& path);
 
-    // **每实例**一张表（不是进程级）：只存路径+句柄，不存任何实例级对象——**这一点由
-    // BinaryRecord 的类型承载**（path + void* 句柄，装不下实例级对象），不是靠插入点断言
+    // **每实例**一张表（不是进程级）：只存路径、句柄与指向镜像只读段的进程级状态表指针
+    // （借用，不拥有；M3/D92），不存任何实例级对象——**这一点由 BinaryRecord 的类型承载**
+    // （path + void* 句柄 + const 状态表指针 + 计数，装不下实例级对象），不是靠插入点断言
     // （§1.2）。「同一绝对路径只调一次平台加载」说的是**本实例**——两个 Loader 实例各持
     // 一个句柄，互不知情。
     std::vector<std::unique_ptr<BinaryRecord>> Binaries;

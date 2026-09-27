@@ -128,8 +128,9 @@ bool ParseCount(std::string_view text, int& out)
 
 const char* BoolText(bool value) { return value ? "true" : "false"; }
 
-// §9.2「每次进出必须有账可查」的演示形态：把报告的每个判据都打出来，不看文档也知道
-// 本平台哪个字段有判据力（UnloadEvidence 的 IsMeaningful / IsObservable 自己声明）。
+// §9.2「每次进出必须有账可查」的演示形态：打 EjectReport 14 字段中的 8 个——PluginId、档二×5（两个
+// Is… 是 §8.2「哪个字段有判据力」的声明）、processStatesReset 与注记。**不打 6 个**：Status/Consumers
+// 走拒绝支，本演示结构性不可达（见 SwapDemo 处注释）；档一×3 与 RemovedEdges 另立一笔（spec §3.5/D100）。
 void PrintEjectReport(const vase::EjectReport& report)
 {
     std::string line{"eject " + report.PluginId};
@@ -139,14 +140,23 @@ void PrintEjectReport(const vase::EjectReport& report)
     line += BoolText(report.MappingRemoved);
     line += " reopenWritable=";
     line += BoolText(report.ReopenWritable);
-    // 两个 Is… 是本平台「哪个字段有判据力」的**声明**（§8.2 把这件事写进了结构）：不打出来，
-    // Windows 上那个 mappingRemoved=false 就成了没解释的噪声——它本来就不该被读作失败。
     line += " mappingRemovalIsObservable=";
     line += BoolText(report.MappingRemovalIsObservable);
     line += " reopenWritableIsMeaningful=";
     line += BoolText(report.ReopenWritableIsMeaningful);
     line += '\n';
     Out(line);
+    if (!report.ProcessStatesReset.empty())
+    {
+        std::string reset{"  processStatesReset:"};
+        for (const std::string& state : report.ProcessStatesReset)
+        {
+            reset += ' ';
+            reset += state;
+        }
+        reset += '\n';
+        Out(reset);
+    }
     if (!report.HotSwapNote.empty())
     {
         Out("  note: " + report.HotSwapNote + "\n");

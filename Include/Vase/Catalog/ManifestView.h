@@ -93,6 +93,7 @@ struct ManifestEntry
     std::vector<ManifestDependency> OptionalRequires;
     std::vector<ManifestDependency> Provides;
     std::vector<ManifestConfigField> Config;
+    std::vector<std::string> ProcessStates; // M3/D93：进程级状态的**名字**清单（缺键 = 空集）
 };
 
 // 清单事实 → 加载期期望（D84）：拥有值形、逐字段深拷（D61 借用窗不随迁）；enum default 的

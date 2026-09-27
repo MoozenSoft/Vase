@@ -53,4 +53,40 @@ struct TickEvent
     int Seq;
 };
 
+// M3/D91 的观测量：进程级状态是**跨 Pod 存活**的静态计数，`Loads()` 报它。
+// 证人形 = 「Eject 后再 Adopt，读数回到 1」——没归零的话它会继续累加到 2。
+class IStateProbe
+{
+public:
+    static constexpr std::string_view kName = "Vase.Test.StateProbe";
+    static constexpr std::uint32_t kVersion = 1;
+
+    IStateProbe() = default;
+    IStateProbe(const IStateProbe&) = delete;
+    IStateProbe& operator=(const IStateProbe&) = delete;
+    IStateProbe(IStateProbe&&) = delete;
+    IStateProbe& operator=(IStateProbe&&) = delete;
+    virtual ~IStateProbe() = default;
+
+    [[nodiscard]] virtual int Loads() const = 0;
+};
+
+// 第二只邻居的服务标识（M3/D90）：与 IHeart **必须不同名**——一个 Pod 里两个同键提供方
+// 会被 ServiceRegistry 当场终止（「一服务一实现」）。心跳的驱动事件仍是 TickEvent（订阅无唯一性）。
+class IPulse
+{
+public:
+    static constexpr std::string_view kName = "Vase.Test.Pulse";
+    static constexpr std::uint32_t kVersion = 1;
+
+    IPulse() = default;
+    IPulse(const IPulse&) = delete;
+    IPulse& operator=(const IPulse&) = delete;
+    IPulse(IPulse&&) = delete;
+    IPulse& operator=(IPulse&&) = delete;
+    virtual ~IPulse() = default;
+
+    [[nodiscard]] virtual int Pulses() const = 0;
+};
+
 } // namespace samples_fixture

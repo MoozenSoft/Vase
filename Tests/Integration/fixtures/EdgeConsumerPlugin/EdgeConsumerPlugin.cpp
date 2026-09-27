@@ -8,11 +8,23 @@
 namespace
 {
 
+// M3/D93 的正面材料：本条只为让「清单列名 ↔ 描述符声明」两侧都有东西可比。
+// 装载次数是进程级状态的一个真实形态（它跨 Pod 存活），Reset 归零（§9.1 幂等契约）。
+// 函数包一层 static 而非裸命名空间级变量：同 PluginHost.cpp 的 HostAlive，避 avoid-non-const-global-variables。
+int& EdgeLoads()
+{
+    static int edgeLoads = 0;
+    return edgeLoads;
+}
+
+void ResetEdgeLoads() { EdgeLoads() = 0; }
+
 class EdgeConsumerPlugin final : public vase::Plugin
 {
 public:
     vase::Result<void> OnLoad(vase::Context& ctx) override
     {
+        static_cast<void>(++EdgeLoads());
         // 插件 → 插件：命中即落账（§5.6 规则②）。引用由本实例持有到关停。
         Shared = &ctx.Get<samples_fixture::ISharedService>();
         // 宿主提供方：取得到即成功，但账本不记这条边（ProviderInstance 为空，§5.6）。
@@ -39,4 +51,5 @@ VASE_PLUGIN(EdgeConsumerPlugin){
     .Version = "0.0.1",
     .Requires = {{.Name = "Vase.Test.Shared", .Version = 1}, {.Name = "Vase.Test.HostOnly", .Version = 1}},
     .Provides = {},
+    .ProcessStates = {{.Name = "Vase.Test.EdgeConsumer.Loads", .Reset = &ResetEdgeLoads}},
 };

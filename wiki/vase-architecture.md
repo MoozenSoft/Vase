@@ -1343,7 +1343,7 @@ constexpr vase::ProcessStateDesc kProcessStates[] = {
     {
         .Name     = "Vase.Combat.TypeRegistry",
         .Reset    = &TypeRegistry::Clear,     // 可被强制重置
-        .Describe = &TypeRegistry::Stats,     // 供诊断展示
+        .Describe = &TypeRegistry::Stats,     // 供诊断展示——M3 裁定不做（D92：判据 3d 不要它、无消费方，落地形只有 Name/Reset 两槽，需要时另起一次 bump）
     },
 };
 ```
@@ -1395,6 +1395,8 @@ EffectScope 数          → 0
 - **（v3）`Dispose()` 返回即永不重入**（7.6）。异步残留无法在框架侧穷举检测——join 没 join、cancel 没 cancel，只有插件作者知道
 
 这些是**契约束**，不是机制保证。文档不把它们写成「Vase 保证」，只写成「插件作者必须遵守」。
+
+> **[M3 勘误（2026-09-27，D97）]** 原挂在 M3 名下的「完整属主追踪器」**已核查、结论不做**：真·绕道注册要成立，插件必须拿到 **Pod 自己的 `ScopePool`**——而 `Pod::Pool` 私有、`Context` 不暴露它，插件只有 `ctx.GetScope()`（拿到的是已归位的 Scope 引用）；自己 new 一只 `detail::ScopePool` 造的是**完全游离**的 Scope，Effect 不进任何注册表，不可见也无害。插件侧「绕道注册」**无可达形态**——插件作者侧的三条契约仍不可自动化验证（判据 19 维持原判），关账的核查论证见 spec `docs/superpowers/specs/2026-09-26-vase-m3-multi-plugin-design.md` §4。
 
 ---
 
@@ -1565,11 +1567,11 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | 1 | 反复 create / destroy Pod 无残留 | `Tests/Lifecycle`：建销 N 次后断言全部计数归零 | **是** |
 | 2 | 卸载后二进制真的可释放 | `Tests/Abi`：卸载后以写方式打开文件 | **是** |
 | 3 | 重载后拿到的是新代码而非缓存（8.2 档三） | `Tests/HotSwap`（见 12.1） | **是** |
-| 3a | 局内 Eject / Adopt 不伤及相邻实例（v3 档 ①） | `Tests/HotSwap`：三插件局中对叶做 50 轮 Eject+Adopt，断言其余实例的计数与行为不变 | **是** |
-| 3b | 账本执法：未声明解析被拒；声明未用仍拦 Eject；拒绝报告点名消费者（5.6） | `Tests/Integration` | **是** |
-| 3c | Eject 后不再有回调命中已卸代码（7.6 永不重入） | `Tests/HotSwap`：带 10ms 定时器的插件被 Eject 后再跑 100 个 tick | 是 |
-| 3d | Eject 自动重置登记的进程级状态并写入报告（9.1） | `Tests/HotSwap` | 是 |
-| 3e | Adopt 拒绝导入表含兄弟插件的二进制（8.7） | `Tests/Abi`：伪造导入表的 fixture | 是 |
+| 3a | 局内 Eject / Adopt 不伤及相邻实例（v3 档 ①） | `Tests/HotSwap`：三插件局中对叶做 50 轮 Eject+Adopt，断言其余实例的计数与行为不变——**已落**（M3，D98/D103）：`HotSwap.FiftyRoundsBehaveLikeFirstTime`（叶 `VersionedA` + 邻居 `NeighborB` / `NeighborC` 三插件局；每轮派固定 2 拍、循环内断言两只邻居的累计 `Beats()`——原 5 轮两插件形就地改名扩形，不另立用例） | **是** |
+| 3b | 账本执法：未声明解析被拒；声明未用仍拦 Eject；拒绝报告点名消费者（5.6） | `Tests/Integration`——**已落**（M2a 起，三条腿各自有证人）：凭声明执法 + 解析落账在 `Source/Pod/Context.cpp` 的 `ResolveRaw`，反查与点名消费者在 `PluginHost::EjectPlugin`；`Tests/Integration/LedgerSemanticsTests.cpp`（含未声明解析的 death test）与 `Eject.RefusedWithConsumersNamedInStructuredReport` | **是** |
+| 3c | Eject 后不再有回调命中已卸代码（7.6 永不重入） | `Tests/HotSwap`：带 10ms 定时器的插件被 Eject 后再跑 100 个 tick——**已落**：`HotSwap.NoCallbackFiresIntoEjectedCode` | 是 |
+| 3d | Eject 自动重置登记的进程级状态并写入报告（9.1） | `Tests/HotSwap`——**已落**（M3）：`Eject.ProcessStatesResetMakesReloadLikeFirstTime`（Reset 真跑、再 Adopt 读数回到首次——D91/D99 的正半句）与 `Eject.ProcessStatesKeptWhenOtherPodHoldsLiveInstance`（别局有活实例→不重置、最后一局离场才重置——D91 的反半句与 kept 判读；三条 Eject 分支一概跑 Reset 的口径 D99 在实现里，证人取的是活实例与 kept 两支）。登记机制已进磁盘：`ProcessStateDesc{Name, Reset}` 入 `PluginMeta` 尾槽（`kHeaderVersion` 3→4，D92）、清单顶层 `processStates` 名字数组与描述符按 Name 集双向等值（D93，证人在 `LoadTimeComparison.ProcessStates*`） | 是 |
+| 3e | Adopt 拒绝导入表含兄弟插件的二进制（8.7） | `Tests/Abi`：伪造导入表的 fixture——**已落**：`Abi.AdoptRejectsBinaryThatImportsSiblingPlugin`（规矩 6 的 `-R 'HotSwap\|Eject\|Adopt'` 超集亦把它捎上） | 是 |
 | 4 | 静态预测与运行时装配的分歧**只**出现在「运行时失败」时（4.4） | `Tests/Integration`：同一输入下 `PluginCatalog::Solve` 的计划（本行提议的 `VaseCli plan`，落地实形即此）与实际装配逐项比对；后半句（注入运行时必失败插件、断言分歧**恰好只在那里**）M2b 波 2 落——`LoadTimeComparisonTests` 与 `HotSwap/AdoptManifestTests` 吃 raw 旁路与 mismatch 证人 | **是** |
 | **装配语义** | | | |
 | 5 | `OnStart` 失败时下游被递归拆除，不留半活插件（5.2） | `Tests/Integration`：构造 `A→B→C`，令 B 的 `OnStart` **返回错误**（`OnStart` 返回 `Result<void>`，见 3.1；D17 之后「抛错」不再是可行做法——`try` / `throw` 在 Vase 的编译设置下基本是硬错误，只有 cl.exe 的裸 `throw` 是已知漏网，见根 `CMakeLists.txt`），断言 A、C 均回 `Skipped[运行时]` 且 `EffectScope` 已空 | **是** |
@@ -1595,17 +1597,20 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 
 ### 12.1 `Tests/HotSwap` 是唯一能证伪核心承诺的测试（v3）
 
-预先构建两个版本的 fixture 插件（A 与 A′）与一个无关邻居 B，A′ 中某个服务的返回值与 A 不同：
+预先构建两个版本的 fixture 插件（A 与 A′）与两个无关邻居 B、C，A′ 中某个服务的返回值与 A 不同
+（M3 全量形 = `HotSwap.FiftyRoundsBehaveLikeFirstTime`：原 5 轮两插件形就地改名扩成 50 轮三插件，不另立用例）：
 
 ```text
-构建 A、A′ 与 B
-  → CreatePod{A, B}               ← B 与 A 无依赖关系，故 A 是叶
-  → 断言行为 == A，且 B 的心跳 / 计数正常
-  → EjectPlugin(A)                ← 三档证据：档一、档二在此结算
-  → 用 A′ 覆盖 A 的文件           ← 这一步本身就是「锁真的解了」的断言
-  → AdoptPlugin(A)                ← 档三：内存镜像身份特征必须 == A′ 磁盘特征
-  → 断言行为 == A′（不是 A）
-  → 断言 B 的实例从第一步起从未被碰过   ← v3 新增的最后一条：相邻性是承诺的一部分
+构建 A、A′ 与邻居 B、C
+  → CreatePod{A, B, C}            ← B、C 与 A 无依赖关系，故 A 是叶
+  → 断言行为 == A，且 B / C 的心跳 / 计数正常
+  → 50 轮，每轮：派固定 2 拍，然后
+      EjectPlugin(A)              ← 三档证据：档一、档二每轮在此结算
+      用 A′ 覆盖 A 的文件         ← 这一步本身就是「锁真的解了」的断言
+      AdoptPlugin(A)              ← 档三：内存镜像身份特征必须 == A′ 磁盘特征
+      断言行为随版本翻转（奇偶轮 A / A′ 交替）
+      循环内断言 B / C 的累计拍数恰等于派拍总数   ← v3 的「相邻性是承诺的一部分」在
+                                                    M3 全量形里逐轮都断，不只收尾一次
 ```
 
 它同时覆盖上表的第 1、2、3、3a、3c、3d 条，且**不可能被单元测试替代**——必须有真实的二进制、真实的卸载、真实的文件替换。
@@ -1638,11 +1643,15 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 |---|---|
 | M1 闭环 | + 单插件 Eject / Adopt 全循环，三档判据首次于 **Win / Linux** 跑通（macOS 的 neverUnload 风险面见 8.2，M5 判定）——**热插拔是骨架，不是尾巴** |
 | M2 求解 | + 依赖账本执法与解析记录（3b） |
-| M3 多插件 | + 叶判定的图反查与拒绝报告（3a） |
+| M3 多插件 | + 叶判定的图反查与拒绝报告（3a，全量形 = 三插件局中对叶 50 轮）；+ Eject 自动重置登记的进程级状态并写入报告（3d）。**判据 19 的完整属主追踪器经核查否决（D97，spec §4）**——不新增可达检出情形，M3 行自此只有这两笔 |
 | M4 热替换 | v2「Reload」扩为 HotSwap 全谱：双版本 fixture、三平台档二/档三、语义依赖提示面 |
 | M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外） |
 
 **连带文书义务**：v3 落地（M1 更名）时同步更新 `CLAUDE.md`（目录名、构建命令、ctest 基数预期）；M0/M1 设计文档不改史，挂一条指向本文的勘误标注（涉及其 2.4 判据表与 3.3(4) 的 Linux 判据去向）。
+
+> **[M3 口径勘误（2026-09-26）]** 上表 M3 一格原只写「3a」，**漏了 3d 与完整属主追踪器**。磁盘上已有五处按 M3 归属它们：`Include/Vase/Host/Evidence.h` 的 `ProcessStatesReset`（其注释明文引「12.3 里程碑行」当依据，而那行当时没写它）、`Include/Vase/Effect/EffectScope.h`、`Include/Vase/Pod/Pod.h`、`Tests/TestingSupport/PodTestPeer.h`、`Tests/Lifecycle/DiagnosticAttributionTests.cpp`（后四处指完整属主追踪器）；技能 `references/architecture.md` 同口径。M4（热替换）与 M5（平台收口）容不下这两笔，故补进 M3 行——指针自此解析。（各里程碑**走到哪了**以 `CLAUDE.md` 的「项目状态」为准，本表只记增量。）
+>
+> **[M3 收口注记（2026-09-27）]** 上条的第三项**经核查否决（D97）**——3a 与 3d 已于 M3 落地（证人见 12.1 两行），属主追踪器不建机器（核查论证见 spec `docs/superpowers/specs/2026-09-26-vase-m3-multi-plugin-design.md` §4，结论已写进 §9.3）；上述四处「指完整属主追踪器」的代码注释与技能同口径句随之改准（`Evidence.h` 那一处的 3d 归属随实现落地时即已改），M3 行随之只留两笔。
 
 ---
 
@@ -1695,6 +1704,8 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 
 > **[M2b波2 勘误（2026-09-25, spec `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md` D89/grilling Q3）]** 「照旧」自此**限缩**：忘写 `.Config`（全零）而清单带 `config` 数组时，主链（条目自动带期望，D84）的加载期比对**即拒**——D72 的 key 集双向等值天然覆盖这一格。代价从「配置面板凭空消失」升为「加载被拒」；静默点只活在旁路（手写计划 / `Expected=nullptr`，D68）。
 
+> **[M3 勘误两则（2026-09-27, spec `docs/superpowers/specs/2026-09-26-vase-m3-multi-plugin-design.md` D93/D101）]** **(a)** 进程级状态侧不再静默：清单顶层新增 `processStates` 名字数组，与描述符的 `ProcessStates` 槽按 **Name 集双向等值**比对（D93，正是 D89 对 `.Config` 做法的同构收口）——忘写 `.ProcessStates` 而清单列了名字 ⇒ 主链加载即拒，静默点同样只剩旁路。**（b）新增一条已知残余：比对器漏读新字段无机制可拦。** `CompareDescriptor` 入口的结构化绑定绊线（D101 的落地形——spec 原案「去掉各成员 NSDMI」因期望形全仓零个指定初始化点而被替换，见 plan 偏离登记）守得住「加了字段**没进绑定**」——标识符个数必须等于 `ManifestExpectation` 的非静态数据成员数，少一个即编译错误；比对器注释说「比对那一半因此同样有闸」，其覆盖面正是这个元数闸——**「进了绑定但没接进比对」仍无机制可拦**（未使用的引用绑定标识符在本工具链不报警，实测；注释所在 `Source/Host/Detail/ManifestCompare.cpp`）。构造那一半另有独立响亮：`BuildExpectation` 漏填新字段 ⇒ 期望恒为空集，凡清单列了名字的插件当场被加载期拒。
+
 **插件作者从插件里抛异常。** 宿主以关闭异常的方式编译（0.3 原则 7），而 8.5 明确允许插件由 `cl.exe` 或 `clang-cl` 构建——插件作者若用默认开启异常的编译器构建、并且真的 `throw`，异常会穿过**没有异常支持的栈帧**，是未定义行为，且宿主在加载期无法检测。这条属于 9.3 意义上的**契约束**：只能靠文档约束插件作者，不能靠机制拦截。
 
 （与它相邻的另一条残余风险仍待实测：Linux 侧 libc++ 自身是**带异常**编译的，其内部的抛错路径若被触达，同样会穿过我们关闭异常的栈帧。正向路径已在 M0 实测正常，错误路径的行为留待 M1 实测——见 M0/M1 设计文档。）
@@ -1717,7 +1728,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 - **Pod 嵌套**（2.3）
 - **一个进程多个 `PluginHost`**（1.4）
 - **一个服务标识多个实现**（2.3 第 4 条）
-- **进程级状态在宿主侧的展示形态**——宿主界面怎么画，是宿主的事；9.1 只保证「可被登记、可重置、可描述」
+- **进程级状态在宿主侧的展示形态**——宿主界面怎么画，是宿主的事；9.1 只保证「可被登记、可重置」（`.Describe` 经 M3/D92 裁定不做，「可描述」随之撤出承诺）
 
 ---
 

@@ -1,11 +1,14 @@
 #include "Vase/Host/PluginHost.h"
 
 #include "../Integration/fixtures/SharedCommon.h"
+#include "AdoptExpectations.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/Pod/Context.h"
 #include "Vase/Pod/Pod.h"
+#include "fixtures/BCommon.h"
 
 #include <filesystem>
 #include <gtest/gtest.h>
@@ -197,6 +200,138 @@ TEST(Eject, SameFileUnderTwoIdsKeepsRecordAlive)
     ASSERT_TRUE(second.IsOk()) << second.GetError().Message();
     EXPECT_TRUE(second.Value().BinaryActuallyUnloaded); // 真没人持有了才卸
     EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+// 3d 的行为证人（M3/D91/D99）：钉「登记→报告点名→闸放行」这条账面链。本条是单局全卸，
+// re-Adopt 落在全新镜像上、static 自行归零——Loads()==1 对 state.Reset() 不敏感；
+// 调用点的可证伪证人是下面的 ProcessStatesResetCoexistsWithKeptResidentImage（镜像驻留腿）。
+TEST(Eject, ProcessStatesResetMakesReloadLikeFirstTime)
+{
+    // 期望用 AdoptExpectations 的手写形（raw 计划走 Adopt 需自带期望，T12 单轨）。
+    const vase::ManifestExpectation stateful = testing_support::MakeStatefulExpectation();
+    vase::PluginHost host;
+    const vase::PodHandle h = host.CreatePod(Plan({{"Vase.Stateful", VASE_FIXTURE_STATEFUL}})).Value();
+    vase::Pod* pod = host.Resolve(h);
+    ASSERT_NE(pod, nullptr);
+    EXPECT_EQ(pod->Root().Get<samples_fixture::IStateProbe>().Loads(), 1); // 首次装载
+
+    const vase::Result<vase::EjectReport> ejected = host.EjectPlugin(h, "Vase.Stateful");
+    ASSERT_TRUE(ejected.IsOk());
+    EXPECT_EQ(ejected.Value().Status, vase::EjectStatus::kEjected);
+    ASSERT_EQ(ejected.Value().ProcessStatesReset.size(), 1U);
+    EXPECT_EQ(*ejected.Value().ProcessStatesReset.begin(), "Vase.Test.StateProbe.Loads");
+
+    vase::AdoptRequest request;
+    request.Id = stateful.Id;
+    request.BinaryPath = VASE_FIXTURE_STATEFUL;
+    request.Expected = &stateful;
+    const vase::Result<vase::AdoptReport> adopted = host.AdoptPlugin(h, request);
+    ASSERT_TRUE(adopted.IsOk()) << adopted.GetError().Message();
+    // 「如同首次」（§9.1）——但注意：本条镜像已全卸、重装落在全新镜像上，该读数对
+    // state.Reset() 不敏感（可证伪的调用点证人见 CoexistsWithKeptResidentImage）。
+    EXPECT_EQ(host.Resolve(h)->Root().Get<samples_fixture::IStateProbe>().Loads(), 1);
+    EXPECT_TRUE(host.DestroyPod(h).Clean());
+}
+
+TEST(Eject, ProcessStatesKeptWhenOtherPodHoldsLiveInstance)
+{
+    // D91 的反半句：别局有**活实例** → 不重置（那是别局正在用的共享状态）。
+    vase::PluginHost host;
+    const vase::PodHandle first = host.CreatePod(Plan({{"Vase.Stateful", VASE_FIXTURE_STATEFUL}})).Value();
+    const vase::PodHandle second = host.CreatePod(Plan({{"Vase.Stateful", VASE_FIXTURE_STATEFUL}})).Value();
+    EXPECT_EQ(host.Resolve(second)->Root().Get<samples_fixture::IStateProbe>().Loads(), 2); // 第二局再装一次
+
+    const vase::Result<vase::EjectReport> ejected = host.EjectPlugin(first, "Vase.Stateful");
+    ASSERT_TRUE(ejected.IsOk());
+    EXPECT_TRUE(ejected.Value().ProcessStatesReset.empty()); // 没重置
+    EXPECT_FALSE(ejected.Value().BinaryActuallyUnloaded);    // 镜像留在架上（别局持有）
+    // 别局读数不动：2 → 2（被重置的话这里会是 0）。
+    EXPECT_EQ(host.Resolve(second)->Root().Get<samples_fixture::IStateProbe>().Loads(), 2);
+
+    // 最后一局 Eject → 活实例归零 → 重置。
+    const vase::Result<vase::EjectReport> last = host.EjectPlugin(second, "Vase.Stateful");
+    ASSERT_TRUE(last.IsOk());
+    ASSERT_EQ(last.Value().ProcessStatesReset.size(), 1U);
+    // 不判 Clean：差分基线是**进程级**计数在各局创建时的快照，两局错峰进出后必有一局的
+    // 差分含别局的存量（本仓库既有两局证人 KeptResident/OtherPodFailedRecord 同此不判）。
+    host.DestroyPod(first);
+    host.DestroyPod(second);
+}
+
+TEST(Eject, ProcessStatesResetCoexistsWithKeptResidentImage)
+{
+    // spec §3.4 的合法组合首次被钉死（D91/R-F-2）：别局只剩 Failed 记录 → **不卸货但照重置**，
+    // 且这一位的重置是**可证伪的**——镜像驻留，re-Adopt 走复用分支再跑 OnLoad，删掉
+    // state.Reset() 这里就成 2（上面的单局证人全卸后重装全新镜像，看不见这一位）。
+    vase::PluginHost host;
+    const vase::PodHandle first = host.CreatePod(Plan({{"Vase.Stateful", VASE_FIXTURE_STATEFUL}})).Value();
+    // 第二局同文件喂错 Id：GetPlugin 落空 = 普通加载失败 → 只留 FailedBinaries 指向同一记录。
+    const vase::PodHandle second = host.CreatePod(Plan({{"Vase.StatefulX", VASE_FIXTURE_STATEFUL}})).Value();
+    EXPECT_EQ(host.Resolve(second)->PluginCount(), 0U);
+
+    const vase::Result<vase::EjectReport> ejected = host.EjectPlugin(first, "Vase.Stateful");
+    ASSERT_TRUE(ejected.IsOk()) << ejected.GetError().Message();
+    EXPECT_EQ(ejected.Value().Status, vase::EjectStatus::kEjected);
+    // 并存两半：重置非空（活实例归零，D91）+ 不卸货（别局 Failed 记录指着，§8.1）。
+    ASSERT_EQ(ejected.Value().ProcessStatesReset.size(), 1U);
+    EXPECT_EQ(*ejected.Value().ProcessStatesReset.begin(), "Vase.Test.StateProbe.Loads");
+    EXPECT_FALSE(ejected.Value().BinaryActuallyUnloaded);
+    EXPECT_NE(ejected.Value().HotSwapNote.find("kept resident"), std::string::npos);
+
+    // 镜像还在架上，复用腿重装——这条读数才是 state.Reset() 的证人。
+    const vase::ManifestExpectation stateful = testing_support::MakeStatefulExpectation();
+    vase::AdoptRequest request;
+    request.Id = stateful.Id;
+    request.BinaryPath = VASE_FIXTURE_STATEFUL;
+    request.Expected = &stateful;
+    const vase::Result<vase::AdoptReport> adopted = host.AdoptPlugin(first, request);
+    ASSERT_TRUE(adopted.IsOk()) << adopted.GetError().Message();
+    EXPECT_TRUE(adopted.Value().ReusedResidentImage); // kept-resident 的正面凭证（旧闸下此支全新=false）
+    EXPECT_EQ(host.Resolve(first)->Root().Get<samples_fixture::IStateProbe>().Loads(), 1);
+    host.DestroyPod(first); // 错峰双局差分必含别局存量，Clean 不判（本文件两局证人惯例）
+    host.DestroyPod(second);
+}
+
+TEST(Eject, ProcessStatesResetCoexistsWithKeptResidentShell)
+{
+    // C1 的行为证人（R-F-1）：③ 闸的第三类持有者=级联空壳——不计它，最后一手活实例的 Eject
+    // 会把别局残条目还指着的记录 Unload 成悬垂（D94 起再 Eject 即读它）。造壳：Pod2 的
+    // SharedFailProvider 于 OnStart 失败，同局 EdgeConsumer 被级联拆成空壳（自带 ProcessStates）。
+    vase::PluginHost host;
+    vase::PodOptions options;
+    HostMarker marker;
+    options.Stage0 = [&](vase::Context& root) { root.Provide<samples_fixture::IHostOnlyService>(marker); };
+    const vase::LoadPlan live =
+        Plan({{"Vase.SharedProvider", VASE_FIXTURE_SHAREDPROVIDER}, {"Vase.EdgeConsumer", VASE_FIXTURE_EDGECONSUMER}});
+    const vase::LoadPlan torn = Plan({
+        {"Vase.SharedFailProvider", VASE_FIXTURE_SHAREDFAILPROVIDER},
+        {"Vase.EdgeConsumer", VASE_FIXTURE_EDGECONSUMER},
+    });
+    const vase::PodHandle first = host.CreatePod(live, options).Value();
+    const vase::PodHandle second = host.CreatePod(torn, options).Value();
+    EXPECT_EQ(host.Resolve(second)->PluginCount(), 0U); // EdgeConsumer 此刻是空壳、不在 FailedBinaries
+
+    const vase::Result<vase::EjectReport> ejected = host.EjectPlugin(first, "Vase.EdgeConsumer");
+    ASSERT_TRUE(ejected.IsOk()) << ejected.GetError().Message();
+    EXPECT_TRUE(ejected.Value().CrossPodInstancesZeroed); // 活实例确实归零（Reset 闸口径）
+    // 并存两半：重置非空 + 因空壳计数而不卸货（删去 crossPodShellRefs 这支即红——C1 的反证位）。
+    ASSERT_EQ(ejected.Value().ProcessStatesReset.size(), 1U);
+    EXPECT_EQ(*ejected.Value().ProcessStatesReset.begin(), "Vase.Test.EdgeConsumer.Loads");
+    EXPECT_FALSE(ejected.Value().BinaryActuallyUnloaded);
+    EXPECT_NE(ejected.Value().HotSwapNote.find("kept resident"), std::string::npos);
+
+    // 镜像因此还在架上：re-Adopt 复用旧记录。旧闸下这里已全卸——ReusedResidentImage 成 false。
+    const vase::ManifestExpectation edge = testing_support::MakeEdgeConsumerExpectation();
+    vase::AdoptRequest request;
+    request.Id = edge.Id;
+    request.BinaryPath = VASE_FIXTURE_EDGECONSUMER;
+    request.Expected = &edge;
+    const vase::Result<vase::AdoptReport> adopted = host.AdoptPlugin(first, request);
+    ASSERT_TRUE(adopted.IsOk()) << adopted.GetError().Message();
+    EXPECT_EQ(adopted.Value().Status, vase::AdoptStatus::kAdopted);
+    EXPECT_TRUE(adopted.Value().ReusedResidentImage);
+    host.DestroyPod(first);
+    host.DestroyPod(second);
 }
 
 } // namespace

@@ -8,6 +8,7 @@
 #include "Vase/Host/ManifestExpectation.h"
 #include "Vase/Host/PluginHost.h"
 #include "Vase/Pod/Pod.h"
+#include "fixtures/SharedCommon.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -42,6 +43,23 @@ ManifestExpectation TwoProvidersExpectation()
         ExpectedService{.Name = "Vase.Test.Second", .Version = 2},
     };
     return expected;
+}
+
+// EdgeConsumer 的装载前置（正向臂专用）：Shared 由提供方条目真提供、HostOnly 由宿主 Stage0
+// 给——形态同 LedgerSemanticsTests 的手写两件套，缺任一会被 D27 预检的运行时跳过接走。
+class HostOnlyMarker final : public samples_fixture::IHostOnlyService
+{
+public:
+    [[nodiscard]] int Marker() const override { return 1; }
+};
+
+vase::LoadPlan EdgePlanWithProvider(std::optional<ManifestExpectation> edgeExpected)
+{
+    vase::LoadPlan plan;
+    plan.Ordered.push_back({.Id = "Vase.SharedProvider", .BinaryPath = VASE_FIXTURE_SHAREDPROVIDER});
+    plan.Ordered.push_back(
+        {.Id = "Vase.EdgeConsumer", .BinaryPath = VASE_FIXTURE_EDGECONSUMER, .Expected = std::move(edgeExpected)});
+    return plan;
 }
 
 vase::LoadPlan SingleEntryPlan(std::string_view id, const std::filesystem::path& binaryPath,
@@ -183,6 +201,51 @@ TEST(LoadTimeComparison, ExpectationOmitsServiceRefused)
     ExpectLoadRefused(host, SingleEntryPlan("Vase.Test.TwoProviders", VASE_FIXTURE_TWOPROVIDERS, std::move(expected)),
                       "Vase.Test.TwoProviders",
                       {"manifest/binary mismatch", "provides[Vase.Test.Second v2] missing in manifest"});
+}
+
+TEST(LoadTimeComparison, ProcessStatesExtraInManifestRefused)
+{
+    // 期望列了名字、描述符没有（Hello 未声明进程级状态）→ 拒，点名 processStates[<name>]。
+    vase::PluginHost host;
+    ManifestExpectation expected = MakeHelloExpectation();
+    expected.ProcessStates.emplace_back("Vase.Ghost.Registry");
+    ExpectLoadRefused(host, SingleEntryPlan("Vase.Hello", VASE_FIXTURE_HELLO, std::move(expected)), "Vase.Hello",
+                      {"manifest/binary mismatch", "processStates[Vase.Ghost.Registry] missing in binary"});
+}
+
+TEST(LoadTimeComparison, ProcessStatesEmptyOnBothSidesLoads)
+{
+    // 两侧皆空 = 相等（缺键与空表等价，D93）；这条同时是「新字段不打扰既有插件」的证人。
+    vase::PluginHost host;
+    ExpectLoaded(host, SingleEntryPlan("Vase.Hello", VASE_FIXTURE_HELLO, MakeHelloExpectation()));
+}
+
+TEST(LoadTimeComparison, ProcessStatesMatchLoads)
+{
+    // 正向臂：期望与描述符的 Name 集相等 → 放行并真装载。材料是 EdgeConsumerPlugin（T4 起带进程级状态）。
+    vase::PluginHost host;
+    HostOnlyMarker marker;
+    vase::PodOptions options;
+    options.Stage0 = [&marker](vase::Context& root) { root.Provide<samples_fixture::IHostOnlyService>(marker); };
+    const vase::Result<vase::PodHandle> created =
+        host.CreatePod(EdgePlanWithProvider(testing_support::MakeEdgeConsumerExpectation()), options);
+    ASSERT_TRUE(created.IsOk()) << created.GetError().Message();
+    const vase::Pod* pod = host.Resolve(created.Value());
+    ASSERT_NE(pod, nullptr);
+    EXPECT_EQ(pod->PluginCount(), 2U);
+    EXPECT_TRUE(pod->Failures().empty());
+    EXPECT_TRUE(host.DestroyPod(created.Value()).Clean());
+}
+
+TEST(LoadTimeComparison, ProcessStatesMissingInExpectationRefused)
+{
+    // 反向半句：描述符有、期望没有 → 走 binary-only 臂，钉 "missing in manifest"。
+    vase::PluginHost host;
+    ManifestExpectation expected = testing_support::MakeEdgeConsumerExpectation();
+    expected.ProcessStates.clear();
+    ExpectLoadRefused(host, SingleEntryPlan("Vase.EdgeConsumer", VASE_FIXTURE_EDGECONSUMER, std::move(expected)),
+                      "Vase.EdgeConsumer",
+                      {"manifest/binary mismatch", "processStates[Vase.Test.EdgeConsumer.Loads] missing in manifest"});
 }
 
 } // namespace

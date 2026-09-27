@@ -11,6 +11,10 @@ vase_add_plugin_fixture(VersionedAPrime
 vase_add_plugin_fixture(NeighborB
     SOURCES NeighborB/NeighborB.cpp
     LINK_LIBRARIES VasePod)
+# 第二只无依赖邻居（M3/D90 3a 全量形）：与 B 同局，服务标识另开（Vase.Test.Pulse）。
+vase_add_plugin_fixture(NeighborC
+    SOURCES NeighborC/NeighborC.cpp
+    LINK_LIBRARIES VasePod)
 # 无再入探针（T13 §7.6）：与 B 同局，Eject 它之后由噪声拍证明没有回调落进已卸代码。
 vase_add_plugin_fixture(TimerPlugin
     SOURCES TimerPlugin/TimerPlugin.cpp
@@ -32,3 +36,8 @@ set_target_properties(VersionedAPrime PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageAPrime"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageAPrime"
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stageAPrime")
+
+# 进程级状态探针（M3/D91）：3d 的行为证人。
+vase_add_plugin_fixture(StatefulPlugin
+    SOURCES StatefulPlugin/StatefulPlugin.cpp
+    LINK_LIBRARIES VasePod)

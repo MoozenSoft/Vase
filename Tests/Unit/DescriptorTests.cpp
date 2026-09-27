@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 #include <iterator>
+#include <memory>
 #include <type_traits>
 
 // 探针类放匿名命名空间：tidy 的 misc-use-internal-linkage 要求「只在本 TU 使用的类型」
@@ -16,6 +17,8 @@ namespace
 
 VASE_CONFIG(ProbeConfig, (float, Volume, 2.5F, vase::Meta{.Label = "音量"}));
 
+void ResetProbeState() {} // 幂等、无状态：本条只证槽的装载与指针非空
+
 class DescriptorProbePlugin final : public vase::Plugin
 {
 public:
@@ -25,6 +28,42 @@ public:
         return vase::Result<void>::Ok();
     }
 };
+
+class DescriptorProbeNoStatesPlugin final : public vase::Plugin
+{
+public:
+    vase::Result<void> OnLoad(vase::Context& ctx) override
+    {
+        static_cast<void>(ctx);
+        return vase::Result<void>::Ok();
+    }
+};
+
+// 「既有站点零改动」探针：下面这块**不写** .ProcessStates。不能同 TU 立第二只
+// VASE_PLUGIN——宏体定义 VasePlugin_GetPlugin，两次展开即重定义（一库一插件，§3.1），
+// 故照宏的形态手写 meta 与描述符入口（手写描述符的先例见 StaleHeaderPlugin）。
+vase::Plugin* CreateNoStatesProbe() { return std::make_unique<DescriptorProbeNoStatesPlugin>().release(); }
+void DestroyNoStatesProbe(vase::Plugin* raw) { const std::unique_ptr<vase::Plugin> owning{raw}; }
+
+const vase::PluginMeta kNoStatesMeta{
+    .Id = "Vase.DescriptorProbeNoStates",
+    .DisplayName = "省略进程级状态的探针",
+    .Version = "0.0.1",
+    .Requires = {},
+    .Provides = {},
+};
+
+// NOLINTNEXTLINE(readability-identifier-naming) 名字仿 VASE_PLUGIN 生成物（宏展开位点免检），用例按此名调用
+const vase::PluginDescriptor* VasePluginDesc_DescriptorProbeNoStatesPlugin()
+{
+    static const vase::PluginDescriptor kDesc{
+        .HeaderVersion = vase::kHeaderVersion,
+        .Meta = &kNoStatesMeta,
+        .Create = &CreateNoStatesProbe,
+        .Destroy = &DestroyNoStatesProbe,
+    };
+    return &kDesc;
+}
 } // namespace
 
 VASE_PLUGIN(DescriptorProbePlugin){
@@ -35,6 +74,7 @@ VASE_PLUGIN(DescriptorProbePlugin){
     .OptionalRequires = {{.Name = "Vase.Optional", .Version = 1}},
     .Provides = {{.Name = "Vase.Probe.Service", .Version = 1}},
     .Config = vase::FieldsOf<ProbeConfig>(),
+    .ProcessStates = {{.Name = "Vase.DescriptorProbe.State", .Reset = &ResetProbeState}},
 };
 
 namespace
@@ -44,7 +84,7 @@ TEST(Descriptor, MetaPopulatedThroughBraceBlock)
 {
     const vase::PluginDescriptor* d = VasePluginDesc_DescriptorProbePlugin();
     EXPECT_EQ(d->HeaderVersion, vase::kHeaderVersion);
-    EXPECT_EQ(vase::kHeaderVersion, 3U); // 钉字面值：自比对拦不住常量被误改，而它是 §8.3 的描述符 ABI 闸
+    EXPECT_EQ(vase::kHeaderVersion, 4U); // 钉字面值：自比对拦不住常量被误改，而它是 §8.3 的描述符 ABI 闸
     EXPECT_EQ(d->Meta->Id, "Vase.DescriptorProbe");
     ASSERT_EQ(d->Meta->Requires.Size(), 2U);
     // 迭代器而非 operator[]：非常量下标过不了 cppcoreguidelines-pro-bounds-*（计划「tidy 形态约束」）。
@@ -58,6 +98,19 @@ TEST(Descriptor, MetaPopulatedThroughBraceBlock)
     EXPECT_EQ(d->Meta->Config.StructSize, sizeof(ProbeConfig));
     ASSERT_NE(d->Meta->Config.Fields, nullptr);
     EXPECT_STREQ(d->Meta->Config.Fields->Name, "Volume");
+}
+
+TEST(Descriptor, ProcessStatesSlotPopulatedAndOptional)
+{
+    const vase::PluginDescriptor* d = VasePluginDesc_DescriptorProbePlugin();
+    ASSERT_EQ(d->Meta->ProcessStates.Size(), 1U);
+    EXPECT_EQ(d->Meta->ProcessStates.Begin()->Name, "Vase.DescriptorProbe.State");
+    EXPECT_NE(d->Meta->ProcessStates.Begin()->Reset, nullptr);
+
+    // NSDMI 零改动：省略 .ProcessStates 的站点照常编过，且默认是空表（不是垃圾）。
+    const vase::PluginDescriptor* bare = VasePluginDesc_DescriptorProbeNoStatesPlugin();
+    EXPECT_EQ(bare->Meta->ProcessStates.Size(), 0U);
+    EXPECT_TRUE(bare->Meta->ProcessStates.Empty());
 }
 
 TEST(Descriptor, GetPluginRoutesByIdentity)

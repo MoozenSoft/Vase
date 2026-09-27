@@ -284,6 +284,36 @@ Result<std::vector<ManifestDependency>> ParseDeps(const json& array, std::string
     return Result<std::vector<ManifestDependency>>::Ok(std::move(out));
 }
 
+// M3/D93：进程级状态的名字数组。重名即刻拒——与 choices 的重值/重 label 同例（D80），
+// 而不是留给比对器报「多重集不等」（那是作者拿不到的归因）。
+Result<std::vector<std::string>> ParseProcessStates(const json& array, const std::filesystem::path& file)
+{
+    std::vector<std::string> out;
+    if (!array.is_array())
+    {
+        return Result<std::vector<std::string>>::Err(ManifestError(file, "field \"processStates\" must be an array"));
+    }
+    for (const json& item : array)
+    {
+        if (!item.is_string() || item.get_ref<const std::string&>().empty())
+        {
+            return Result<std::vector<std::string>>::Err(
+                ManifestError(file, "processStates entries must be non-empty strings"));
+        }
+        const auto& name = item.get_ref<const std::string&>();
+        for (const std::string& held : out)
+        {
+            if (held == name)
+            {
+                return Result<std::vector<std::string>>::Err(
+                    ManifestError(file, "processStates: duplicate \"" + name + "\" (D93)"));
+            }
+        }
+        out.push_back(name);
+    }
+    return Result<std::vector<std::string>>::Ok(std::move(out));
+}
+
 Result<std::vector<ManifestConfigField>> ParseConfig(const json& array, const std::filesystem::path& file)
 {
     std::vector<ManifestConfigField> out;
@@ -550,6 +580,7 @@ Result<ManifestEntry> ParseManifestFile(const std::filesystem::path& file, std::
                       "optionalRequires",
                       "provides",
                       "config",
+                      "processStates",
                   },
                   unknownField))
     {
@@ -659,6 +690,15 @@ Result<ManifestEntry> ParseManifestFile(const std::filesystem::path& file, std::
             return Result<ManifestEntry>::Err(parsed.GetError());
         }
         entry.Config = std::move(parsed.Value());
+    }
+    if (const auto array = root.find("processStates"); array != root.end())
+    {
+        auto parsed = ParseProcessStates(*array, file);
+        if (!parsed.IsOk())
+        {
+            return Result<ManifestEntry>::Err(parsed.GetError());
+        }
+        entry.ProcessStates = std::move(parsed.Value());
     }
 
     return Result<ManifestEntry>::Ok(std::move(entry));

@@ -29,12 +29,22 @@ class Plugin;  // 同上：PluginDescriptor 的两个函数指针按名引用它
 // 每次不兼容改动递增；插件作者不需要知道它的存在。
 // 1 → 2（M2a-T3）：PluginMeta 布局变更——新增 OptionalRequires 与 Config 两槽（D26）。
 // 2 → 3（M2b-波2）：FieldInfo 尾追加 Choices/ChoiceCount 两槽（D76）。
-inline constexpr std::uint32_t kHeaderVersion = 3U;
+// 3 → 4（M3）：PluginMeta 尾追加 ProcessStates 一槽（D92）。
+inline constexpr std::uint32_t kHeaderVersion = 4U;
 
 struct ServiceRef
 {
     std::string_view Name;
     std::uint32_t Version = 0;
+};
+
+// §9.1 进程级状态的登记项（M3/D92）：作者侧一行一条。Name 是点名与清单比对的**身份**
+// （D93 多重集等值），Reset 由 Eject 在卸货前按 D91 **直调**——必须幂等（§9.1）且非空（装载不拒 nullptr）。
+// 纯 POD + 函数指针：不放 std::function（跨 DLL 且描述符是只读数据段，M5 的 scan 要读它）。
+struct ProcessStateDesc
+{
+    std::string_view Name;
+    void (*Reset)();
 };
 
 // 作者写的部分：纯数据、可平凡拷贝。三个服务数组各 16 条上限是编译错误，
@@ -51,6 +61,9 @@ struct PluginMeta
     MetaArray<ServiceRef, 16> OptionalRequires{}; // 缺失不跳过（§3.3）；凭声明执法覆盖它（spec 3.4）
     MetaArray<ServiceRef, 16> Provides;
     ConfigInfo Config{}; // .Config = vase::FieldsOf<T>() 显式引用；忘写的静默点照旧（§13.3）
+    // NSDMI `{}` 是刻意的：指定初始化省略豁免的前提，既有站点零改动靠它成立（同 OptionalRequires）。
+    // NOLINTNEXTLINE(readability-redundant-member-init) NSDMI 为刻意，理由见上条注释。
+    MetaArray<ProcessStateDesc, 16> ProcessStates{}; // M3/D92：Eject 时自动 Reset 并写入报告（§9.1）
 };
 
 // 二进制契约：HeaderVersion 必须是**第一个**字段——加载路径先读它再读其余（§3.1）。

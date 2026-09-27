@@ -92,3 +92,9 @@ vase_add_plugin_fixture(DeadProvider2Plugin
 vase_add_plugin_fixture(TwoProvidersPlugin
     SOURCES TwoProvidersPlugin/TwoProvidersPlugin.cpp
     LINK_LIBRARIES VasePod)
+
+# ③ 闸第三类持有者的造壳机器（M3 终审修复 / C1）：OnStart 必败的 Shared 提供方，级联拆出
+# 同局 EdgeConsumer 的空壳。
+vase_add_plugin_fixture(SharedFailProviderPlugin
+    SOURCES SharedFailProviderPlugin/SharedFailProviderPlugin.cpp
+    LINK_LIBRARIES VasePod)

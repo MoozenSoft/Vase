@@ -32,7 +32,8 @@ TEST(DiagnosticAttribution, ResidualScopeIsNamedByOwnerLabel)
     EXPECT_EQ(report.CountersDiff.Effects, 2U);
 
     // 注入 Scope 随 Pod 析构被兜底 Dispose（T3 的析构设计）——计数回基线：
-    // 本探针验「报告机器」，真·跨局泄漏属 M3（PodTestPeer.h 头注已划界）。
+    // 本探针验「报告机器」。插件侧「绕道注册」是 §9.3 契约束、无机制可拦（M3/D97 已核查：
+    // 无可达形态——拿不到 Pod 的 ScopePool；划界见 PodTestPeer.h 头注）。
     EXPECT_EQ(host.ForTestCounters().Effects, 0U);
 }
 

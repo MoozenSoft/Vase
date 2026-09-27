@@ -591,6 +591,11 @@ Result<std::unique_ptr<Pod::LiveInstance>> PluginHost::MakeInstance(Pod& pod, de
     live->Desc = desc;
     live->Binary = &record; // T10：本实例的驻留镜像（全局闸与 Eject 都要它）
 
+    // M3/D92：进程级状态表随装配点登记一次——CreatePod 与 Adopt 两条路径共用 MakeInstance，
+    // 故单点覆盖；config 失败早退也在它之后，失败插件的进程级状态照样登记（D99 要 Eject 时重置它）。
+    record.ProcessStates = desc->Meta->ProcessStates.Begin();
+    record.ProcessStateCount = desc->Meta->ProcessStates.Size();
+
     const ConfigInfo& info = desc->Meta->Config;
     void* store = nullptr;
     if (info.Count > 0)
@@ -814,19 +819,36 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
     }
     else
     {
-        // ①' §5.6 四条补角的「Failed 可被 Eject」：失败插件没有活实例，**必无入边**
-        // （实例早已在 CreatePod 的失败路径上拆净，边随它死），直接进 ②'。
+        // ①' §5.6 四条补角的「Failed 可被 Eject」+ M3/D94 的「空壳亦可」——两者同是**无实例的账目
+        // 残留**（论证见 spec §2.3）。两类的残条目都要摘：否则 Adopt 的 already-in-pod 会判在死条目上；
+        // TeardownInstancesAndRoot 本就 continue 掉 Instance == nullptr，摘除安全。
         const auto failed = pod.FailedBinaries.find(id);
-        if (failed == pod.FailedBinaries.end())
+        const bool shell =
+            std::ranges::any_of(pod.Instances, [pluginId](const std::unique_ptr<Pod::LiveInstance>& entry)
+                                { return entry->Instance == nullptr && entry->OwnerLabel == pluginId; });
+        if (failed != pod.FailedBinaries.end())
+        {
+            binary = failed->second;
+            pod.FailedBinaries.erase(failed);
+            report.HotSwapNote = "failed-record ejected";
+        }
+        else if (shell)
+        {
+            // 空壳的镜像由**残条目**的 Binary 指出（与 Failed 表分开的两条持有路径）。
+            for (const std::unique_ptr<Pod::LiveInstance>& entry : pod.Instances)
+            {
+                if (entry->Instance == nullptr && entry->OwnerLabel == pluginId)
+                {
+                    binary = entry->Binary;
+                    break;
+                }
+            }
+            report.HotSwapNote = "torn shell ejected";
+        }
+        else
         {
             return Result<EjectReport>::Err(Refusal(id, Phase::kEject, "plugin not in pod: " + id));
         }
-        binary = failed->second;
-        // ②' 拆记录与驻留镜像。Instances 里的**残留条目**（OnLoad/OnStart 失败留下的
-        // Instance == nullptr 条目）一并摘掉：Eject 的语义是「本局不再记得这个插件」，
-        // 留一条空壳会让后续 Adopt 的 already-in-pod 判在死条目上。摘除不影响
-        // TeardownInstancesAndRoot——它本来就 continue 掉 Instance == nullptr 的条目。
-        pod.FailedBinaries.erase(failed);
         std::erase_if(pod.Instances, [pluginId](const std::unique_ptr<Pod::LiveInstance>& entry)
                       { return entry->OwnerLabel == pluginId; });
         std::erase_if(pod.FailureRecords,
@@ -834,13 +856,11 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
         report.Status = EjectStatus::kEjected;  // 无实例必无边——RemovedEdges 天然为空
         report.LedgerHadNoIncomingEdges = true; // 无实例必无入边
         report.ScopeEmptied = true;             // 该插件此刻没有任何存活 Scope
-        report.HotSwapNote = "failed-record ejected";
     }
 
-    // ③ 全局闸：镜像「一文件一记录」（Loader 按绝对路径去重），只有**所有 Pod 都不再
-    // 引用这个记录**时才卸货（§8.1）。持有者有两类：活实例（LiveInstance::Binary）与
-    // Failed 记录（FailedBinaries 的值）。只数前者，会让后 Eject 的那局把先失败那局的
-    // 裸指针留成悬垂——「Unload 前所有持有者已摘干」这条不变式得在这里执行。
+    // ③ 全局闸：镜像「一文件一记录」（Loader 按绝对路径去重），只有**所有 Pod 都不再引用**
+    // 这个记录时才卸货（§8.1）。「Unload 前所有持有者已摘干」的不变式在此执行，持有者三类：
+    // 活实例、Failed 记录与空壳残条目（M3/C1；Reset 闸只数活实例——spec §2.3/§3.4 并存案）。
     //
     // 判据是**记录指针相等**，不是 id 相等，这一条承重：两条**不同 Id、同一个库文件**的
     // 计划条目会拿到同一个 BinaryRecord（路径去重；`VasePlugin_GetPlugin` 对不匹配的 id
@@ -850,6 +870,7 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
     // 按记录判，跨局与跨键两个洞一起堵住，且不需要任何额外存储。
     std::size_t crossPodInstances = 0;
     std::size_t crossPodFailedRecords = 0;
+    std::size_t crossPodShellRefs = 0;
     for (const std::unique_ptr<PodSlot>& other : Slots)
     {
         if (!other->Alive || other->Inner == nullptr)
@@ -861,6 +882,10 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
             if (instance->Instance != nullptr && instance->Binary == binary)
             {
                 ++crossPodInstances;
+            }
+            else if (instance->Instance == nullptr && instance->Binary == binary)
+            {
+                ++crossPodShellRefs; // D94 起空壳可被 Eject——它同样读 Binary，不计即悬垂（M3/C1）
             }
         }
         for (const auto& entry : other->Inner->FailedBinaries)
@@ -874,7 +899,20 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
     }
     report.CrossPodInstancesZeroed = crossPodInstances == 0;
 
-    if (crossPodInstances > 0 || crossPodFailedRecords > 0)
+    // M3/D91：条件是每个 Pod 都**无活实例**，与「能不能卸货」同源不同闸——有活实例时**不**重置
+    // （那是别局在用的共享状态，重置即 §9.1 事故）；只剩 Failed/空壳参照时照重置（kept-resident
+    // 也是无人用）。三条分支一律跑与幂等契约（§9.1）的论证见 spec §3.4/D91。
+    if (binary != nullptr && crossPodInstances == 0)
+    {
+        for (std::size_t index = 0; index < binary->ProcessStateCount; ++index)
+        {
+            const ProcessStateDesc& state = *std::next(binary->ProcessStates, static_cast<std::ptrdiff_t>(index));
+            state.Reset();
+            report.ProcessStatesReset.emplace_back(state.Name); // 报告是返回值，必须拥有（借用教训同格）
+        }
+    }
+
+    if (crossPodInstances > 0 || crossPodFailedRecords > 0 || crossPodShellRefs > 0)
     {
         // §8.1：拆的是实例，不是镜像——闸上还有持有者指着它。
         report.BinaryActuallyUnloaded = false;

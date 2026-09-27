@@ -147,9 +147,9 @@ void PrintPodReport(std::ostream& out, const vase::PodReport& report)
     }
 }
 
-// §9.2「每次进出必须有账可查」的演示形态（同 Samples/Embedding/main.cpp 那份）：把报告的每个
-// 判据都打出来。两个 Is… 是**本平台哪个字段有判据力**的声明（§8.2 把这件事写进了结构）——
-// 不打出来，Windows 上那个 mappingRemoved=false 就成了没解释的噪声，本该被读作失败。
+// §9.2「每次进出必须有账可查」的演示形态：打 EjectReport 14 字段中的 8 个——PluginId、档二×5（两个
+// Is… 是 §8.2「哪个字段有判据力」的声明）、processStatesReset 与注记。**不打 6 个**：Status/Consumers
+// 由调用方 CmdEject / CmdSwap 的拒绝支点名并先返；档一×3 与 RemovedEdges 的打印缺口另立一笔（spec §3.5/D100）。
 void PrintEjectReport(std::ostream& out, const vase::EjectReport& report)
 {
     out << "eject " << report.PluginId << " binaryUnloaded=" << BoolText(report.BinaryActuallyUnloaded)
@@ -157,6 +157,16 @@ void PrintEjectReport(std::ostream& out, const vase::EjectReport& report)
         << " reopenWritable=" << BoolText(report.ReopenWritable)
         << " mappingRemovalIsObservable=" << BoolText(report.MappingRemovalIsObservable)
         << " reopenWritableIsMeaningful=" << BoolText(report.ReopenWritableIsMeaningful) << '\n';
+    // M3/D100：进程级状态的每次重置都点名——只在这条非空时打，免得给不声明进程级状态的插件添噪声。
+    if (!report.ProcessStatesReset.empty())
+    {
+        out << "  processStatesReset:";
+        for (const std::string& state : report.ProcessStatesReset)
+        {
+            out << ' ' << state;
+        }
+        out << '\n';
+    }
     if (!report.HotSwapNote.empty())
     {
         out << "  note: " << report.HotSwapNote << '\n';

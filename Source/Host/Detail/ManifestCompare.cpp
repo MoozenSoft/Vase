@@ -225,6 +225,34 @@ void CompareServiceSet(std::string_view label, const ServiceSet& manifestSet, co
     }
 }
 
+// M3/D93：字符串多重集等值（与 CompareServiceSet 同律：排序后归并走查，含条数）。
+void CompareStringSet(std::string_view label, std::vector<std::string> manifestSet, std::vector<std::string> binarySet,
+                      DiffList& diffs)
+{
+    std::ranges::sort(manifestSet);
+    std::ranges::sort(binarySet);
+    auto manifestIt = manifestSet.begin();
+    auto binaryIt = binarySet.begin();
+    while (manifestIt != manifestSet.end() || binaryIt != binarySet.end())
+    {
+        if (binaryIt == binarySet.end() || (manifestIt != manifestSet.end() && *manifestIt < *binaryIt))
+        {
+            AddDiff(diffs, std::string{label} + "[" + *manifestIt + "] missing in binary", "declared", "absent");
+            ++manifestIt;
+        }
+        else if (manifestIt == manifestSet.end() || *binaryIt < *manifestIt)
+        {
+            AddDiff(diffs, std::string{label} + "[" + *binaryIt + "] missing in manifest", "absent", "declared");
+            ++binaryIt;
+        }
+        else
+        {
+            ++manifestIt;
+            ++binaryIt;
+        }
+    }
+}
+
 // nullopt ↔ 描述符侧 Value.Kind==kNone 互为对位（裁定 P-3）；两侧都有值才谈 StorageEquals。
 void CompareBound(DiffList& diffs, std::string_view path, const std::optional<ConfigBlob::Storage>& manifestValue,
                   const Value& binaryValue)
@@ -276,10 +304,10 @@ void CompareField(const ExpectedConfigField& manifestField, const FieldInfo& bin
     }
 }
 
-void CompareConfig(const ManifestExpectation& expected, const PluginMeta& meta, DiffList& diffs)
+void CompareConfig(const std::vector<ExpectedConfigField>& fields, const PluginMeta& meta, DiffList& diffs)
 {
     std::map<std::string_view, const ExpectedConfigField*> manifestFields;
-    for (const ExpectedConfigField& field : expected.Config)
+    for (const ExpectedConfigField& field : fields)
     {
         manifestFields.emplace(field.Key, &field);
     }
@@ -317,29 +345,42 @@ Result<void> CompareDescriptor(const ManifestExpectation& expected, const Plugin
 {
     const PluginMeta& meta = *desc.Meta;
     DiffList diffs;
-    if (expected.Id != meta.Id)
+    // M3/D101 替代：结构化绑定的标识符个数**必须**等于 ManifestExpectation 的非静态数据成员数，
+    // 少一个即硬编译错误——给期望形加字段而忘了比对，这一行当场红。逐个接进下方比对（绑定即被用过），
+    // 比对那一半因此同样有闸。构造那一半不靠它：BuildExpectation 漏填新字段会让期望恒为空集，
+    // 凡清单列了名字的插件当场被加载期拒——响亮。
+    const auto& [id, displayName, version, requiresRefs, optionalRequiresRefs, providesRefs, configFields,
+                 processStates] = expected;
+    if (id != meta.Id)
     {
-        AddDiff(diffs, "id", expected.Id, meta.Id);
+        AddDiff(diffs, "id", id, meta.Id);
     }
-    if (expected.DisplayName != meta.DisplayName)
+    if (displayName != meta.DisplayName)
     {
-        AddDiff(diffs, "displayName", expected.DisplayName, meta.DisplayName);
+        AddDiff(diffs, "displayName", displayName, meta.DisplayName);
     }
-    if (expected.Version != meta.Version)
+    if (version != meta.Version)
     {
-        AddDiff(diffs, "version", expected.Version, meta.Version);
+        AddDiff(diffs, "version", version, meta.Version);
     }
-    CompareServiceSet("requires", ExpectSet(expected.Requires), BinarySet(meta.Requires), diffs);
-    CompareServiceSet("optionalRequires", ExpectSet(expected.OptionalRequires), BinarySet(meta.OptionalRequires),
-                      diffs);
-    CompareServiceSet("provides", ExpectSet(expected.Provides), BinarySet(meta.Provides), diffs);
-    CompareConfig(expected, meta, diffs);
+    CompareServiceSet("requires", ExpectSet(requiresRefs), BinarySet(meta.Requires), diffs);
+    CompareServiceSet("optionalRequires", ExpectSet(optionalRequiresRefs), BinarySet(meta.OptionalRequires), diffs);
+    CompareServiceSet("provides", ExpectSet(providesRefs), BinarySet(meta.Provides), diffs);
+    CompareConfig(configFields, meta, diffs);
+    std::vector<std::string> declaredStates;
+    declaredStates.reserve(meta.ProcessStates.Size());
+    for (std::size_t index = 0; index < meta.ProcessStates.Size(); ++index)
+    {
+        const ProcessStateDesc& state = *std::next(meta.ProcessStates.Begin(), static_cast<std::ptrdiff_t>(index));
+        declaredStates.emplace_back(state.Name);
+    }
+    CompareStringSet("processStates", processStates, std::move(declaredStates), diffs);
     if (diffs.empty())
     {
         return Result<void>::Ok();
     }
     // 首条分歧即拼消息（全收为后续任务留扩展位，消息面 §6 只钉一条）。
-    return Result<void>::Err(Error{"manifest/binary mismatch for \"" + expected.Id + "\": " + diffs.front()});
+    return Result<void>::Err(Error{"manifest/binary mismatch for \"" + id + "\": " + diffs.front()});
 }
 
 } // namespace vase::detail

@@ -43,7 +43,7 @@ const vase::PluginDescriptor kDesc{
     .Create = &CreateStub,
     .Destroy = &DestroyStub,
 };
-// HeaderVersion=2：钉的是上一代——v2 二进制配 v3 宿主；§3.1 的判据是相等性，
+// HeaderVersion=2：钉的是更早一代——v2 二进制配 v4 宿主；§3.1 的判据是相等性，
 // 真实漂移形比 999 占位更响（顺带仍证明这不是「二进制更新就放行」的方向性检查）。
 
 } // namespace

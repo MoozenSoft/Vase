@@ -216,6 +216,6 @@ v2 的卸货发生在四下无人的静默期；**v3 的 Eject 发生在别的�
 
 - **级联热替换 / 强制 Eject（档 ②）**：v3 只放行叶节点。**叶热替换已是核心承诺，级联热替换仍然不做。**
 - **epoch / 全量 HMR / 依赖方原地重绑定（档 ③）**：账本从源头拒绝制造上下线。
-- **配置（`VASE_CONFIG`）与进程级状态（`.ProcessState`）**：`EjectReport::ProcessStatesReset` **M1 恒空**，登记属 M3。
+- **进程级状态登记与 Reset**：M3 已落地——`ProcessStateDesc{Name, Reset}` 进 `PluginMeta` 尾槽（随描述符版本 bump），`EjectPlugin` 按「这份 binary 在任何 Pod 无活实例」口径自动重置并逐条写入 `EjectReport::ProcessStatesReset`（D91/D99）；配置侧（`VASE_CONFIG`）更早已落。**现状以 `CLAUDE.md`「项目状态」一节为准、基数以其「构建与测试」一节为准，此处不复制。**
 - **清单 / Preset / `PluginCatalog` 求解链**：M2b 波 1/2 已落地，不再是本节的「未落地」——M1 的代偿（`PluginHost::KnownBinaries` 路径账）已随波 2 退役：Adopt 单轨，调用方经 `AdoptRequest` 喂期望形与兄弟集，Catalog 的 `AdoptInto` 单点重读清单后交 Host 加载期比对。
 - **移动端**：Android / iOS 上的任何热插拔都不做，档 ① 也不给例外（Apple 平台禁下载代码 dlopen）。

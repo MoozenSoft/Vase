@@ -52,6 +52,7 @@ struct ManifestExpectation
     std::vector<ExpectedService> OptionalRequires = {}; // 序不敏感、含条数（D72）
     std::vector<ExpectedService> Provides = {};
     std::vector<ExpectedConfigField> Config = {}; // key 对齐，双向都数得着（D89 天然覆盖）
+    std::vector<std::string> ProcessStates = {};  // M3/D93：多重集双向等值，序不敏感
 };
 // NOLINTEND(readability-redundant-member-init)
 

@@ -66,6 +66,7 @@ inline vase::ManifestExpectation MakeEdgeConsumerExpectation()
         vase::ExpectedService{.Name = "Vase.Test.Shared", .Version = 1},
         vase::ExpectedService{.Name = "Vase.Test.HostOnly", .Version = 1},
     };
+    expected.ProcessStates = {"Vase.Test.EdgeConsumer.Loads"};
     return expected;
 }
 
@@ -168,6 +169,18 @@ inline vase::ManifestExpectation MakeDeadProviderExpectation()
     expected.DisplayName = "失败提供者探针";
     expected.Version = "0.0.1";
     expected.Provides = {vase::ExpectedService{.Name = "Vase.Test.Dead", .Version = 1}};
+    return expected;
+}
+
+// StatefulPlugin.cpp 逐字抄。
+inline vase::ManifestExpectation MakeStatefulExpectation()
+{
+    vase::ManifestExpectation expected;
+    expected.Id = "Vase.Stateful";
+    expected.DisplayName = "进程级状态探针";
+    expected.Version = "1.0.0";
+    expected.Provides = {vase::ExpectedService{.Name = "Vase.Test.StateProbe", .Version = 1}};
+    expected.ProcessStates = {"Vase.Test.StateProbe.Loads"};
     return expected;
 }
 

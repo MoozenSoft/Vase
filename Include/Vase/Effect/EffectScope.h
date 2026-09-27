@@ -1,8 +1,9 @@
 #pragma once
 
 // Effect 的归属容器（§7.2）：逆序回收、Dispose 幂等、回收后不得再注册（终态）。
-// Label 是 D15 的最小属主标记：诊断归属与 §1.2 断言用字符串指针就够，
-// 完整归属追踪等 M3。（成员不与访问器 OwnerLabel() 撞名——成员叫 Label。）
+// Label 是 D15 的最小属主标记：诊断归属与 §1.2 断言用字符串指针就够；完整归属追踪器不做。
+// §9.3 契约束，无机制可拦（M3/D97 已核查：插件侧「绕道注册」无可达形态——拿不到 Pod 的 ScopePool）。
+// （成员不与访问器 OwnerLabel() 撞名——成员叫 Label。）
 //
 // 构造参数经 std::tuple + std::apply 展开（裸 std::forward<Args>(tup) 带参编不过）；
 // 对象指针由两次 static_cast 求出、不接 placement-new 的返回值——所有权自始至终属于本 Scope。

@@ -124,7 +124,7 @@ PluginHost（进程级，unique_ptr 独占）
 
 后两类是**契约束**（§9.3），不在这里假装由机制保证。宿主侧的防线只有一条纪律：**每次现取、不缓存**。
 
-（M1 落地的形态：`EjectReport` / `PodReport::Residuals` 的残留归属报告机制已立住，完整属主追踪器属 M3。）
+（M1 落地的形态：`EjectReport` / `PodReport::Residuals` 的残留归属报告机制已立住；完整属主追踪器**经核查否决**（M3/D97）——插件侧「绕道注册」无可达形态（拿不到 Pod 的 `ScopePool`），上面几条契约束至今不可机制化。核查论证以 M3 spec（`docs/superpowers/specs/2026-09-26-vase-m3-multi-plugin-design.md`）§4 与 wiki §9.3 为准。）
 
 ---
 

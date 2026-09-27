@@ -218,6 +218,7 @@ ManifestExpectation BuildExpectation(const ManifestEntry& entry)
     {
         expected.Config.push_back(ConvertField(field));
     }
+    expected.ProcessStates = entry.ProcessStates; // M3/D93：清单名字数组逐字进期望（D84 深拷）
     return expected;
 }
 

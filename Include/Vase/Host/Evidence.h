@@ -59,8 +59,8 @@ struct EjectReport
     bool ReopenWritableIsMeaningful = false;
     bool BinaryActuallyUnloaded = false; // false 且无错误 = 其他 Pod 实例仍活，货留在架上（§8.1）
 
-    // §9.1 v3：Eject 自动重置登记的进程级状态。**M1 恒空**——.ProcessState 登记
-    // 属 M3（12.3 里程碑行），字段先立住让报告形状稳定，M3 填实现。
+    // §9.1 v3 / M3-D91：Eject 自动重置登记的进程级状态，逐条点名。**与 BinaryActuallyUnloaded
+    // 可以并存为「非空 + false」**（kept-resident 分支 + 别局只留 Failed 记录）——读侧勿当互斥。
     std::vector<std::string> ProcessStatesReset;
 
     std::string HotSwapNote; // 「failed-record ejected」/「kept resident: other pod holds instances」等

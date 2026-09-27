@@ -70,6 +70,7 @@ public:
     // §5.6 判定流左列：执法拒绝（有消费者）= **Ok + Status=kRejectedConsumers + Consumers 逐条点名**
     // （D21，3b 兑现）；成功拆除 = Ok + Status=kEjected + RemovedEdges。Err 只剩误用：
     // stale handle / not-in-pod——只有后者的子串是契约（回放证人钉它，前者无匹配方）。
+    // M3/D94 起 not-in-pod **只剩「本局无此 Id」一支**：Failed 记录与级联空壳都可被 Eject。
     Result<EjectReport> EjectPlugin(PodHandle handle, std::string_view pluginId);
 
     // §5.6 判定流右列：Adopt——「就地重读清单 → 档三验新 → 声明全绑 / Provides 不碰 → 装配」。

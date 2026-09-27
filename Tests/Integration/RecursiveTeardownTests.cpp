@@ -89,15 +89,22 @@ TEST(RecursiveTeardown, FourMorphologiesTransitiveChainAndTeardownOrder)
     EXPECT_TRUE(host.DestroyPod(h).Clean()); // 空壳与驻留镜像全收干净
 }
 
-TEST(RecursiveTeardown, TornShellRejectsEjectAndAdoptWithoutCrashing)
+TEST(RecursiveTeardown, TornShellCanBeEjectedAndThenReAdopted)
 {
-    // D42：级联空壳（无实例、无入边、镜像在架、不在 FailedBinaries）中途被进出——两边都干净拒绝。
+    // D94（M3 改判）：级联空壳（无实例、无入边、镜像在架、不在 FailedBinaries）**可以**被 Eject——
+    // 它与 Failed 记录同是「无实例的账目残留」，待遇从此一致。Eject 后本局不再记得它，
+    // 故同 Id 可以再入局（此前被 already-in-pod 挡住）。
     vase::PluginHost host;
     const vase::PodHandle h = host.CreatePod(BehindPlan()).Value();
 
     const vase::Result<vase::EjectReport> ejected = host.EjectPlugin(h, "Vase.BehindStrictUnused");
-    ASSERT_FALSE(ejected.IsOk()); // 不许解引用 null，也不许当真能卸
-    EXPECT_NE(ejected.GetError().Message().find("not in pod"), std::string::npos);
+    ASSERT_TRUE(ejected.IsOk()) << ejected.GetError().Message();
+    EXPECT_EQ(ejected.Value().Status, vase::EjectStatus::kEjected);
+    EXPECT_NE(ejected.Value().HotSwapNote.find("torn shell ejected"), std::string::npos);
+    // 空壳无实例 ⇒ 必无入边、必无存活 Scope（三档之档一）。
+    EXPECT_TRUE(ejected.Value().LedgerHadNoIncomingEdges);
+    EXPECT_TRUE(ejected.Value().ScopeEmptied);
+    EXPECT_TRUE(ejected.Value().RemovedEdges.empty());
 
     const vase::ManifestExpectation behind = testing_support::MakeBehindStrictUnusedExpectation();
     vase::AdoptRequest request;
@@ -105,8 +112,12 @@ TEST(RecursiveTeardown, TornShellRejectsEjectAndAdoptWithoutCrashing)
     request.BinaryPath = VASE_FIXTURE_BEHINDSTRICTUNUSED;
     request.Expected = &behind;
     const vase::Result<vase::AdoptReport> adopted = host.AdoptPlugin(h, request);
-    ASSERT_FALSE(adopted.IsOk()); // OwnerLabel 唯一性覆盖空壳：本局还"记得"它
-    EXPECT_NE(adopted.GetError().Message().find("already in pod"), std::string::npos);
+    // 空壳已摘，⓪ 的 already-in-pod 不再命中——这次卡在 ③：它声明的 Vase.Test.Behind
+    // 由 StartFailProvider 提供，而那一局已经失败（本局没有活提供方）。
+    ASSERT_TRUE(adopted.IsOk()) << adopted.GetError().Message();
+    EXPECT_EQ(adopted.Value().Status, vase::AdoptStatus::kRejectedDependencies);
+    ASSERT_EQ(adopted.Value().Missing.size(), 1U);
+    EXPECT_EQ(adopted.Value().Missing.begin()->Service, "Vase.Test.Behind");
 
     EXPECT_TRUE(host.DestroyPod(h).Clean());
 }
