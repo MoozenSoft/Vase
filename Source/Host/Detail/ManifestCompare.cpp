@@ -1,12 +1,15 @@
-#include "ManifestCompare.h"
+// CompareDescriptor 的实现（声明见 Vase/Host/ManifestExpectation.h，M5/D123 起为公开面）。
+// 改动会同时影响加载期与 validate——两条通道共用这一份判据与消息格式器（§4.4）。
+
+#include "Vase/Host/ManifestExpectation.h"
 
 #include "Vase/Config/ConfigInfo.h"
 #include "Vase/Config/FieldInfo.h"
 #include "Vase/Config/Value.h"
+#include "Vase/Detail/Export.h"
 #include "Vase/Detail/MetaArray.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/ConfigBlob.h"
-#include "Vase/Host/ManifestExpectation.h"
 #include "Vase/PluginDescriptor.h"
 
 #include <algorithm>
@@ -338,10 +341,10 @@ void CompareConfig(const std::vector<ExpectedConfigField>& fields, const PluginM
 
 } // namespace
 
-namespace vase::detail
+namespace vase
 {
 
-Result<void> CompareDescriptor(const ManifestExpectation& expected, const PluginDescriptor& desc)
+VASE_HOST_API Result<void> CompareDescriptor(const ManifestExpectation& expected, const PluginDescriptor& desc)
 {
     const PluginMeta& meta = *desc.Meta;
     DiffList diffs;
@@ -383,4 +386,4 @@ Result<void> CompareDescriptor(const ManifestExpectation& expected, const Plugin
     return Result<void>::Err(Error{"manifest/binary mismatch for \"" + id + "\": " + diffs.front()});
 }
 
-} // namespace vase::detail
+} // namespace vase

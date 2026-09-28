@@ -7,6 +7,11 @@
 #include "Vase/Config/Value.h"
 #include "Vase/Detail/Result.h"
 
+#include "Scan.h"
+
+#include "Vase/Host/ManifestExpectation.h"
+#include "Vase/PluginDescriptor.h"
+
 #include "CatalogSandbox.h"
 
 #include <bit>
@@ -15,8 +20,10 @@
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace
 {
@@ -304,6 +311,178 @@ TEST_F(ManifestJson, ProcessStatesDuplicateRefused)
     const auto parsed = vase::ParseManifestFile(file, "ps3");
     ASSERT_FALSE(parsed.IsOk());
     EXPECT_NE(parsed.GetError().Message().find("duplicate"), std::string::npos);
+}
+
+// M5/T5（D122/D134）：序列化面与解析面同源。写→读 round-trip 是键白名单同 TU 的可证伪证人。
+TEST_F(ManifestJson, RoundTripsThroughWriteAndParse)
+{
+    vase::ManifestEntry entry;
+    entry.Id = "Vase.RoundTrip";
+    entry.DisplayName = "往返探针";
+    entry.Version = "1.2.3";
+    entry.Subdirectory = "RoundTrip";
+    entry.Binary = "RoundTripProbe";
+    entry.EnabledByDefault = false; // ← 保真字段：必须原样过一趟
+    entry.Requires = {{.Service = "Vase.Other", .Version = 2}};
+    entry.Provides = {{.Service = "Vase.RoundTrip.Service", .Version = 1}};
+    entry.ProcessStates = {"Vase.RoundTrip.Loads"};
+
+    const testing_support::CatalogSandbox sandbox("write-roundtrip");
+    sandbox.CreateDir("RoundTrip"); // WriteManifestFile 不建目录树（scan 总落进既有子目录），测试自备
+    const std::filesystem::path file = sandbox.Root / "RoundTrip" / "plugin.json";
+    const auto written = vase::WriteManifestFile(file, entry);
+    ASSERT_TRUE(written.IsOk()) << written.GetError().Message();
+
+    const auto parsed = vase::ParseManifestFile(file, "RoundTrip");
+    ASSERT_TRUE(parsed.IsOk()) << parsed.GetError().Message();
+    const vase::ManifestEntry& back = parsed.Value();
+    EXPECT_EQ(back.Id, entry.Id);
+    EXPECT_EQ(back.DisplayName, entry.DisplayName);
+    EXPECT_EQ(back.Version, entry.Version);
+    EXPECT_EQ(back.Binary, entry.Binary);
+    EXPECT_EQ(back.EnabledByDefault, false);
+    ASSERT_EQ(back.Requires.size(), 1U);
+    EXPECT_EQ(back.Requires.begin()->Service, "Vase.Other");
+    EXPECT_EQ(back.Requires.begin()->Version, 2U);
+    ASSERT_EQ(back.Provides.size(), 1U);
+    ASSERT_EQ(back.ProcessStates.size(), 1U);
+    EXPECT_EQ(*back.ProcessStates.begin(), "Vase.RoundTrip.Loads");
+}
+
+// config 序列化支的专属证人：enum default-as-label、choices {value,label}、min/max 条件支
+// 若不各过一次写→读，「同 TU 同源」的断言对这些支就是空的（T5 修复轮 1）。
+TEST_F(ManifestJson, RoundTripsConfigAndEnumThroughWriteAndParse)
+{
+    vase::ManifestEntry entry;
+    entry.Id = "Vase.RoundTrip.Cfg";
+    entry.Binary = "CfgProbe";
+
+    ManifestConfigField count;
+    count.Key = "count";
+    count.Kind = ValueKind::kInt32;
+    count.DefaultBits = static_cast<std::uint64_t>(5U);
+    count.MinBits = static_cast<std::uint64_t>(1U);
+    count.MaxBits = static_cast<std::uint64_t>(10U);
+    count.HasMin = true;
+    count.HasMax = true;
+    count.DisplayName = "数量";
+    entry.Config.push_back(std::move(count));
+
+    ManifestConfigField mood;
+    mood.Key = "mood";
+    mood.Kind = ValueKind::kEnum;
+    mood.DefaultStr = "响亮"; // 中间形：写侧存 label、换算归 Solve（D80）
+    mood.Choices = {{.Value = 0, .Label = "安静"}, {.Value = 1, .Label = "响亮"}};
+    entry.Config.push_back(std::move(mood));
+
+    const testing_support::CatalogSandbox sandbox("write-config-roundtrip");
+    sandbox.CreateDir("Cfg"); // 目录树归调用方备（与另两条写用例同法）
+    const std::filesystem::path file = sandbox.Root / "Cfg" / "plugin.json";
+    const auto written = vase::WriteManifestFile(file, entry);
+    ASSERT_TRUE(written.IsOk()) << written.GetError().Message();
+
+    const auto parsed = vase::ParseManifestFile(file, "Cfg");
+    ASSERT_TRUE(parsed.IsOk()) << parsed.GetError().Message();
+    const vase::ManifestEntry& back = parsed.Value();
+    ASSERT_EQ(back.Config.size(), 2U);
+
+    const ManifestConfigField& backCount = *back.Config.begin();
+    EXPECT_EQ(backCount.Key, "count");
+    EXPECT_EQ(backCount.Kind, ValueKind::kInt32);
+    EXPECT_EQ(backCount.DisplayName, "数量");
+    EXPECT_EQ(backCount.DefaultValue().GetAs<std::int32_t>(), 5);
+    ASSERT_TRUE(backCount.HasMin);
+    ASSERT_TRUE(backCount.HasMax);
+    EXPECT_EQ(backCount.MinValue().GetAs<std::int32_t>(), 1);
+    EXPECT_EQ(backCount.MaxValue().GetAs<std::int32_t>(), 10);
+
+    const ManifestConfigField& backMood = *std::next(back.Config.begin(), 1);
+    EXPECT_EQ(backMood.Key, "mood");
+    EXPECT_EQ(backMood.Kind, ValueKind::kEnum);
+    EXPECT_EQ(backMood.DefaultStr, "响亮");
+    EXPECT_EQ(backMood.DefaultValue().Kind, ValueKind::kString); // 中间形过盘仍是 label 字串，不是数值
+    EXPECT_STREQ(backMood.DefaultValue().GetAs<const char*>(), "响亮");
+    ASSERT_EQ(backMood.Choices.size(), 2U);
+    EXPECT_EQ(backMood.Choices.begin()->Value, 0);
+    EXPECT_EQ(backMood.Choices.begin()->Label, "安静");
+    EXPECT_EQ(std::next(backMood.Choices.begin(), 1)->Value, 1);
+    EXPECT_EQ(std::next(backMood.Choices.begin(), 1)->Label, "响亮");
+}
+
+TEST_F(ManifestJson, WriteLeavesNoTempFileBehind)
+{
+    vase::ManifestEntry entry;
+    entry.Id = "Vase.Temp";
+    entry.DisplayName = "临时文件探针";
+    entry.Binary = "TempProbe";
+
+    const testing_support::CatalogSandbox sandbox("write-atomic");
+    const std::filesystem::path dir = sandbox.Root / "Temp";
+    sandbox.CreateDir("Temp"); // 同上：目录树归调用方备
+    const auto written = vase::WriteManifestFile(dir / "plugin.json", entry);
+    ASSERT_TRUE(written.IsOk()) << written.GetError().Message();
+
+    // 原子写（D134）：盘上只有 plugin.json，没有半个 JSON、也没有 .tmp 残留。
+    EXPECT_TRUE(std::filesystem::exists(dir / "plugin.json"));
+    EXPECT_FALSE(std::filesystem::exists(dir / "plugin.json.tmp"));
+}
+
+// 描述符 → 清单值的投影（M5/D122）：与 BuildExpectation（清单 → 期望）互为反方向的半条链。
+// 三者串起来看：描述符 --投影--> 清单 --BuildExpectation--> 期望，故这条用例同时钉投影的正确性。
+TEST_F(ManifestJson, ProjectsDescriptorMetaIntoManifestEntry)
+{
+    vase::PluginMeta meta;
+    meta.Id = "Vase.Projected";
+    meta.DisplayName = "投影探针";
+    meta.Version = "2.0.0";
+    meta.Requires = {};
+    meta.Provides = {{.Name = "Vase.Projected.Service", .Version = 3}};
+
+    const vase::ManifestEntry entry = tools::cli::ManifestEntryFromMeta(meta, "Projected", "ProjectedProbe");
+    EXPECT_EQ(entry.Id, "Vase.Projected");
+    EXPECT_EQ(entry.DisplayName, "投影探针");
+    EXPECT_EQ(entry.Version, "2.0.0");
+    EXPECT_EQ(entry.Subdirectory, "Projected");
+    EXPECT_EQ(entry.Binary, "ProjectedProbe"); // 观察到的 stem，不是子目录名（D122）
+    EXPECT_TRUE(entry.EnabledByDefault);       // 投影不碰清单独有字段——那是 Task 10 的合并职责
+    ASSERT_EQ(entry.Provides.size(), 1U);
+    EXPECT_EQ(entry.Provides.begin()->Service, "Vase.Projected.Service");
+    EXPECT_EQ(entry.Provides.begin()->Version, 3U);
+
+    // 借用已在投影处物化：meta 就地销毁，entry 仍自持全部字符串（寿命纪律在 §2.2）。
+    meta = vase::PluginMeta{};
+    EXPECT_EQ(entry.Provides.begin()->Service, "Vase.Projected.Service");
+}
+
+// 串链用例读真描述符：DescriptorTests.cpp 的宏入口与本文件同在一个镜像内，前置声明后于本图直调
+// （同图引用不需导出宏；再展第二次不可——定名 extern "C" 入口必撞，约束理由见
+// DescriptorTests.cpp『既有站点零改动』注）。
+
+// NOLINTNEXTLINE(readability-identifier-naming) 名字是另一 TU 宏生成物的定名 extern "C" 符号，无代码级出路
+extern "C" const vase::PluginDescriptor* VasePluginDesc_DescriptorProbePlugin();
+
+TEST_F(ManifestJson, ProjectionAndExpectationAgreeOnARealDescriptor)
+{
+    const vase::PluginDescriptor* desc = VasePluginDesc_DescriptorProbePlugin();
+    const vase::ManifestEntry entry = tools::cli::ManifestEntryFromMeta(*desc->Meta, "Probe", "Probe");
+    const vase::ManifestExpectation expected = vase::BuildExpectation(entry);
+    EXPECT_EQ(expected.Id, "Vase.DescriptorProbe");
+    ASSERT_EQ(expected.Requires.size(), 2U);
+    EXPECT_EQ(expected.Provides.begin()->Name, "Vase.Probe.Service");
+    ASSERT_EQ(expected.Config.size(), 1U);
+    EXPECT_EQ(expected.Config.begin()->Key, "Volume");
+    EXPECT_EQ(expected.Config.begin()->Kind, vase::ValueKind::kFloat);
+    // bugprone-unchecked-optional-access 不认 ASSERT 级 has_value（同 ConfigBlobTests 裁定），
+    // 显式守卫后解引用；ASSERT_NE 兜住「投影丢了 default」这条判据本身。
+    const auto& projectedDefault = expected.Config.begin()->Default;
+    const auto* storage = projectedDefault.has_value() ? &*projectedDefault : nullptr;
+    ASSERT_NE(storage, nullptr);
+    // ProbeConfig 的 Volume 是 float（DescriptorTests.cpp 的 VASE_CONFIG 行），故 Storage 的
+    // variant 实持 float——这一行同时钉「描述符的 Value → Storage 解码」正确；取错 alternative
+    // 在无异常构建下是 abort，不是静默红。
+    EXPECT_FLOAT_EQ(std::get<float>(*storage), 2.5F);
+    ASSERT_EQ(expected.ProcessStates.size(), 1U);
+    EXPECT_EQ(*expected.ProcessStates.begin(), "Vase.DescriptorProbe.State");
 }
 
 } // namespace

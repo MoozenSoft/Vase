@@ -10,7 +10,7 @@ namespace samples
 class IFarewell
 {
 public:
-    static constexpr std::string_view kName = "Vase.Farewell";
+    static constexpr std::string_view kName = "Vase.Dependent.Farewell";
     static constexpr std::uint32_t kVersion = 1;
 
     // 多态接口五特殊成员全处置（与 IGreeter 同因：接口有身份，不拷贝不移动）。

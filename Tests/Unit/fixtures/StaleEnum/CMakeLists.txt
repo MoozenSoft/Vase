@@ -1,0 +1,1 @@
+vase_add_plugin_fixture(StaleEnum SOURCES StaleEnum.cpp LINK_LIBRARIES VasePod)

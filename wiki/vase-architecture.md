@@ -109,6 +109,8 @@ Vase 由三层构成，各层生命周期不同、职责正交。
 
 关键收益：**元数据操作完全不需要触碰二进制。** 二进制是会失败、会崩溃、会锁文件的东西；把它挡在「画界面」和「算依赖」之外，工具链就能做得又快又稳。
 
+> **[M5波1 勘误（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117）]** 上表 `VaseCli` 行「从不加载任何 DLL」**改口径**：`VaseCli scan` 落地的形是**构建期的一次性装载**（`Loader` 载入 → 读描述符 → 立即卸下，即 3.1 勘误所说的「装载读」）。同一行的**论证仍然成立**——校验清单、生成索引、报告依赖这些**元数据操作**不必碰二进制，由**枚举期读 `plugin.json`** 承担（3.4）；装载发生在**工具读描述符的两条腿**上（`scan` 重生成清单、`validate` 逐插件比对——读描述符须镜像驻留，见 3.1 勘误）。装配与运行期不装载的承诺不因工具而破。
+
 ### 1.2 铁律
 
 > **实例级对象不得被进程级对象持有。** 反向（实例级引用进程级）允许。
@@ -280,7 +282,8 @@ struct DamageEvent
 class IDamageSystem
 {
 public:
-    static constexpr std::string_view kName    = "Vase.DamageSystem";
+    // 服务名前缀 = 插件 Id 全量（6.1 命名规范；2026-09-28 勘误 D121 改准）
+    static constexpr std::string_view kName    = "Vase.Combat.DamageSystem";
     static constexpr uint32_t         kVersion = 1;
 
     virtual ~IDamageSystem() = default;
@@ -320,7 +323,7 @@ VASE_PLUGIN(CombatPlugin)
     .DisplayName  = "战斗系统",
     .Version      = "1.2.0",
     .Requires     = { { "Vase.World", 1 } },
-    .Provides     = { { "Vase.DamageSystem", 1 } },
+    .Provides     = { { "Vase.Combat.DamageSystem", 1 } },   // 与上面 kName 同值；前缀=完整 Id（6.1，D121）
     .Config       = vase::FieldsOf<CombatConfig>,   // ← 3.2 定义的配置元信息
     .ProcessState = kProcessStates,                 // ← 9.1 定义的进程级状态表
 };
@@ -407,7 +410,7 @@ public:
 
    **组合库里没有这一项。** N 个插件链进同一个镜像时，N 个同名符号会直接冲突。组合库的入口由 VasePack 生成，见 8.6。
 
-描述符必须是 POD（固定布局、数组加长度、`const char*` 而非 `std::string`），这样 `VaseCli scan` 只要**读数据段**就能拿到全部元信息，**不必执行 DLL 里的任何代码**——连实例化插件都不必。这比「导出一个返回 JSON 的函数」安全得多：扫描一个插件不该执行它的代码。
+描述符必须是 POD（固定布局、数组加长度、`const char*` 而非 `std::string`），这样 `VaseCli scan` **不实例化插件、不注册任何东西、不进 Pod**。这比「导出一个返回 JSON 的函数」安全得多。但「不执行代码」是错的口径——**读描述符需要镜像驻留**：`scan` 的落地形是「装载读」（`Loader` 载入 → 读描述符 → 立即卸下），驻留期间 `DllMain` 与静态构造会跑，这是**明写接受的代价**（M5/D117，2026-09-28 勘误；spec 路径见 1.1 的勘误块）。POD 纪律依然必要——理由不再是「不执行代码」，而是**固定布局、跨 ABI 可读**：`scan` 与 `PluginHost` 读的是同一份内存布局，3.4 的「清单 ↔ 描述符」比对建立在它之上。
 
 > 与对照实现的差别：cordis 的插件是一个运行时**值**（函数／类／对象），声明作为属性挂在它身上直接读；UE5 的模块是 `IMPLEMENT_MODULE` 宏加 `IModuleInterface` 虚函数，元信息另写一份 `.uplugin`。C++ 的 DLL 导出是**符号级**的——导出的是函数地址，不是「一个可以直接调用的东西」，更没法把属性挂在函数上。所以 Vase 必须走「导出描述符」这条路。详见[附录 A](#附录-a与-cordis-的对应与取舍)。
 
@@ -552,8 +555,8 @@ struct CombatConfig
 
     // 我提供的服务
     "provides": [
-        { "service": "Vase.DamageSystem", "version": 1 },
-        { "service": "Vase.AttributeSystem", "version": 1 }
+        { "service": "Vase.Combat.DamageSystem", "version": 1 },
+        { "service": "Vase.Combat.AttributeSystem", "version": 1 }
     ],
 
     // 配置项。宿主据此自动生成界面
@@ -971,7 +974,7 @@ EjectPlugin(pod, T)                        AdoptPlugin(pod, X)
 class IDamageSystem
 {
 public:
-    static constexpr std::string_view kName    = "Vase.DamageSystem";
+    static constexpr std::string_view kName    = "Vase.Combat.DamageSystem";
     static constexpr uint32_t         kVersion = 1;
 
     virtual ~IDamageSystem() = default;
@@ -1006,6 +1009,8 @@ static_assert(HasServiceIdentity<T>,
 **这不是形式主义。** 6.3 规定了「同一服务被两个插件提供 → 求解失败」，而服务名是一个**全局命名空间**——不定前缀约定，两个团队各自声明 `Physics` 就会撞，且只有撞了才知道。等第三方插件进来再改约定的代价，比现在定一条规矩高得多。
 
 宿主自己提供的服务（`ServiceOrigin::kHost`）用宿主自己的前缀，不占用 Vase 的命名空间。
+
+> **[M5波1 勘误（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D120/D121/D132）]** 四点：**(a)** 「与插件 `Id` 自洽」自此定死为**前缀 = 插件 Id 全量**——`validate` 第四项的度量即「描述符每条 `Provides.Name` 以 `<Id>.` 为前缀」，**只覆盖服务**（事件无载体可核，记账不分叉，D120）。**(b)** 3.1 的样例自己违反过这条规则（原写 `Vase.DamageSystem`），随 D121 于 2026-09-28 改准——`Samples/DependentPlugin` 的服务亦同步改名 `Vase.Farewell` → `Vase.Dependent.Farewell`。**(c)** 上句「宿主不占用 Vase 的命名空间」**记账不实现**（D132）：`Vase.` 在本仓库既是框架前缀也是插件 Id 前缀（上面示例的 `Vase.Combat` 即是），机制判不出「占的是谁的」；可核的那一半已实现——**越界子判断**：`--host-provides` 提供的名字不得落在任何插件 `Id.` 之下。**(d)** M5 波末还账（2026-09-28）：同族漏改的两处（3.3 的清单样例、本节上方的 `kName`，两处原写 `Vase.DamageSystem`）一并改准。
 
 ### 6.2 注册与解析
 
@@ -1179,6 +1184,8 @@ Eject 不引入新的回收机器——它只是让 7.1–7.5 那套机器在**�
 ```
 
 这条统一是有意的：它让开发期的「每插件一个 DLL」和发布期的「合并成一个库」在 Vase 侧**没有任何差别**，也让 8.6 的打包工具成为一个纯粹的构建期问题。
+
+> **[M5波1 补注（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D118/风险 5）]** `VASE_PLUGIN` 的宏展开自此多出第四个符号 `VasePlugin_Descriptors`（纯追加、不动布局、不 bump `kHeaderVersion`；组合库由 VasePack 生成同名）。它是**只给工具的枚举面**——`VaseCli scan` 一次读出库内全部描述符；**装载跳仍唯一**，宿主侧一行不改，`PluginHost` 不使用这个入口。「宿主也可以走两条路」不是本节的意思：拦住宿主日后改走枚举面的**没有机制**，那是一条契束（9.3 同类），13.3 同步记账。
 
 ### 8.2 卸载验证：三档证据链（v3）
 
@@ -1516,6 +1523,8 @@ VaseCli doctor                  环境诊断，检查四项：
 
 `scan` 在构建后自动运行（CMake 后置步骤），保证清单与二进制同步。
 
+> **[M5波1 现状注（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D119/D125/D131/D135/D137）]** 本节上方「这些工具一个都还没实现」自此**限缩**：`scan` / `validate` 已落第一波（`Tools/VaseCli/`，内部静态库 `VaseCliCore` + 薄 `main`，argv 手写不接 `ThirdParty/cli`）；`plan` / `doctor` 归后续波次（D119），`VasePack` 仍未实现。**上句「构建后自动运行」本波未接**——CMake 后置步骤单独记账（D125：接线的前置是划清「哪些目录允许自动重生成」，`Tests/Integration/fixtures/manifests/` 下那 6 份刻意手写的两侧样本不能被自动重写）。`validate` 相对提议多一个可重复的 **`--host-provides <name>@<version>`**（D131，喂 `LoadRequest::HostProvided`；`kDisabled` 不算第三项未过）；退出码三档 0/1/2、零个插件的树算用法/环境错（D135）。
+
 ### 11.2 宿主重编译单个插件的流程（v3：全程局不死）
 
 这是 Vase 存在的主要用例。v2 的流程要先拆整局；v3 的叶插件重编译**只动目标插件，其余实例全程存活**：
@@ -1524,6 +1533,7 @@ VaseCli doctor                  环境诊断，检查四项：
 1. EjectPlugin(pod, X)          ← 账本执法（5.6）；档一、档二证据随 EjectReport 交付
 2. 调用宿主的构建系统编译该插件   ← Vase 不负责这一步（用什么构建系统是宿主的自由）
 3. VaseCli scan 重新生成清单     ← CMake 后置步骤自动跑（11.1），保证清单与二进制同步
+                                   【现状：后置步骤未接（D125），此步须手动跑】
 4. AdoptPlugin(pod, X)          ← 清单↔描述符比对（3.4）+ 导入表执法（8.7）+ 档三身份特征验新
 ```
 
@@ -1648,7 +1658,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | M2 求解 | + 依赖账本执法与解析记录（3b） |
 | M3 多插件 | + 叶判定的图反查与拒绝报告（3a，全量形 = 三插件局中对叶 50 轮）；+ Eject 自动重置登记的进程级状态并写入报告（3d）。**判据 19 的完整属主追踪器经核查否决（D97，spec §4）**——不新增可达检出情形，M3 行自此只有这两笔 |
 | M4 热替换 | **已落（Win / Linux，2026-09-27）**：换件谱扩到**描述符维含回退方向**（五步阶梯，每步只差一维；D105/D113）、**Windows 侧档三负例**（换件序列两平台统一为「改名离开+落新字节」；D108）、**语义依赖知情位**（`EjectReport::SemanticDependencyPossible`，如实上报不可知；D110/D115）。**macOS 腿顺延 M5**（与 M0–M3 平台口径一致） |
-| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外） |
+| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外）。**VaseCli `scan` / `validate` 已落（第一波，2026-09-28，spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117–D140）**；平台腿与 `plan` / `doctor` 归后续波次 |
 
 **连带文书义务**：v3 落地（M1 更名）时同步更新 `CLAUDE.md`（目录名、构建命令、ctest 基数预期）；M0/M1 设计文档不改史，挂一条指向本文的勘误标注（涉及其 2.4 判据表与 3.3(4) 的 Linux 判据去向）。
 
@@ -1718,6 +1728,8 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 同一处全局豁免还放弃了**逐类把关**：新增「导出类带 STL 成员」在 cl.exe 线上静默通过，不再需要谁为它显式写一次豁免（旧形态是头文件里的 `#pragma` 区域，`pop` 之后的新类照报）。
 
 **这笔债在 M5 分发（8.6 VasePack）落地时必须还**，二选一：**①** 把豁免随导出目标一起分发（`install(EXPORT)` 的 INTERFACE target 带上 `/wd4251`）——但它只覆盖 CMake 用户，MSBuild / Bazel / ndk-build 构建插件的作者仍拿不到，且依旧是给他们**整个 TU** 免检；**②** 把 STL 成员移出插件面（pimpl），让 C4251 根本不发生——②同时兑现 8.4 列出的启用条件「Vase 需要作为二进制分发给第三方插件作者」。在②之前，§8.5 那条「工具链与 STL 矩阵钉死」的前提只在仓库内成立。
+
+> **[M5波1 补两条（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D118/R1-Q1/风险 5/风险 6）]** **(a) 枚举入口缺失是一处刻意接受的不对称**：`VasePlugin_Descriptors`（8.1 补注）是纯追加的新导出、**不 bump `kHeaderVersion`**——同一个 `HeaderVersion` 下，老二进制**照常加载**（`VasePlugin_GetPlugin` 还在）而工具面**扫不了**。这是「第三类不兼容」（前两类是装不上与判据不符）；失败面已做成响亮——`scan` 点名原因（`binary has no VasePlugin_Descriptors entry (predates the M5 enumeration face)`），**不许**静默返回「零个插件」（R1-Q1）。记在这里是因为不对称本身是真的：看见哪一面由「工具版本 vs 插件构建先后」决定，而对这处不对称**没有任何闸**。**(b) 枚举面是契约不是机制**：`VasePlugin_Descriptors` 只给工具，宿主不得改走它——**没有任何机制阻止**日后宿主去用枚举面，这是 9.3 同类契束，如实记录，不假装有闸。
 
 ### 13.4 明确不做
 

@@ -1,14 +1,18 @@
 #pragma once
 
 // 加载期期望（D67）：清单事实的 Host 面投影片段，由调用方搬运、CreatePod/Adopt 消费，
-// 与描述符的比对判据唯一住 detail::CompareDescriptor（域规则 D72）。不含 SchemaVersion
+// 与描述符的比对判据唯一住 CompareDescriptor（域规则 D72）。不含 SchemaVersion
 // （D74：读取处即闸，描述符侧无对位物）。
 // 拥有与借用（契约）：全树无借用、零借用窗——拥有值形令 LoadPlan 拷贝/移动自包含（D68），
-// Solve 逐条目深拷进 Entry.Expected（D84）。纯数据不过 ABI 界，无导出宏（与 LoadPlan.h 同格）。
+// Solve 逐条目深拷进 Entry.Expected（D84）。纯数据不过 ABI 界，无导出宏（与 LoadPlan.h 同格）；
+// M5/D123 起本头另携带一条公开导出声明——CompareDescriptor（导出宏只挂在它上）。
 // 全成员 NSDMI：指定初始化点省略字段在本工具链是 error（同 LoadPlan.h 的 OptionalRequires 教训）。
 
 #include "Vase/Config/Value.h"
+#include "Vase/Detail/Export.h"
+#include "Vase/Detail/Result.h"
 #include "Vase/Host/ConfigBlob.h"
+#include "Vase/PluginDescriptor.h"
 
 #include <cstdint>
 #include <optional>
@@ -55,5 +59,11 @@ struct ManifestExpectation
     std::vector<std::string> ProcessStates = {};  // M3/D93：多重集双向等值，序不敏感
 };
 // NOLINTEND(readability-redundant-member-init)
+
+// 加载期期望 vs 二进制描述符的**唯一**判据（D72 域规则）与唯一消息格式器（spec §6）。
+// M5/D123 起是公开面：validate 与加载期必须走同一份实现（§4.4），这是唯一能保证的形态。
+// 调用方须保证 desc 已过 HeaderVersion 闸（本函数按完整布局读 desc.Meta）。
+[[nodiscard]] VASE_HOST_API Result<void> CompareDescriptor(const ManifestExpectation& expected,
+                                                           const PluginDescriptor& desc);
 
 } // namespace vase

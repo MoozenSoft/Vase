@@ -18,6 +18,7 @@ add_library(VaseHost SHARED
     PluginHost.cpp
     ConfigBlob.cpp
     Detail/ManifestCompare.cpp
+    Inspect.cpp
     ${VASE_HOST_PLATFORM_SOURCES})
 
 target_include_directories(VaseHost

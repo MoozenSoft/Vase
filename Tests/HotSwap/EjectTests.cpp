@@ -383,4 +383,22 @@ TEST(Eject, SemanticDependencyAbsentWithoutProcessStateReset)
     EXPECT_TRUE(host.DestroyPod(h).Clean());
 }
 
+TEST(Eject, SemanticDependencyPossibleAcrossPods)
+{
+    // M4/D110 的跨 Pod falsifier（M5/D139）：既有三条证人的邻居都在**同一局**里，把
+    // 「进程内任一 Pod」的计数限制到本 Pod 的变异会让它们全绿。邻居放到另一局，才咬得住。
+    vase::PluginHost host;
+    const vase::PodHandle first = host.CreatePod(Plan({{"Vase.Stateful", VASE_FIXTURE_STATEFUL}})).Value();
+    const vase::PodHandle second = host.CreatePod(Plan({{"Vase.NeighborB", VASE_FIXTURE_NEIGHBORB}})).Value();
+
+    const vase::Result<vase::EjectReport> r = host.EjectPlugin(first, "Vase.Stateful");
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    EXPECT_EQ(r.Value().Status, vase::EjectStatus::kEjected);
+    EXPECT_FALSE(r.Value().ProcessStatesReset.empty());
+    EXPECT_TRUE(r.Value().SemanticDependencyPossible); // ← 邻居在另一局，仍须置位
+
+    host.DestroyPod(second); // 错峰双局差分必含别局存量，Clean 不判（本文件两局证人惯例）
+    host.DestroyPod(first);
+}
+
 } // namespace

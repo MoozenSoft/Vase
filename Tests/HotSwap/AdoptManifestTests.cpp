@@ -70,7 +70,9 @@ TEST_F(AdoptManifest, AdoptIntoHappyPath)
     const vase::Result<vase::AdoptReport> adopted = vase::AdoptInto(Catalog, Host, h, "Vase.Hello");
     ASSERT_TRUE(adopted.IsOk()) << adopted.GetError().Message();
     EXPECT_EQ(adopted.Value().Status, vase::AdoptStatus::kAdopted);
-    EXPECT_TRUE(adopted.Value().ManifestVerified); // 清单轨比对跑过且通过（D69 新轨成功态）
+    // 此处曾有 EXPECT_TRUE(ManifestVerified)：恒真——PluginHost.cpp 在成功态那一个分支上置它、
+    // 拒绝态不携报告，故任何拿得到的 AdoptReport 都满足。该字段在下游另有真证人
+    // （VaseConsoleAdoptManifestSyncedAdoptReason 钉 manifestVerified= 的输出文本）。
     EXPECT_TRUE(Host.DestroyPod(h).Clean());
 }
 

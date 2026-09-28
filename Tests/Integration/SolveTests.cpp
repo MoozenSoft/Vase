@@ -3,6 +3,7 @@
 
 #include "Vase/Catalog/PluginCatalog.h"
 
+#include "Vase/Catalog/LibraryFileName.h"
 #include "Vase/Catalog/LoadRequest.h"
 #include "Vase/Catalog/ManifestView.h"
 #include "Vase/Catalog/Preset.h"
@@ -101,17 +102,6 @@ std::string PlanText(const LoadPlan& plan)
     return text;
 }
 
-std::filesystem::path ExpectedBinaryPath(const CatalogSandbox& sandbox, const std::string& dir, const std::string& stem)
-{
-    std::filesystem::path expected = sandbox.Root / dir;
-#ifdef _WIN32
-    expected /= stem + ".dll";
-#else
-    expected /= "lib" + stem + ".so";
-#endif
-    return expected;
-}
-
 SolveOutcome SolveOrDie(PluginCatalog& catalog, const LoadRequest& request)
 {
     auto solved = catalog.Solve(request);
@@ -159,7 +149,8 @@ TEST_F(SolveA, SinglePluginPlanShape)
     const LoadPlanEntry& entry = *outcome.Plan.Ordered.begin();
     EXPECT_EQ(entry.Id, "Vase.Solo");
     EXPECT_EQ(entry.Decision, vase::LoadDecision::kLoad);
-    EXPECT_EQ(entry.BinaryPath, ExpectedBinaryPath(Sandbox, "solo", "solo")); // binary 缺省=子目录名（D54）
+    const std::filesystem::path expected = Sandbox.Root / "solo" / vase::catalog_detail::LibraryFileName("solo");
+    EXPECT_EQ(entry.BinaryPath, expected);                 // binary 缺省=子目录名（D54）
     const auto n = Unwrap(entry.ResolvedConfig.Find("n")); // ⑥ 清单默认值已并入计划（D23 清单侧兑现）
     EXPECT_EQ(n.GetAs<std::int32_t>(), 5);
     EXPECT_TRUE(outcome.Notes.empty());

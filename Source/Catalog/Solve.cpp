@@ -1,5 +1,6 @@
 #include "Vase/Catalog/PluginCatalog.h"
 
+#include "Vase/Catalog/LibraryFileName.h"
 #include "Vase/Catalog/LoadRequest.h"
 #include "Vase/Catalog/ManifestView.h"
 #include "Vase/Config/Value.h"
@@ -10,7 +11,6 @@
 #include "Vase/PluginDescriptor.h"
 
 #include "Detail/ChoiceCoerce.h"
-#include "Detail/LibraryFileName.h"
 
 #include <algorithm>
 #include <array>

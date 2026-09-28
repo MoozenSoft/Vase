@@ -286,5 +286,7 @@ add_subdirectory(Samples/Embedding)
 add_subdirectory(Samples/DependentPlugin)
 add_subdirectory(Samples/FailingPlugin)
 add_subdirectory(Tools/VaseConsole)
+# VaseCli（M5）：必须在 Tests 之前——VaseTests 要链它的 VaseCliCore（同 VaseHost 的既有范式）。
+add_subdirectory(Tools/VaseCli)
 
 add_subdirectory(Tests)

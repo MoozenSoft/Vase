@@ -11,8 +11,11 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <initializer_list>
+#include <ios>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -203,11 +206,21 @@ public:
         , Displaced(Target.string() + ".old")
     {
         std::error_code ec;
-        std::filesystem::remove(Backup, ec);
+        // `.old` 只是换件序列的中转名、不是锚：无条件清。`.orig` 是锚，**只在缺失时创建**。
+        std::filesystem::remove(Displaced, ec);
         ec.clear();
-        std::filesystem::remove(Displaced, ec); // 与 Backup 同理：入口把两个自有临时名都收干净
-        ec.clear();
-        std::filesystem::copy_file(Target, Backup, std::filesystem::copy_options::overwrite_existing, ec);
+        if (std::filesystem::exists(Backup, ec) && !ec)
+        {
+            // 锚还在 = 上一轮中止了（abort 不走析构）：先用它把 Target 还原，否则本轮的兄弟
+            // 用例拿到的是换过的字节。已知代价：中止后若又增量重编过，还原的是旧构建。
+            ec.clear();
+            std::filesystem::copy_file(Backup, Target, std::filesystem::copy_options::overwrite_existing, ec);
+        }
+        else
+        {
+            ec.clear();
+            std::filesystem::copy_file(Target, Backup, std::filesystem::copy_options::overwrite_existing, ec);
+        }
         Armed = !ec;
     }
 
@@ -268,6 +281,79 @@ TEST(Adopt, RenameReplacementCaughtByTierThree)
     EXPECT_NE(r.GetError().Message().find("rebuild"), std::string::npos); // 逃生门写明（§8.2 政策）
     host.DestroyPod(h);
     // 复原由 guard 负责——本行确实不是唯一的复原点。
+}
+
+std::string ReadBytes(const std::filesystem::path& path)
+{
+    std::ifstream in{path, std::ios::binary};
+    return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+}
+
+void WriteBytes(const std::filesystem::path& path, std::string_view bytes)
+{
+    // 只给 binary：ofstream 的 ctor 恒加 out ⇒ 依旧是截断打开；省掉那个 `| trunc`，它在 MSVC STL
+    // 的 openmode 基型下会引 bugprone-signed-bitwise（libc++ 侧不报，同一份源两线不同）。
+    std::ofstream out{path, std::ios::binary};
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+bool FileExists(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    return std::filesystem::exists(path, ec);
+}
+
+// 中止残留的自愈（M5 spec D139 记名的跨域欠账之一）：abort 不走析构 ⇒ 树上留下「`.orig`=原字节、
+// `.old`=换名离开的原字节、Target=换过的字节或干脆缺失」。旧实现把这两份原件都删掉、以换过的
+// Target 为新基线 ⇒ 静默把替换字节立成「LoadProbe」的常态。本用例造出两种残留态钉住先还原再取基线。
+TEST(Adopt, ProbeSwapGuardHealsAbortResidue)
+{
+    const std::filesystem::path probe{VASE_FIXTURE_LOADPROBE};
+    const std::filesystem::path backup{probe.string() + ".orig"};
+    const std::filesystem::path displaced{probe.string() + ".old"};
+    const std::string pristine = ReadBytes(probe);
+    ASSERT_FALSE(pristine.empty());
+
+    const auto leaveResidue = [&](bool replacementWritten)
+    {
+        std::error_code ec;
+        std::filesystem::remove(backup, ec);
+        ec.clear();
+        std::filesystem::remove(displaced, ec);
+        ec.clear();
+        std::filesystem::copy_file(probe, backup, std::filesystem::copy_options::overwrite_existing, ec);
+        EXPECT_FALSE(ec) << ec.message();
+        std::filesystem::rename(probe, displaced, ec);
+        EXPECT_FALSE(ec) << ec.message();
+        if (replacementWritten)
+        {
+            WriteBytes(probe, "aborted mid-swap"); // 换上去的字节：只求与原字节不同
+        }
+    };
+
+    // 守卫跑完先读回结果、**再**把树放回原样——本用例的失败模式就是脏树，不能拿它当副产物。
+    const auto healAndCollect = [&]
+    {
+        {
+            const ProbeSwapGuard guard{probe};
+            EXPECT_TRUE(guard.IsArmed());
+        }
+        const std::string after = ReadBytes(probe);
+        WriteBytes(probe, pristine);
+        return after;
+    };
+
+    // 形状一：中止于落新字节之后（Target = 替换字节）——旧实现把这批字节静默立成新基线。
+    leaveResidue(true);
+    EXPECT_EQ(healAndCollect(), pristine);
+    EXPECT_FALSE(FileExists(backup));
+    EXPECT_FALSE(FileExists(displaced));
+
+    // 形状二：中止于换名之后、落新字节之前（Target 缺失）——旧实现连守卫都不上膛，树永久缺件。
+    leaveResidue(false);
+    EXPECT_EQ(healAndCollect(), pristine);
+    EXPECT_FALSE(FileExists(backup));
+    EXPECT_FALSE(FileExists(displaced));
 }
 
 TEST(Adopt, MissingIdentityFeatureRejectedWithPointer)

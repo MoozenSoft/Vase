@@ -21,3 +21,9 @@ target_compile_definitions(VaseEmbedding PRIVATE
 # 判据 #1 的 CI 化：连跑 20 局，全 Clean 才退 0。
 # COMMAND 写 target 名时 CMake 换成产物完整路径；DLL 由可执行文件同目录（bin/）找到。
 add_test(NAME EmbeddingLoop20 COMMAND VaseEmbedding loop 20)
+
+# 前端字段集的机器守卫（M5 波末记账那笔）：这份打印此前**零 ctest 消费**——`loop 20` 不经过
+# PrintEjectReport，清空那个函数体也全绿。值按平台变（§8.2），故只钉字段名序列；rc=0 一并承重。
+add_test(NAME EmbeddingSwapDemo COMMAND VaseEmbedding swapdemo)
+set_tests_properties(EmbeddingSwapDemo PROPERTIES
+    PASS_REGULAR_EXPRESSION "eject Vase.Hello binaryUnloaded=[a-z]+ mappingRemoved=[a-z]+ reopenWritable=[a-z]+ mappingRemovalIsObservable=[a-z]+ reopenWritableIsMeaningful=[a-z]+")

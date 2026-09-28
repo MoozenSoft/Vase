@@ -34,9 +34,9 @@ private:
 
 } // namespace
 
-// 匿名命名空间必须在 VASE_PLUGIN **之前**闭上：后者生成的 VasePlugin_GetPlugin 是
-// extern "C" 且带 VASE_EXPORT，包进匿名命名空间会变成内部链接——宿主的
-// GetProcAddress / dlsym 再也找不到那个符号。
+// 匿名命名空间在 VASE_PLUGIN 之前闭上（全仓统一位形），但这与链接性无关：
+// 宏的 extern "C" 导出即使包在其内也不会变内部链接——C 语言链接赢（链接实测），
+// 宿主的 GetProcAddress / dlsym 两种写法都照样找得到它。
 VASE_PLUGIN(TimerPlugin){
     .Id = "Vase.Timer",
     .DisplayName = "定时器探针",

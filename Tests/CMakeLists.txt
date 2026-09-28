@@ -12,8 +12,10 @@ add_executable(VaseTests
     Unit/ConfigBlobTests.cpp
     Unit/ConfigMacroTests.cpp
     Unit/LoaderTests.cpp
+    Unit/InspectTests.cpp
     Unit/RegistryBusTests.cpp
     Unit/LedgerTests.cpp
+    Unit/LibraryFileNameTests.cpp
     Lifecycle/LifecycleTests.cpp
     Lifecycle/DiagnosticAttributionTests.cpp
     Lifecycle/MultiPluginCycleTests.cpp
@@ -25,6 +27,8 @@ add_executable(VaseTests
     Integration/ConfigApplyTests.cpp
     Integration/CatalogScanTests.cpp
     Integration/SolveTests.cpp
+    Integration/VaseCliScanTests.cpp
+    Integration/VaseCliValidateTests.cpp
     Integration/AssemblyFromSolveTests.cpp
     Integration/LoadTimeComparisonTests.cpp
     HotSwap/EjectTests.cpp
@@ -37,6 +41,8 @@ add_executable(VaseTests
 
 # Loader 端到端断言要真实插件二进制：两个 target 同源码不同输出名。
 add_subdirectory(Unit/fixtures/LoadProbe)
+add_subdirectory(Unit/fixtures/NoEnumeration)
+add_subdirectory(Unit/fixtures/StaleEnum)
 
 # 失败语义 fixture（T8）：四个独立插件二进制。
 add_subdirectory(Integration/fixtures)
@@ -51,6 +57,7 @@ target_link_libraries(VaseTests
     PRIVATE VaseBuildOptions
             VaseHost
             VaseCatalog
+            VaseCliCore
             GTest::gtest_main)
 
 # PodTestPeer.h 住在这里，测试文件以 `#include "PodTestPeer.h"` 取它。
@@ -120,6 +127,9 @@ else()
 endif()
 target_compile_definitions(VaseTests PRIVATE
     VASE_FIXTURE_NOIDENTITY="$<PATH:CMAKE_PATH,$<TARGET_FILE:NoIdentityPlugin>>")
+target_compile_definitions(VaseTests PRIVATE
+    VASE_FIXTURE_NOENUMERATION="$<PATH:CMAKE_PATH,$<TARGET_FILE:NoEnumeration>>"
+    VASE_FIXTURE_STALEENUM="$<PATH:CMAKE_PATH,$<TARGET_FILE:StaleEnum>>")
 
 # gtest 头文件在本仓库看到的异常配置，与预编译的 gtest DLL **不一致**（实测两边）：
 #

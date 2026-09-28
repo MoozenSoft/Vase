@@ -152,6 +152,12 @@ void PrintPodReport(std::ostream& out, const vase::PodReport& report)
 // 调用方 CmdEject / CmdSwap 的拒绝支先返；档一×3 与 RemovedEdges 另立一笔（spec §3.5/D100）。
 void PrintEjectReport(std::ostream& out, const vase::EjectReport& report)
 {
+    // 字段数绊线（M3/D101 同例）：标识符个数必须等于 EjectReport 的成员数——加字段即本行硬编译
+    // 失败，逼作者回来决定打不打，并改准上面「15 字段中的 9 个」那份清单。
+    [[maybe_unused]] const auto& [pluginId, status, consumers, removedEdges, ledgerHadNoIncomingEdges, scopeEmptied,
+                                  crossPodInstancesZeroed, mappingRemoved, reopenWritable, mappingRemovalIsObservable,
+                                  reopenWritableIsMeaningful, binaryActuallyUnloaded, processStatesReset,
+                                  semanticDependencyPossible, hotSwapNote] = report;
     out << "eject " << report.PluginId << " binaryUnloaded=" << BoolText(report.BinaryActuallyUnloaded)
         << " mappingRemoved=" << BoolText(report.MappingRemoved)
         << " reopenWritable=" << BoolText(report.ReopenWritable)

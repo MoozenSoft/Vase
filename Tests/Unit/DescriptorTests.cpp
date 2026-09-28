@@ -4,6 +4,7 @@
 #include "Vase/Detail/Result.h"
 #include "Vase/PluginDescriptor.h"
 
+#include <cstdint>
 #include <gtest/gtest.h>
 #include <iterator>
 #include <memory>
@@ -39,9 +40,9 @@ public:
     }
 };
 
-// 「既有站点零改动」探针：下面这块**不写** .ProcessStates。不能同 TU 立第二只
-// VASE_PLUGIN——宏体定义 VasePlugin_GetPlugin，两次展开即重定义（一库一插件，§3.1），
-// 故照宏的形态手写 meta 与描述符入口（手写描述符的先例见 StaleHeaderPlugin）。
+// 「既有站点零改动」探针：下面这块**不写** .ProcessStates。同一**链接像**内不能再展第二只
+// VASE_PLUGIN——宏体的定名 extern "C" 入口必撞名（同 TU 两展即重定义，跨 TU 是 duplicate symbol，
+// M5-T9 实测），一库一插件的约束原本就按像计（§3.1）。故手写 meta 与描述符入口（先例见 StaleHeaderPlugin）。
 vase::Plugin* CreateNoStatesProbe() { return std::make_unique<DescriptorProbeNoStatesPlugin>().release(); }
 void DestroyNoStatesProbe(vase::Plugin* raw) { const std::unique_ptr<vase::Plugin> owning{raw}; }
 
@@ -119,6 +120,15 @@ TEST(Descriptor, GetPluginRoutesByIdentity)
     EXPECT_EQ(d, VasePluginDesc_DescriptorProbePlugin());
     EXPECT_EQ(VasePlugin_GetPlugin("Vase.Nope"), nullptr); // §12 判据 #12 之外的路由正确性
     EXPECT_EQ(VasePlugin_GetPlugin(nullptr), nullptr);     // 入口的 null 守卫（VASE_PLUGIN 宏体）
+}
+
+TEST(Descriptor, EnumerationEntryReturnsExactlyTheOneDescriptor)
+{
+    std::uint32_t count = 0;
+    const vase::PluginDescriptor* const* all = VasePlugin_Descriptors(&count);
+    ASSERT_NE(all, nullptr);
+    EXPECT_EQ(count, 1U); // 一个库一个插件（§3.1）：本宏恒 1 条，组合库由 VasePack 生成（§8.6）
+    EXPECT_EQ(*all, VasePluginDesc_DescriptorProbePlugin());
 }
 
 TEST(Descriptor, CreateDestroyRoundTrips)

@@ -1,0 +1,1 @@
+vase_add_plugin_fixture(NoEnumeration SOURCES NoEnumeration.cpp LINK_LIBRARIES VasePod)

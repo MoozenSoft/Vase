@@ -388,8 +388,8 @@ add_test(NAME VaseConsoleBehaviour
 add_test(NAME VaseConsoleBehaviourReason
          COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/behaviour.txt")
 # 兄弟用例 2：钉 PrintEjectReport 真的跑过并打出了字段集（此前 eject 只被退出码覆盖，
-# 清空那个函数体也全绿）。钉的是平台中立的那一段——两个 Is… 声明字段按平台变（§8.2），钉不得。
-# 同样只看正则、无视退出码。
+# 清空那个函数体也全绿）。钉整行的**字段名序列**、值一律 [a-z]+——两个 Is… 声明字段的取值
+# 按平台变（§8.2），钉不得。同样只看正则、无视退出码。
 add_test(NAME VaseConsoleBehaviourEjectReason
          COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/behaviour.txt")
 # 兄弟用例 3 / 4：钉命令各自的输出行——清空对应函数体也全绿的那类缺口就靠它们封。
@@ -406,7 +406,7 @@ set_tests_properties(VaseConsoleBehaviour VaseConsoleBehaviourReason VaseConsole
 set_tests_properties(VaseConsoleBehaviourReason PROPERTIES
     PASS_REGULAR_EXPRESSION "no provider")
 set_tests_properties(VaseConsoleBehaviourEjectReason PROPERTIES
-    PASS_REGULAR_EXPRESSION "eject Vase.Hello binaryUnloaded=")
+    PASS_REGULAR_EXPRESSION "eject Vase.Hello binaryUnloaded=[a-z]+ mappingRemoved=[a-z]+ reopenWritable=[a-z]+ mappingRemovalIsObservable=[a-z]+ reopenWritableIsMeaningful=[a-z]+")
 set_tests_properties(VaseConsoleBehaviourPluginsReason PROPERTIES
     PASS_REGULAR_EXPRESSION "plugins live=1")
 set_tests_properties(VaseConsoleBehaviourEmitReason PROPERTIES

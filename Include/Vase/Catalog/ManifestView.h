@@ -3,11 +3,13 @@
 // 快照与诊断的只读形状（spec §3/§6）。字符串全自持；字符串型配置值不存借用的
 // const char*，由访问器按需物化——与 D61 拆掉的 SSO 雷同源：短串搬进容器再搬家即悬垂。
 
+#include "Vase/Config/FieldInfo.h"
 #include "Vase/Config/Value.h"
 #include "Vase/Detail/Export.h"
 #include "Vase/Host/LoadPlan.h"
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -99,5 +101,15 @@ struct ManifestEntry
 // 清单事实 → 加载期期望（D84）：拥有值形、逐字段深拷（D61 借用窗不随迁）；enum default 的
 // label→value 换算在此收口（「期望形只存 value 形」，D80）。定义在 Source/Catalog/PluginCatalog.cpp。
 VASE_CATALOG_API ManifestExpectation BuildExpectation(const ManifestEntry& entry);
+
+// 描述符字段 → 清单字段（M5/D122）：BuildExpectation 的反方向。enum 的 default 在清单侧存
+// **label**（D80），故此处走 value → label；标签查不到 = 描述符自相矛盾（D80 的 CHECK 点挡在前面），
+// 走 ProgrammerError 与 BuildExpectation 同形。
+VASE_CATALOG_API ManifestConfigField MakeManifestConfigField(const FieldInfo& field);
+
+// 清单序列化（M5/D122/D134）：scan 的落盘口。**原子写**（临时文件 + rename 覆盖）——
+// 盘上任何时刻不出现半个 JSON，而那份 JSON 正是加载期要读的权威副本。
+// 写出的键必须全部落在 ParseManifestFile 的白名单内；两份清单同 TU，round-trip 用例守同源。
+VASE_CATALOG_API Result<void> WriteManifestFile(const std::filesystem::path& file, const ManifestEntry& entry);
 
 } // namespace vase

@@ -1,4 +1,4 @@
-// plugin.json 解析（spec §4，D48/D49/D64）。nlohmann 只在本文件现身（D55）；
+// plugin.json 解析与序列化（spec §4，D48/D49/D64；写面 M5/T5，D122/D134）。nlohmann 只在本文件现身（D55）；
 // JSON_NOEXCEPTION 下 get<T>() 错型即 abort，故取任何类型值之前先 is_*() 检查。
 
 #include "Vase/Catalog/PluginCatalog.h"
@@ -22,6 +22,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -231,6 +232,114 @@ bool OnlyKeys(const json& object, const std::initializer_list<std::string_view>&
         }
     }
     return true;
+}
+
+// ===== 序列化侧（M5/T5，D122/D134）：写出的键与上面白名单同源，改一处必查另一处 =====
+
+// ValueKind → 清单类型名（与上面解析侧的七支逐字对应：改一处必改另一处，round-trip 用例守）。
+std::string_view KindName(ValueKind kind)
+{
+    if (kind == ValueKind::kBool)
+    {
+        return "bool";
+    }
+    if (kind == ValueKind::kInt32)
+    {
+        return "int32";
+    }
+    if (kind == ValueKind::kInt64)
+    {
+        return "int64";
+    }
+    if (kind == ValueKind::kFloat)
+    {
+        return "float";
+    }
+    if (kind == ValueKind::kDouble)
+    {
+        return "double";
+    }
+    if (kind == ValueKind::kString)
+    {
+        return "string";
+    }
+    return "enum";
+}
+
+json ValueToJson(const Value& value)
+{
+    switch (value.Kind)
+    {
+    case ValueKind::kBool:
+        return value.GetAs<bool>();
+    case ValueKind::kInt32:
+    case ValueKind::kEnum: // enum 的 min/max 是数值；default 另走 label 支（D80）
+        return value.GetAs<std::int32_t>();
+    case ValueKind::kInt64:
+        return value.GetAs<std::int64_t>();
+    case ValueKind::kFloat:
+        return value.GetAs<float>();
+    case ValueKind::kDouble:
+        return value.GetAs<double>();
+    case ValueKind::kString:
+    {
+        const char* text = value.GetAs<const char*>();
+        return text == nullptr ? json("") : json(std::string(text));
+    }
+    case ValueKind::kNone:
+        break;
+    }
+    return {}; // kNone 不进清单：调用方只在有值时调本函数
+}
+
+// 键一律 emplace 进新建 object()（非 operator[] 赋值）：pro-bounds 一族按本仓库 tidy 口径改写法，
+// 键皆新且唯一 ⇒ 与 upsert 语义逐位相同；object_t 是 std::map，dump 键序两条路都是字典序。
+json FieldToJson(const ManifestConfigField& field)
+{
+    json item = json::object();
+    item.emplace("key", field.Key);
+    item.emplace("type", std::string(KindName(field.Kind)));
+    if (!field.DisplayName.empty())
+    {
+        item.emplace("displayName", field.DisplayName);
+    }
+    if (field.Kind == ValueKind::kEnum)
+    {
+        item.emplace("default", field.DefaultStr); // D80：enum 中间形存 label，不是 value
+        json choices = json::array();
+        for (const ManifestChoice& choice : field.Choices)
+        {
+            choices.push_back(json{{"value", choice.Value}, {"label", choice.Label}});
+        }
+        item.emplace("choices", std::move(choices));
+    }
+    else
+    {
+        const Value def = field.DefaultValue();
+        if (def.Kind != ValueKind::kNone)
+        {
+            item.emplace("default", ValueToJson(def));
+        }
+    }
+    if (field.HasMin)
+    {
+        item.emplace("min", ValueToJson(field.MinValue()));
+    }
+    if (field.HasMax)
+    {
+        item.emplace("max", ValueToJson(field.MaxValue()));
+    }
+    return item;
+}
+
+json DepsToJson(const std::vector<ManifestDependency>& deps)
+{
+    json array = json::array();
+    for (const ManifestDependency& dep : deps)
+    {
+        array.push_back(json{{"service", dep.Service}, {"version", dep.Version}});
+    }
+    return array;
 }
 
 Result<std::vector<ManifestDependency>> ParseDeps(const json& array, std::string_view fieldName,
@@ -702,6 +811,76 @@ Result<ManifestEntry> ParseManifestFile(const std::filesystem::path& file, std::
     }
 
     return Result<ManifestEntry>::Ok(std::move(entry));
+}
+
+Result<void> WriteManifestFile(const std::filesystem::path& file, const ManifestEntry& entry)
+{
+    // 键写一律 emplace 进新建 object()，与 FieldToJson 处同机制。
+    json root = json::object();
+    root.emplace("schemaVersion", 1); // 格式常量，恒 1（D122）：它的语义是「这份清单的格式版本」，由写者决定
+    root.emplace("id", entry.Id);
+    root.emplace("displayName", entry.DisplayName);
+    if (!entry.Version.empty())
+    {
+        root.emplace("version", entry.Version);
+    }
+    root.emplace("binary", entry.Binary); // 观察事实（D122）：缺失会让加载期按子目录名猜，故总是显式写
+    if (!entry.EnabledByDefault)
+    {
+        root.emplace("enabledByDefault", false); // 只在 false 时写：缺键 ≡ true，输出因此稳定可重复跑
+    }
+    if (!entry.Requires.empty())
+    {
+        root.emplace("requires", DepsToJson(entry.Requires));
+    }
+    if (!entry.OptionalRequires.empty())
+    {
+        root.emplace("optionalRequires", DepsToJson(entry.OptionalRequires));
+    }
+    if (!entry.Provides.empty())
+    {
+        root.emplace("provides", DepsToJson(entry.Provides));
+    }
+    if (!entry.Config.empty())
+    {
+        json fields = json::array();
+        for (const ManifestConfigField& field : entry.Config)
+        {
+            fields.push_back(FieldToJson(field));
+        }
+        root.emplace("config", std::move(fields));
+    }
+    if (!entry.ProcessStates.empty())
+    {
+        root.emplace("processStates", entry.ProcessStates);
+    }
+
+    // 原子写（D134）：先落临时文件、再 rename 覆盖。两侧 rename 都是覆盖语义。
+    const std::filesystem::path temp = std::filesystem::path(file.string() + ".tmp");
+    {
+        std::ofstream out(temp, std::ios::binary);
+        if (!out)
+        {
+            return Result<void>::Err(ManifestError(temp, "cannot open for writing"));
+        }
+        out << root.dump(2) << '\n';
+        out.flush(); // 失败检查前置到 flush：小清单时真正的 fd 写发生在析构 flush，不先 flush 则下面的检查失明
+        if (!out)
+        {
+            std::error_code ignored;
+            std::filesystem::remove(temp, ignored); // flush 失败与写失败同路：清临时文件，绝不 rename 半份
+            return Result<void>::Err(ManifestError(temp, "write failed"));
+        }
+    }
+    std::error_code ec;
+    std::filesystem::rename(temp, file, ec);
+    if (ec)
+    {
+        std::error_code ignored;
+        std::filesystem::remove(temp, ignored); // 尽力清理，不留半个临时文件
+        return Result<void>::Err(ManifestError(file, "rename failed: " + ec.message()));
+    }
+    return Result<void>::Ok();
 }
 
 } // namespace vase

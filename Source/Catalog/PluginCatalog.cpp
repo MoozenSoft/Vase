@@ -1,7 +1,9 @@
 #include "Vase/Catalog/PluginCatalog.h"
 
 #include "Vase/Catalog/CatalogAdopt.h"
+#include "Vase/Catalog/LibraryFileName.h"
 #include "Vase/Catalog/ManifestView.h"
+#include "Vase/Config/FieldInfo.h"
 #include "Vase/Config/Value.h"
 #include "Vase/Detail/Fail.h"
 #include "Vase/Detail/Result.h"
@@ -12,11 +14,12 @@
 #include "Vase/Pod/Pod.h"
 
 #include "Detail/ChoiceCoerce.h"
-#include "Detail/LibraryFileName.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -97,6 +100,14 @@ std::vector<ExpectedService> ConvertServices(const std::vector<ManifestDependenc
         out.push_back(ExpectedService{.Name = dep.Service, .Version = dep.Version});
     }
     return out;
+}
+
+// Value → ManifestConfigField 的位形编码（DefaultBits/MinBits/MaxBits）：与 ManifestView.h 的
+// Decode* 访问器是同一套编码，两者必须同源——三条 round-trip 用例守它（本文件与 ManifestJsonTests）。
+std::uint64_t EncodeBits(const Value& value)
+{
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-union-access) 与 Value::From 同机制：按 Kind 互斥取用
+    return value.Bits;
 }
 
 } // namespace
@@ -220,6 +231,55 @@ ManifestExpectation BuildExpectation(const ManifestEntry& entry)
     }
     expected.ProcessStates = entry.ProcessStates; // M3/D93：清单名字数组逐字进期望（D84 深拷）
     return expected;
+}
+
+ManifestConfigField MakeManifestConfigField(const FieldInfo& field)
+{
+    ManifestConfigField out;
+    out.Key = field.Name;
+    out.Kind = field.Kind;
+    out.DisplayName = field.Label;
+
+    if (field.Kind == ValueKind::kEnum)
+    {
+        const std::optional<std::string_view> label =
+            catalog_detail::ValueToLabel(field.Default.GetAs<std::int32_t>(), field.Choices, field.ChoiceCount);
+        if (!label.has_value())
+        {
+            detail::ProgrammerError("MakeManifestConfigField: enum default not in choices");
+        }
+        out.DefaultStr = std::string(*label); // D80 的 label 中间形
+        out.Choices.reserve(field.ChoiceCount);
+        for (std::uint32_t index = 0; index < field.ChoiceCount; ++index)
+        {
+            const ChoiceInfo& choice = *std::next(field.Choices, static_cast<std::ptrdiff_t>(index));
+            out.Choices.push_back(ManifestChoice{.Value = choice.Value, .Label = choice.Label});
+        }
+        return out;
+    }
+
+    if (field.Kind == ValueKind::kString)
+    {
+        const char* text = field.Default.GetAs<const char*>();
+        out.DefaultStr = text == nullptr ? std::string{} : std::string(text);
+    }
+    else if (field.Default.Kind != ValueKind::kNone)
+    {
+        out.DefaultBits = EncodeBits(field.Default);
+    }
+
+    // min/max 仅数值型可出现（解析期保证）；描述符侧用 kNone 表示未设。
+    if (field.Min.Kind != ValueKind::kNone)
+    {
+        out.HasMin = true;
+        out.MinBits = EncodeBits(field.Min);
+    }
+    if (field.Max.Kind != ValueKind::kNone)
+    {
+        out.HasMax = true;
+        out.MaxBits = EncodeBits(field.Max);
+    }
+    return out;
 }
 
 Result<AdoptReport> AdoptInto(const PluginCatalog& catalog, PluginHost& host, PodHandle handle, std::string_view id)

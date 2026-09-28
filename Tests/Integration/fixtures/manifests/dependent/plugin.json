@@ -5,5 +5,5 @@
     "version": "0.1.0",
     "binary": "DependentPlugin",
     "requires": [ { "service": "Vase.Hello.Greeter", "version": 1 } ],
-    "provides": [ { "service": "Vase.Farewell", "version": 1 } ]
+    "provides": [ { "service": "Vase.Dependent.Farewell", "version": 1 } ]
 }

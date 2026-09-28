@@ -20,7 +20,7 @@
 #include "Vase/Pod/Pod.h"
 #include "Vase/Service/Service.h"
 
-#include "Detail/ManifestCompare.h"
+#include "Detail/InspectInternal.h"
 
 #include <algorithm>
 #include <array>
@@ -80,12 +80,12 @@ vase::Result<const vase::PluginDescriptor*> InspectBinary(const vase::detail::Bi
             vase::Error{"VasePlugin_GetPlugin returned null for the requested id"});
     }
 
-    // 描述符的**第一个**字段先读：拦的是「插件与宿主 Vase 头版本不一致」（§3.1/§8.3，12 节 #12）
-    if (desc->HeaderVersion != vase::kHeaderVersion)
+    // 描述符的**第一个**字段先读：拦的是「插件与宿主 Vase 头版本不一致」（§3.1/§8.3，12 节 #12）。
+    // 闸抽到 detail::CheckHeaderVersion（M5/D123）：枚举读法过的是同一段代码、同一份文案。
+    const vase::Result<void> version = vase::detail::CheckHeaderVersion(*desc);
+    if (!version.IsOk())
     {
-        return vase::Result<const vase::PluginDescriptor*>::Err(
-            vase::Error{"HeaderVersion mismatch: binary " + std::to_string(desc->HeaderVersion) + ", host " +
-                        std::to_string(vase::kHeaderVersion)});
+        return vase::Result<const vase::PluginDescriptor*>::Err(version.GetError());
     }
     return vase::Result<const vase::PluginDescriptor*>::Ok(desc);
 }
@@ -419,7 +419,7 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
         // 空 Expected = M2a 行为逐字节一致；失败与 InspectBinary 同形落账（D70：记录 + 镜像留架）。
         if (entry.Expected.has_value())
         {
-            const Result<void> compared = detail::CompareDescriptor(*entry.Expected, *desc);
+            const Result<void> compared = CompareDescriptor(*entry.Expected, *desc);
             if (!compared.IsOk())
             {
                 recordFailure(entry.Id, Phase::kLoad, compared.GetError().Message());
@@ -1055,7 +1055,7 @@ Result<AdoptReport> PluginHost::AdoptImpl(PodHandle handle, const std::string& i
     // ③.5 清单比对（D69「Adopt 必比」，T12 单轨后无旁路）：CreatePod 的同一份 CompareDescriptor
     // 与同一消息格式器（D72 单点），失败透传原文进 Adopt 的 Refusal 通道。
     {
-        const Result<void> compared = detail::CompareDescriptor(*expected, *desc);
+        const Result<void> compared = CompareDescriptor(*expected, *desc);
         if (!compared.IsOk())
         {
             return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, compared.GetError().Message()));

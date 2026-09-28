@@ -107,21 +107,23 @@ public:
 
 } // namespace vase
 
-// 生成物全集（spec 3.3(1) 探针定稿）：工厂 + 唯一命名描述符 + 统一入口。
+// 生成物全集（spec 3.3(1) 探针定稿 + M5/D118）：工厂 + 唯一命名描述符 + 统一入口 + 枚举面 `VasePlugin_Descriptors`。
 // 符号名由类名派生不是插件 Id（Id 含点号不是合法标识符；类名在镜像内天然唯一，§3.1）。
 // 一个库装一个插件才有 GetPlugin；组合库的分发表由 VasePack 生成（M5，§8.6），
 // 与本宏无关。
 //
 // 作者侧写法：VASE_PLUGIN(MyPlugin){ ... }; —— 花括号紧贴宏。它落在宏实参内，
 // 不受 Allman 管辖，换行写会被格式门判红。
-// 宏体里**一个 NOLINT 都不需要**——三条会被报的检查各有代码级出路：
+// 宏体里**一个 NOLINT 都不需要**——四条会被报的检查各有代码级出路：
 //   · Create / Destroy 只在本 TU 内被取地址 → 放进匿名命名空间，同时避开
 //     misc-use-internal-linkage 与 misc-use-anonymous-namespace（`static` 只满足前者，
 //     会立刻招来后者；两者都是内部链接，语义等价）；
 //   · 创建走 make_unique、销毁端用 unique_ptr 接住再析构：既消掉裸 new/delete 表达式，
 //     也消掉 misc-const-correctness——后者对 raw 的建议是给**指针所指**加 const
 //     （`::vase::Plugin const* raw`），那是另一个函数类型、赋不进描述符的 Destroy 槽，
-//     所以正确的出路是把裸指针整个去掉，而不是照它的 fix-it 改。
+//     所以正确的出路是把裸指针整个去掉，而不是照它的 fix-it 改；
+//   · 枚举面（D118）的 return 写成显式 cast：契约本就是「指向静态数组首元素」，
+//     隐式 decay 是该检查点名的形态；显式 cast 是其 fix-it 认可的出路。
 // 与 spec 3.3(1) 的探针定稿相比，宏体的外围写法有**四处**不同：上面两处、匿名命名空间的
 // 包裹、以及 GetPlugin 的 nullptr 守卫（探针片段没有）。探针证明的**机制**——用户花括号
 // 落在宏末行的变量声明上——原样保留。spec 是历史记录，不改史；其宏体写法以此为最新。
@@ -141,5 +143,13 @@ public:
     extern "C" VASE_EXPORT const ::vase::PluginDescriptor* VasePlugin_GetPlugin(const char* id)                        \
     {                                                                                                                  \
         return id != nullptr && std::string_view{id} == kVaseMeta_##Type.Id ? VasePluginDesc_##Type() : nullptr;       \
+    }                                                                                                                  \
+    /* 枚举面（M5/D118）：一个库里的全部描述符。纯追加——既有生成物一字不变*/                                           \
+    /* kHeaderVersion 不动。名字是契约：工具按字面取它；组合库由 VasePack 生成同名（§8.6）。  */                       \
+    extern "C" VASE_EXPORT const ::vase::PluginDescriptor* const* VasePlugin_Descriptors(::std::uint32_t* outCount)    \
+    {                                                                                                                  \
+        static const ::vase::PluginDescriptor* const kAll[] = {VasePluginDesc_##Type()};                               \
+        *outCount = 1;                                                                                                 \
+        return static_cast<const ::vase::PluginDescriptor* const*>(kAll);                                              \
     }                                                                                                                  \
     const ::vase::PluginMeta kVaseMeta_##Type = ::vase::PluginMeta
