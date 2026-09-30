@@ -1525,6 +1525,8 @@ VaseCli doctor                  环境诊断，检查四项：
 
 > **[M5波1 现状注（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D119/D125/D131/D135/D137）]** 本节上方「这些工具一个都还没实现」自此**限缩**：`scan` / `validate` 已落第一波（`Tools/VaseCli/`，内部静态库 `VaseCliCore` + 薄 `main`，argv 手写不接 `ThirdParty/cli`）；`plan` / `doctor` 归后续波次（D119），`VasePack` 仍未实现。**上句「构建后自动运行」本波未接**——CMake 后置步骤单独记账（D125：接线的前置是划清「哪些目录允许自动重生成」，`Tests/Integration/fixtures/manifests/` 下那 6 份刻意手写的两侧样本不能被自动重写）。`validate` 相对提议多一个可重复的 **`--host-provides <name>@<version>`**（D131，喂 `LoadRequest::HostProvided`；`kDisabled` 不算第三项未过）；退出码三档 0/1/2、零个插件的树算用法/环境错（D135）。
 
+> **[M6 现状注（2026-09-30, spec `docs/superpowers/specs/2026-09-29-vase-m6-vasecli-plan-doctor-design.md` D141–D155）]** `plan` / `doctor` 已落（`Tools/VaseCli/`，`VaseCliCore` 内新源 `Plan.{h,cpp}` / `Doctor.{h,cpp}`）——本节**四条子命令至此全部落地**，上方仍未实有的只剩 `VasePack` 与「构建后自动运行」的 CMake 后置步骤（D125 指针不动）。**`plan` 采 `plan <插件目录> [presetFile] [--host-provides <name>@<version>]…` 形**——提案原文 `plan <preset>` 缺目录参数，勘误入账（D141）；它是全工具链唯一**零装载**子命令（D145：链只走 `Refresh` / `LoadPreset` / `Solve`，装载不了的二进制照出计划），退出码按 D135 同一律**扩到四命令共享三档 0/1/2**（D142/D144）。**`doctor` 四项收窄定形**（D143）：① 身份特征在场——逐插件 `FileIdentity` **磁盘读**，承重 flag 被摘的症状自运行期响亮失败提前到诊断时刻；② `check 2 (load & header version)`——装载读，收集序 **①③④→② 置后**（D152：② 的 kept-resident 镜像会自喂 ④ 的假阳性，先探锁后装载，结构免疫）；③ 目录写探针——根 + 各插件子目录创建→关→删，删除失败也算 FAIL（D150，探测不留不可见副作用）；④ 残留文件锁——**Windows 写开独占**（M6-T4 首测证伪了原读开形：驻留映射下 `GENERIC_READ`+share=0 实测 gle=0、`GENERIC_WRITE` 才 gle=32；2026-09-30 需求方裁定探针与 `PlatformReopenWritable` / `copy_file` 同律取 install 语义，「上轮卸载没干净」自此有自动化证人；假阴性类「允许写但拒绝读」的持有者明记接受）；Linux 支 info 行不拖退出码（D144）。提案第①项的编译器/版本/CRT 细读**记账不实现**（D147）；清单↔二进制逐字段等值明文不做——那是 validate① 与加载期比对（D72）的执法位（D155）。
+
 ### 11.2 宿主重编译单个插件的流程（v3：全程局不死）
 
 这是 Vase 存在的主要用例。v2 的流程要先拆整局；v3 的叶插件重编译**只动目标插件，其余实例全程存活**：
@@ -1658,7 +1660,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | M2 求解 | + 依赖账本执法与解析记录（3b） |
 | M3 多插件 | + 叶判定的图反查与拒绝报告（3a，全量形 = 三插件局中对叶 50 轮）；+ Eject 自动重置登记的进程级状态并写入报告（3d）。**判据 19 的完整属主追踪器经核查否决（D97，spec §4）**——不新增可达检出情形，M3 行自此只有这两笔 |
 | M4 热替换 | **已落（Win / Linux，2026-09-27）**：换件谱扩到**描述符维含回退方向**（五步阶梯，每步只差一维；D105/D113）、**Windows 侧档三负例**（换件序列两平台统一为「改名离开+落新字节」；D108）、**语义依赖知情位**（`EjectReport::SemanticDependencyPossible`，如实上报不可知；D110/D115）。**macOS 腿顺延 M5**（与 M0–M3 平台口径一致） |
-| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外）。**VaseCli `scan` / `validate` 已落（第一波，2026-09-28，spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117–D140）**；平台腿与 `plan` / `doctor` 归后续波次 |
+| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外）。**VaseCli `scan` / `validate` 已落（第一波，2026-09-28，spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117–D140）**；平台腿与 `plan` / `doctor` 归后续波次（`plan` / `doctor` **已于 M6 落地，2026-09-30**，见 11.1 的 M6 现状注；macOS 平台腿仍归后续） |
 
 **连带文书义务**：v3 落地（M1 更名）时同步更新 `CLAUDE.md`（目录名、构建命令、ctest 基数预期）；M0/M1 设计文档不改史，挂一条指向本文的勘误标注（涉及其 2.4 判据表与 3.3(4) 的 Linux 判据去向）。
 

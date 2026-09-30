@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 即核心关注点是**模块的选取、挂载与干净卸载**。M1 已把它的最小形落成代码，M2a 补了装配地基那一层，M2b 两波补了清单解析/Catalog 求解与加载期比对执法（见「项目状态」；具体机制以磁盘上的头文件与实现为准，`wiki/vase-architecture.md` 里其余部分仍是提案）。**不要在文档或代码注释中把提案写成既定事实**——新增或变更机制前先与需求方确认。
 
-### 项目状态：M0、M1 完成；M2a 完成（M2 第一波），M2b 波 1 完成（清单解析/Catalog/Solve/Preset），M2b 第二波完成（加载期比对/Adopt 单轨/enum+bump/前端），M3 完成（判据 3a 全量形/3d 进程级状态登记），M4 完成（换件谱描述符维含回退/Windows 档三负例还清 M1 登记账/语义依赖知情位），M5 第一波完成（VaseCli scan/validate）
+### 项目状态：M0、M1 完成；M2a 完成（M2 第一波），M2b 波 1 完成（清单解析/Catalog/Solve/Preset），M2b 第二波完成（加载期比对/Adopt 单轨/enum+bump/前端），M3 完成（判据 3a 全量形/3d 进程级状态登记），M4 完成（换件谱描述符维含回退/Windows 档三负例还清 M1 登记账/语义依赖知情位），M5 第一波完成（VaseCli scan/validate），M6 完成（VaseCli plan/doctor，四命令共享同一套退出码）
 
 
 **M0（构建地基）、M1（Pod 闭环 + 热插拔骨架）、M2a（M2 第一波：装配地基——配置面、`LoadPlan` 定形、
@@ -99,7 +99,7 @@ wiki §13.3）。**清单保真回写**——`schemaVersion` 恒写 1、`binary`
 **`validate` 四项**——快照能否建成、逐插件清单↔描述符比对、依赖面如实透传 `Solve` 裁定（环与被阻塞不另分列、
 `kDisabled` 不算未过，D127/D131）、服务前缀自洽 + 宿主越界（D120/D132）；前缀规则自此定死为
 **完整 Id**，`Samples/DependentPlugin` 服务随之改名 `Vase.Farewell` → `Vase.Dependent.Farewell`（D121）；
-`--host-provides <name>@<version>` 可重复（D131）；退出码是**两命令共享的同一套**三档 0/1/2、零个插件的树都算用法/环境错（D135——`scan` 与 `validate` 同一律）。
+`--host-provides <name>@<version>` 可重复（D131）；退出码是**两命令共享的同一套**三档 0/1/2、零个插件的树都算用法/环境错（D135——`scan` 与 `validate` 同一律）（M6 起四命令同一律，见下 M6 段）。
 **未接与推后的**：CMake 后置步骤本波不接（D125）、`plan` / `doctor` 与 macOS 平台腿归后续波次（D119/D138）。
 六线基数与 tidy 计数已随收口波落账（M5 收口复测 2026-09-28，见「构建与测试」两张表）。
 **M5 波末还账（2026-09-28）也已完成**——把收口时记名的四笔清干净：**M4 跨域两笔**（M5 spec D139 明写
@@ -114,6 +114,39 @@ wiki §13.3）。**清单保真回写**——`schemaVersion` 恒写 1、`binary`
 （两条 pin 各做过「抽掉一个字段打印」的变异取证）。**M5 记名文书债两条**：wiki §3.3 清单样例与 §6.1
 `IDamageSystem::kName` 的裸名 `Vase.DamageSystem` 改准为 `Vase.Combat.…`（§6.1 那条勘误注随之由
 「三点」改「四点」）、§11.2 流程行的「CMake 后置步骤自动跑」补现状指针（D125 未接）。
+**M6（VaseCli `plan` / `doctor`）也已完成**（spec `docs/superpowers/specs/2026-09-29-vase-m6-vasecli-plan-doctor-design.md`，
+plan `docs/superpowers/plans/2026-09-29-vase-m6-vasecli-plan-doctor.md`，D141–D155）——§11.1 **四条子命令至此全部落地**，
+零公开面增量（`kHeaderVersion`、导出符号与描述符布局都不动）。两腿：**`plan` = 零装载 Solve 预览**
+（D145：链上只有 `Refresh`/`LoadPreset`/`Solve`——装载不了的二进制照出计划；形 `plan <插件目录> [presetFile] [--host-provides …]`，
+提案原文 `plan <preset>` 缺目录，勘误入账，D141；输出文本与 Console `catalog solve` 各持一份映射，D149；argv 腿
+`--host-provides` 自 `Validate.cpp` 提入 `Cli.{h,cpp}` 共用、行为逐字不变，D146；「plan 与 validate③ 同判」是结构论证
+非跨命令断言，D154）；**`doctor` = 收窄四项定形**（D143）：① 磁盘读身份特征在场（承重 flag 被摘的症状自运行期响亮失败
+提前到诊断时刻）、② 装载读 HeaderVersion（节名 `check 2 (load & header version)`，D153；描述符计数打 info 不假设 1，D151；
+**收集序 ①③④→② 置后**，D152——② 是全工具唯一装载步，其 kept-resident 镜像否则会自喂 ④ 的假阳性，结构消除）、
+③ 目录写探针（根 + 各插件子目录创建→关→删，删除失败也算 FAIL，D150）、④ 平台锁探针（探针住工具层文件内 static、
+不提 VaseHost，D148；**Windows 写开独占**——T4a 首测证伪原读开形：驻留映射下读开实测 gle=0、写开才 gle=32，
+T4b 需求方裁定 2026-09-30 探针改按 `PlatformReopenWritable`/`copy_file` 同律的 install 语义、头号场景证人恢复真断言
+（单点归因 `checks 4`），④ 的 FAIL 面随之变宽（非共享冲突类 open 失败如只读属性现报 `probe failed (Win32 error 5)`），
+反向「允许写但拒绝读」的持有者不见于 ④ 属裁定明记接受（install 照样落字节，不构成换件障碍）；Linux 支 info 行
+不拖退出码，D144 如实报）；T4 风险 2（delete-pending 目录 ⇒ ③ FAIL）亦首测证伪——属平台事实，Windows 支按协议
+`GTEST_SKIP` + 登记、Linux chmod 555 支为真实证人，③ 的 Windows 候选构造（ACL deny-Write）待裁。**D135 同一律
+扩到四命令共享同一套退出码三档 0/1/2**（D142/D144）；清单↔二进制逐字段等值 doctor 明文不做（D155，validate①/D72
+的执法位）。**D147 为本波新记名一笔**（编译器/版本/CRT 剩余子项记账不实现——两平台可读面不对称，有后果可判的部分才进退出码）。
+**M5 记名欠账五件本波清「`plan`+`doctor`」一件、余四件原位**（macOS 平台腿、D125、VasePack+C4251、CI）。
+新测试文件 2 个 `Tests/Integration/VaseCli{Plan,Doctor}Tests.cpp`（plan 12 + doctor 8：T3 共享 6 + T4 平台证人 2 系
+体内 `#ifdef`、两平台各注册各的同名一条计数对称；plan 的 12 含下述 T6 证人）+ ctest 级用法腿 6（plan 2 + doctor 4）。覆盖如实记：③ 的 `put('x')`
+返回值未查、探针名取 steady_clock ns（并发两 doctor 理论可同名假 FAIL，brief 原形、接受）；doctor 的四条环境腿
+（not-a-dir / 零插件 / 快照未建 / header 版本行）无自动 pin——plan 侧有同形证人、validate 用法腿先例同形，
+doctor 环境腿本轮不加新证人、如实标注。**六线基数与 tidy 计数随收口波落账（M6 收口复测 2026-09-30**：六线删树重配全量两轮
+全绿零假红；三线 tidy 首跑捕正文 warning 10 条、全落本波新代码，代码级修复后复跑归零，见 plan 偏离登记 T5 条；
+规矩 6 的 `HotSwap|Eject|Adopt` 族 doctor② 是 Loader 新调用方、六线全量跑过族内全部用例为调用面回归证据）。
+**M6 终审修复波（T6，2026-09-30，verdict：With fixes）已跟上**：`Plan.cpp` notes 环补 Cause 支——
+`providerSkipped`/`versionMismatchProvider` 两 kind 空 Key、归因在 Cause（D82 两段制的产出位），缺支即丢归因、
+破 D149 形状忠实副本承诺，照 `Console.cpp:417-420` 逐字镜像补；证人
+`VaseCliPlan.ProviderSkippedNoteCarriesCauseAttribution`（Alpha provides + preset 禁之 ⇒ Beta 硬跳，note 行两侧
+点名；变异取证：抽掉 Cause 支该枚转红）。④ 缺件文件由 `unlocked` 改 `absent (check 1 owns it)` info 支
+（spec §3.4「文件不存在 → info 跳过」兑现、不计 Failures）。六线各净 +1（331/330）与 tidy 复测值随 T6 落账——
+现值见「构建与测试」与「静态检查与格式」两张表。
 当前仓库里有什么：
 
 - **构建系统已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（三个工具链文件）、
@@ -175,13 +208,15 @@ wiki §13.3）。**清单保真回写**——`schemaVersion` 恒写 1、`binary`
 - **工具**：`Tools/VaseConsole/`（target 与二进制同名）是热插拔验证台——
   `VaseConsole [--script <file>]`，不给 `--script` 即交互，退出码 = 全程是否 Clean。
   **别与架构 §11.1 的 `Tools/VaseCli` 混为一谈**：那是清单扫描 / 校验工具——§11.1 提议里它确实长期「不存在」，
-  M5 第一波起 `scan` / `validate` 两个子命令实有（见下一条），`plan` / `doctor` 与 CMake 后置步骤仍未接（D119/D125）；
+  M5 第一波起 `scan` / `validate` 两个子命令实有（见下一条），M6 起 `plan` / `doctor` 亦实有（D141–D155），CMake 后置步骤仍未接（D125）；
   它与本仓库这个交互式验证台仍是**两回事**（一个批处理、一人读文本，一个交互、退出码语义也不同；
   更名与移位的经过见「尚未确定的事项」表）。
-- **清单工具**：`Tools/VaseCli/`（target 与二进制同名）是 M5 第一波的两条腿——
-  `VaseCli scan <目录>`（装载读 + 枚举面 + 清单保真回写，D117/D118/D122/D134）
-  与 `VaseCli validate <目录> [--host-provides <name>@<version>]…`（四项检查，D120/D127/D131/D132）；
-  两命令**共享同一套退出码三档 0/1/2**，零个插件的树都算用法/环境错（D135，同一律），用法细节以磁盘上的 `Tools/VaseCli/` 为准。
+- **清单工具**：`Tools/VaseCli/`（target 与二进制同名）自 M6 起是四条腿——
+  `VaseCli scan <目录>`（装载读 + 枚举面 + 清单保真回写，D117/D118/D122/D134）、
+  `VaseCli validate <目录> [--host-provides <name>@<version>]…`（四项检查，D120/D127/D131/D132）、
+  `VaseCli plan <插件目录> [presetFile] [--host-provides <name>@<version>]…`（零装载 Solve 预览，D141/D142/D145/D149）
+  与 `VaseCli doctor <插件目录>`（收窄四项：① 磁盘读身份、② 装载读版号（收集序置后 D152）、③ 目录写探针、④ 平台锁探针，D143/D144）；
+  **四命令共享同一套退出码三档 0/1/2**，零个插件的树都算用法/环境错（D135 扩到四命令，同一律），用法细节以磁盘上的 `Tools/VaseCli/` 为准。
   形态：内部静态库 `VaseCliCore` + 薄 `main`（D124——检查逻辑住库、gtest 直接链它，`main` 只分发 argv），
   argv 手写**不接** `ThirdParty/cli`、只出人读文本（D137）。它带动的新公开面住库里而非工具里：
   `Include/Vase/Host/Inspect.h` 的 `InspectDescriptors`（枚举读 + 版本闸与「按 Id 读」共用，D123）、
@@ -233,7 +268,7 @@ wiki §13.3）。**清单保真回写**——`schemaVersion` 恒写 1、`binary`
 | 项 | 架构文档里的状态 | 仓库里的状态 |
 |---|---|---|
 | 构建系统 | 已决定：CMake + vcpkg（13.2） | **已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（3 个）、`Cmake/Triplets/x64-linux-libcxx.cmake`、`Cmake/VasePluginHelpers.cmake`，六个 preset 全绿（见「构建与测试」） |
-| 目录布局与模块划分 | **已确认**（第 10 节） | **磁盘上是这些**：`Include/Vase/`（`Plugin.h` / `PluginDescriptor.h` / `Config` / `Catalog` / `Effect` / `Service` / `Event` / `Pod` / `Host` / `Detail`）、`Source/{Pod,Host,Catalog}` 三 target、`Samples/{HelloCommon,HelloPlugin,HelloPluginPrime,DependentPlugin,FailingPlugin,Embedding}`、`Tools/{VaseConsole,VaseCli}/`、`Tests/{Smoke,Unit,Lifecycle,Integration,HotSwap,Abi,TestingSupport}`、`ThirdParty/cli`；第 10 节里此前未出现的 `Catalog/` 实体已于 M2b 波 1 立起（清单解析面住在 `Source/Catalog`，`Host/` 下不另立）。**但别把这一格读成"§10 是当前状态的描述"**：§10 的 `Samples/` 子树那两格空位（`DependentPlugin` / `FailingPlugin`）自 M2b 波 2 起**提案已成真**（D86，该树随之标注），其时漏列的实有两目录（`HelloCommon` / `HelloPluginPrime`）亦已随勘误补进树；它提议的 `Tools/VaseCli/`（清单扫描、校验、索引生成）自 M5 第一波起 **scan / validate 已实有**（`plan` / `doctor`、索引生成与 CMake 后置仍未接，D119/D125）——它与实有的 `Tools/VaseConsole/`（交互式验证台）**不是一回事**——两者同在 `Tools/` 下、名字只差一个词，别混；后者原名 `Samples/VaseCli`，2026-09-23 因「CLI 这个名字不体现它是交互式验证台」而更名并移出 `Samples/`，同一轮的 spec / plan 在 `docs/superpowers/` 下同步改名为 `vase-console-*`。**改 §10 本身要需求方过目**（它标着"已确认"），不要顺手修 |
+| 目录布局与模块划分 | **已确认**（第 10 节） | **磁盘上是这些**：`Include/Vase/`（`Plugin.h` / `PluginDescriptor.h` / `Config` / `Catalog` / `Effect` / `Service` / `Event` / `Pod` / `Host` / `Detail`）、`Source/{Pod,Host,Catalog}` 三 target、`Samples/{HelloCommon,HelloPlugin,HelloPluginPrime,DependentPlugin,FailingPlugin,Embedding}`、`Tools/{VaseConsole,VaseCli}/`、`Tests/{Smoke,Unit,Lifecycle,Integration,HotSwap,Abi,TestingSupport}`、`ThirdParty/cli`；第 10 节里此前未出现的 `Catalog/` 实体已于 M2b 波 1 立起（清单解析面住在 `Source/Catalog`，`Host/` 下不另立）。**但别把这一格读成"§10 是当前状态的描述"**：§10 的 `Samples/` 子树那两格空位（`DependentPlugin` / `FailingPlugin`）自 M2b 波 2 起**提案已成真**（D86，该树随之标注），其时漏列的实有两目录（`HelloCommon` / `HelloPluginPrime`）亦已随勘误补进树；它提议的 `Tools/VaseCli/`（清单扫描、校验、索引生成）自 M5 第一波起 **scan / validate 已实有**，`plan` / `doctor` 亦于 M6 落地（2026-09-30，D141–D155）（索引生成与 CMake 后置仍未接，D125）——它与实有的 `Tools/VaseConsole/`（交互式验证台）**不是一回事**——两者同在 `Tools/` 下、名字只差一个词，别混；后者原名 `Samples/VaseCli`，2026-09-23 因「CLI 这个名字不体现它是交互式验证台」而更名并移出 `Samples/`，同一轮的 spec / plan 在 `docs/superpowers/` 下同步改名为 `vase-console-*`。**改 §10 本身要需求方过目**（它标着"已确认"），不要顺手修 |
 | 测试框架与运行方式 | 有分层与验证策略（12 节） | **已落成**：GoogleTest 1.18.0（vcpkg manifest）+ `ctest` + `gtest_discover_tests`；分层即 12.2 那五类（Unit / Integration / Lifecycle / HotSwap / Abi，外加 M0 的 Smoke），各线基数见「构建与测试」的按线分账表。12 节里依赖 M2 起的部分：Catalog 求解链已于 M2b 波 1 落成、加载期比对与 Adopt 单轨已于波 2 落成（判据 13 自此有现形证人）；**判据 3b 亦已落地**（凭声明执法 + 解析落账在 `Source/Pod/Context.cpp` 的 `ResolveRaw`，Eject 反查与拒绝点名消费者在 `PluginHost::EjectPlugin`，证人 `Tests/Integration/LedgerSemanticsTests.cpp` 含未声明解析的 death test；D20 的「薄面」是刻意收窄外向 API，不是欠账）——本行原先记的「账本 3b 完整执法仍未起」与磁盘不符，2026-09-26 更正。§12 判据表的 M3 两项亦已落：**3a 全量形**——三插件局 50 轮 `HotSwap.FiftyRoundsBehaveLikeFirstTime`（新 fixture `NeighborC`，每轮派拍、循环内断两只邻居累计 `Beats()`）；**3d 进程级状态登记**——`Eject.ProcessStatesResetMakesReloadLikeFirstTime` 与 `Eject.ProcessStatesKeptWhenOtherPodHoldsLiveInstance`（`Evidence.h` 的 `ProcessStatesReset` 自此有内容，不再恒空），空壳可拆证人 `RecursiveTeardown.TornShellCanBeEjectedAndThenReAdopted`（D94）。属主追踪器经核查否决（D97）。**M4 新增判据 3f 亦已落**（§12 判据表：Eject 如实上报「语义依赖可能已陈旧」而不宣称查过）——三条证人 `Eject.SemanticDependency{PossibleWhenResetAndOthersLive, AbsentWhenNothingElseLive, AbsentWithoutProcessStateReset}` 的真假两侧都钉住；**空壳局一支无证人可写**（空壳攥不住值、条件本就不该置位），如实标注而非跳过。判据表至此无未起项（判据 19 按设计即「无法自动化验证」的契约束，维持原判） |
 | 插件接口 / ABI 约定 | 有完整设计（第 3、8 节） | **已落地最小形**：§3.1 的宏（`VASE_PLUGIN`）、插件基类、描述符结构体与 `kHeaderVersion` 都在 M1；M2a 补配置面（`VASE_CONFIG`、`ConfigInfo`/`ConfigBlob`，其时为六型）；M2b 波 1 已落 **清单/`Preset` 格式与 `Catalog` 解析**（`Source/Catalog`，结构/语法段 D59 + Solve 两段）；M2b 波 2 已落 **`enum`（七型）与 `kHeaderVersion` 2→3**（`FieldInfo` 尾追加 choices 两槽，D75/D76）、**加载期全字段比对**与 **`AdoptRequest` 单轨**（D67/D69/D72）；M3 已落 **`ProcessStateDesc{Name, Reset}` 进 `PluginMeta` 尾槽 `ProcessStates` 与 `kHeaderVersion` 3→4**（D92），连带清单顶层 `processStates` 名字数组的双向等值比对（D93）。接口以磁盘上的 `Include/Vase/Plugin.h` 与 `PluginDescriptor.h` 为准，第 3、8 节其余部分仍是提案 |
 
@@ -245,12 +280,18 @@ wiki §13.3）。**清单保真回写**——`schemaVersion` 恒写 1、`binary`
 ### 构建与测试
 
 
-**六个 preset，全部已实测可用**。基数的最近一次复核（**M5 波末还账，2026-09-28**）：**六条 preset 线
+**六个 preset，全部已实测可用**。基数的最近一次复核（**M6 终审修复波 T6，2026-09-30**）：**六条 preset 线
 各自删树重配 → configure → build → ctest → `ctest -N`，六线全绿、构建零警告**（`Scripts/win-verify.cmd`
-与 `Scripts/linux-verify.sh` 两脚本并行一次跑完；**本轮下面记的那类 `z-applocal` 文件锁假红零撞——六线单跑、
-一次重跑都没有**，此前五个收口波里撞过四次，见该段）。
-**M5 收口（2026-09-28）保留为历史**：同为六线删树重配全量、同样零撞（见该段末条）。
-tidy 三条 debug 线各自跑（见「静态检查与格式」，本轮三线全量重跑），format 一条命令。
+与 `Scripts/linux-verify.sh` 两脚本并行一次跑完；**本轮下面记的那类 `z-applocal` 文件锁假红零撞、没有重跑**，
+此前五个收口波里撞过四次，见该段）。本波代码是终审三条修复（`Plan.cpp` notes 环补 Cause 支、`Doctor.cpp` ④
+缺件 absent info 支、证人 `VaseCliPlan.ProviderSkippedNoteCarriesCauseAttribution` 一枚）；六线各净 +1
+（331/330）即这枚证人——无 `#ifndef NDEBUG` 门、无平台门，两平台各线都注册（差集复测见下）。
+**M6 收口（2026-09-30）保留为历史**：同为六线删树重配全量但跑了**两轮**——第一轮在 T1–T4 代码上即全绿，
+随后三线 tidy 全量首跑捕得正文 warning 10 条（全部落本波新代码），代码级修复后第二轮再删树重配全量；
+两轮都零撞、每一轮都没有重跑。
+**M5 波末还账（2026-09-28）保留为历史**：同为六线删树重配全量、同样零撞；其前的 **M5 收口（2026-09-28）**
+亦零撞（见该段末条）。
+tidy 三条 debug 线各自跑（见「静态检查与格式」，本波三线全量**首跑即三判据全过、正文双 0**——终审修复未带入新正文 warning），format 一条命令（本波首跑捕得新代码一行超长注释，折行后重跑 RC=0）。
 **M4 收口（2026-09-27）保留为历史**：同为六线删树重配全量，Windows 侧 `win-x64-msvc-release` 首跑撞到
 该类假红（目标 `VaseEmbedding.exe`，链接已成功、`vcpkg z-applocal` 拷贝步撞锁致 build 步 RC=1，
 连带该树 ctest 80 条红；按协议单线删树重跑一次即 266/266 全绿零警告）。更早两段：M3 终审修复波走
@@ -263,11 +304,17 @@ tidy 三条 debug 线各自跑（见「静态检查与格式」，本轮三线�
 | Windows / cl.exe | `win-x64-msvc-debug`、`win-x64-msvc-release` |
 | Linux / clang + libc++ | `linux-x64-clang-debug`、`linux-x64-clang-release` |
 
-**各线 `ctest -N` 基数**（六线现值为 **M5 波末还账 2026-09-28 实测**，六条 preset 线删树重配全量、
-`ctest` 与 `ctest -N` 一并跑完）：
-本波相对 M5 收口表（303/302/303/302/303/302）**六线各净 +2**——`Adopt.ProbeSwapGuardHealsAbortResidue`
-（gtest，HotSwap 目录里那条守卫的自愈证人）+1 与 `EmbeddingSwapDemo`（ctest 级，前端字段集守卫）+1；
-两条均无 `#ifndef NDEBUG` 门、无平台门（差集复测见下）。
+**各线 `ctest -N` 基数**（六线现值为 **M6 终审修复波 T6 2026-09-30 实测**，六条 preset 线删树重配全量、
+`ctest` 与 `ctest -N` 一并跑完；相对 M6 收口表 330/329/330/329/330/329 六线各 +1 = T6 证人）：
+M6 相对 M5 波末表（305/304/305/304/305/304）**六线各净 +26**，两笔来源——**gtest 用例六线同幅 +20**
+（`VaseCliPlanTests` 12 + `VaseCliDoctorTests` 8：T3 共享 6 + T4 平台证人 2，后两条系**体内 `#ifdef`**、
+两平台各注册各的同名一条，计数对称，见规矩 6 那段的判据不对称与本波偏离登记；plan 的 12 含 T6
+终审证人 `ProviderSkippedNoteCarriesCauseAttribution`）
+**+ ctest 级 +6**（`Tools/VaseCli/CMakeLists.txt` 的用法腿 `VaseCliPlanNoArgs{IsUsageError,Reason}` 与
+`VaseCliDoctorNoArgs/TooManyArgs{IsUsageError,Reason}` 四腿，D142/D144）；26 条无一受 `#ifndef NDEBUG` 门或
+平台门（差集复测见下）。历史口径——M5 波末还账相对 M5 收口表（303/302/303/302/303/302）**六线各净 +2**
+（`Adopt.ProbeSwapGuardHealsAbortResidue`（gtest，HotSwap 目录里那条守卫的自愈证人）+1 与 `EmbeddingSwapDemo`
+（ctest 级，前端字段集守卫）+1，两条均无 `#ifndef NDEBUG` 门、无平台门）；
 M5 相对 M4 收口表（267/266/267/266/267/266）**六线各净 +36**，两笔来源——**gtest 用例六线同幅 +32**
 （按文件：`VaseCliScanTests` +9、`VaseCliValidateTests` +11、`ManifestJsonTests` +5、`InspectTests` +3、
 `LibraryFileNameTests` +2、`DescriptorTests` +1、`EjectTests` +1——最后一枚是 T14 跨 Pod 证人
@@ -290,10 +337,10 @@ T6 Five→Fifty 与 T7 空壳用例替换均 1:1 改写净 0，M3 终审修复�
 
 | preset | `Total Tests` | 与 Win debug 的差 |
 |---|---|---|
-| `win-x64-{clang,msvc}-debug` | 305 | —（基线） |
-| `win-x64-{clang,msvc}-release` | 304 | −1：T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门 |
-| `linux-x64-clang-debug` | 305 | **0**——M4 起与 Windows 同值（见下） |
-| `linux-x64-clang-release` | 304 | −1——与 win release 同值（平台差为 0）；那 −1 仍是 T3 那道 debug 门 |
+| `win-x64-{clang,msvc}-debug` | 331 | —（基线） |
+| `win-x64-{clang,msvc}-release` | 330 | −1：T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门 |
+| `linux-x64-clang-debug` | 331 | **0**——M4 起与 Windows 同值（见下） |
+| `linux-x64-clang-release` | 330 | −1——与 win release 同值（平台差为 0）；那 −1 仍是 T3 那道 debug 门 |
 
 **基数差是设计，不是漏注册**：**`linux − win` 的 +2 差值在 M4 归零**——T11 那两条档三用例自 M4/D109 起
 **两平台同跑**：fixture `NoBuildIdPlugin` 跨平台化并更名 `NoIdentityPlugin`（Windows 侧 per-target
@@ -302,21 +349,28 @@ T6 Five→Fifty 与 T7 空壳用例替换均 1:1 改写净 0，M3 终审修复�
 所以差值变小是**设计**而非计数异常。debug 与 release 差的 1 条**不变**，仍是 T3 的 death test
 （`#ifndef NDEBUG`）——M2a 新增的 `ConfigApply.LayoutMismatchTerminates` 同为 death test 但**不带**
 这道门，debug/release 同计（两条 release 线实测全绿），故 −1 不因它而变。M4 新增的净 4 条、那两条
-改平台的用例与 M5 新增的净 36 条（含 4 条 ctest 级）、本波新增的 2 条**无一受** `#ifndef NDEBUG` 门或平台门。
-两侧都与预期值逐位对上（用例名集合的**差集本轮实测**——M5 波末还账 2026-09-28 六线逐对比过：
+改平台的用例、M5 新增的净 36 条（含 4 条 ctest 级）、M5 波末还账新增的 2 条与 **M6 新增的净 26 条
+（gtest 20 + ctest 级 6，含 T6 证人）** **无一受** `#ifndef NDEBUG` 门或平台门——M6 的 `VaseCliDoctor` 里两条体内 `#ifdef` 的平台证人
+各平台注册各的同名一条，计数两侧对称（Windows 上其中一条按首测协议走 `GTEST_SKIP`——**SKIP 是运行时行为，
+不动 `-N` 注册计数**）。
+两侧都与预期值逐位对上（用例名集合的**差集本轮实测**——M6 终审修复波 T6 2026-09-30 六线逐对比过，
+且新证人六线六条注册线全部在内：
 debug − release 在三条 debug 线上恰为 T3 那一条、`linux − win` 与 `win − linux` **两个方向都为空**、
-clang-debug 与 msvc-debug 名集合逐条相同、两条 release 线的名集合也逐条相同；M5 收口与更早各轮
+clang-debug 与 msvc-debug 名集合逐条相同、两条 release 线的名集合也逐条相同；M6 收口 / M5 波末还账 / M5 收口与更早各轮
 （M4 收口、M3 收口/修复波三轮、波 2 收口/还账波 2026-09-26）的同形复测保留为历史。
-规矩 6 的选择子 `-R 'HotSwap|Eject|Adopt'` 在 M5 波末还账重数为 **win 58 / linux 58**——较 M5 收口的
-57 / 57 两侧同幅 +1（本波的 `Adopt.ProbeSwapGuardHealsAbortResidue`，名含 `Adopt`；再往前较 M4 的
+规矩 6 的选择子 `-R 'HotSwap|Eject|Adopt'` 在 **M6 终审修复波 T6 重测仍为 win 58 / linux 58**——与 M6 收口 / M5 波末同数，
+本波新命令名 `plan` / `doctor` 与 T6 证人名都不含选择子串；该枚相对 M5 收口 57 / 57 的增量是波末还账的
+`Adopt.ProbeSwapGuardHealsAbortResidue`（名含 `Adopt`；再往前较 M4 的
 56 / 56 那一枚是 T14 跨 Pod 证人 `Eject.SemanticDependencyPossibleAcrossPods`，
 名含 `Eject`、无 debug 门无平台门，两侧之差依旧为零；较 M3 终审的 50 / 52：+4 是新建用例名含
 HotSwap / Eject、+2 是档三那两条不再 Linux-only——两侧之差随之消失），
-且六线全量 `ctest` 本就逐条跑过族内全部用例并通过，说明 `gtest_discover_tests` 没有静默漏掉任何一条。
-console 套件（`ctest -R VaseConsole` 六线均 33 条，自 M3 起未变）、M5 新族
-（`ctest -R '^VaseCli'` 六线均 **24 条** = gtest 用例 20——`VaseCliScan` 9 + `VaseCliValidate` 11——
-加 `Tools/VaseCli` 的 ctest 级 4 条）与 Embedding 回放（现 2 条：`EmbeddingLoop20` + 本波的
-`EmbeddingSwapDemo`）**不含** `#ifndef NDEBUG` 门与平台门，
+且六线全量 `ctest` 本就逐条跑过族内全部用例并通过，说明 `gtest_discover_tests` 没有静默漏掉任何一条；
+**doctor② 是 Loader 的新调用方（规矩 6 触发条件之一），该族六线全绿自此有调用面回归的证据**。
+console 套件（`ctest -R VaseConsole` 六线均 33 条，自 M3 起未变）、M5 新族自 M6 扩面
+（`ctest -R '^VaseCli'` 六线均 **50 条** = gtest 用例 40——`VaseCliScan` 9 + `VaseCliValidate` 11 +
+`VaseCliPlan` 12 + `VaseCliDoctor` 8——加 `Tools/VaseCli` 的 ctest 级 10 条：既有 4 + plan 2 + doctor 4）
+与 Embedding 回放（现 2 条：`EmbeddingLoop20` + `EmbeddingSwapDemo`，本波未动）
+**不含** `#ifndef NDEBUG` 门与平台门，
 所以上面的差值不因它们而变。
 
 **这一档有环境性假红**（2026-09-22 实测）：`win-x64-clang-release` 的首次删树重配在一个
@@ -334,7 +388,10 @@ M3 收口复测（2026-09-27，跑在 83bd297）再撞一次：`win-x64-clang-re
 RC=1，构建立即中止（后续 target 未产出），该树 ctest 连带 **80 条红**（Not Run 为主，缺的可执行与 DLL
 是中止的下游）；按协议**单线删树重跑一次**即 266/266 全绿零警告。**读这一类红时先看是不是缺产物**——
 「80 条红」看着像大面积回归，其实是缺文件。
-**M5 收口（2026-09-28）未再撞**：六线删树重配全量两脚本并行单跑即全绿，零重跑。
+**M5 收口（2026-09-28）未再撞**：六线删树重配全量两脚本并行单跑即全绿，零重跑（波末还账一轮亦零撞）。
+**M6 收口（2026-09-30）未再撞**：本波全量跑了**两轮**（tidy 首跑捕得新代码正文 warning、代码级修复前后各一轮），
+两轮都是两脚本并行单跑即全绿、零重跑。**M6 终审修复波 T6（2026-09-30）亦未再撞**：六线删树重配全量、
+两脚本并行单跑即全绿、零重跑。
 
 #### Windows（在 Git Bash 里直接跑）
 
@@ -691,7 +748,7 @@ tidy 与 format 怎么跑、退出码为什么单独不够、基数怎么读。�
 
 
 ```bash
-run-clang-tidy -p build-win/win-x64-clang-debug          # clang-cl 线（111 个 TU）
+run-clang-tidy -p build-win/win-x64-clang-debug          # clang-cl 线（115 个 TU，见下面实测表）
 run-clang-tidy -p build-win/win-x64-msvc-debug -extra-arg=-Wno-unused-command-line-argument
 run-clang-tidy -p build-linux/linux-x64-clang-debug      # Linux 线**必须单独跑**
 git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc' '*.ixx' \
@@ -707,12 +764,24 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
 两者同契约：日志落在脚本旁边（`*.log`，已被 gitignore），stdout 打全「退出码 + 正文
 `error:` 条数 + 正文 `warning:` 条数」三判据与摘要计数，**退出码非 0 即门禁未过**，
 不必再手工 grep 日志。基数见「核这些门禁时，退出码单独用是不够的」那节的实测表，脚本不复制阈值。
-实测两侧输出与该表逐位对上：**三线各 111 TU** / Windows 两线 680329、Linux 301480 / NOLINT 命中
-Windows 4710、Linux 4722（**M5 波末还账 2026-09-28，三线全量重跑，复跑即三判据全过、正文双 0**——
-三线首跑各捕得正文 warning（Linux 3 条、clang-cl 1 条，见「核这些门禁时…」那节），均代码级修掉）。
-本波 TU 数未动（111），抑制合计 +4（Win）/ +5（Linux）是新用例里 `ifstream` / `istreambuf_iterator`
-等 STL 模板实例化的乘法形状，**本波新增代码零 NOLINT 位点**、Windows 侧单 TU 极值亦未动；
-Linux 侧 `ImageInspectPosix.cpp` 的 11337 → 11334（−3）落在**本波未碰过的** TU 上，如实记为未归因漂移。
+实测两侧输出与该表逐位对上：**三线各 115 TU** / Windows 两线 766651、Linux 314262 / NOLINT 命中
+Windows 4895、Linux 4890（**M6 终审修复波 T6 2026-09-30，三线全量首跑即三判据全过、正文双 0**——
+终审修复未带入任何新正文 warning；M6 收口那轮「三线全量两轮、首跑捕得同一组 10 条正文 warning、
+全部落本波新代码 `Plan.cpp` 与 `VaseCliPlanTests.cpp`、代码级修掉后复跑归零」保留为历史，
+详见「核这些门禁时…」那节与本 plan 偏离登记 T5/T6 条）。
+T6 本波账面：TU 数 115 未动（本波零新源，只改三个既有源）、NOLINT 命中两侧零动（4895 / 4890 与 M6 收口
+逐数相同——本波新增代码 `git diff HEAD -U0 -- '*.h' '*.cpp' | grep '^+.*NOLINT'` **零命中**，canonical 位点维持 4）、
+Linux max 11337 未动、唯抑制合计两侧各 +1 落非用户代码桶（与单 TU 极值不动并存的乘法形状，如实记）。
+M6 波本体：TU +4 = `Tools/VaseCli/Plan.cpp` / `Doctor.cpp` 与 `VaseCli{Plan,Doctor}Tests` 四个新源，
+两侧同幅、无平台专属新源（M6 的平台分支都在函数体内），**TU 平台差维持 0**；抑制合计的上跳
+（680329→766651 / 301480→314262）是这 4 个新 TU 各带一份 nlohmann/gtest 模板量的乘法形状；
+**单 TU 极值 Windows 998 / 45609 不动**，Linux min 359 不动、max 11334 → 11337 又落回本波未碰的
+`ImageInspectPosix.cpp`——与 M5 收口前读数同值，属上一轮记的未归因漂移**再现**，如实记；
+**本波新增代码 canonical NOLINT 位点 4 处**（`Doctor.cpp` 两个 `misc-include-cleaner` 区：windows.h
+include 区与 `ProbeExclusiveOpen` 函数体；`VaseCliDoctorTests.cpp` 两个：同形 include 区含 `#undef CopyFile`
+尾行与 `LoadLibraryW`/`FreeLibrary` 使用区——伞形头处理的 canonical 推导在 `Source/Host/LoaderWindows.cpp`，
+四处均只活在本波新代码里、就地一句带过），命中增量（Windows +185、Linux +168）主体是既有位点乘上
+4 个新 TU 的乘法形状，账面仍以 canonical 位点清单为准。
 M5 收口 2026-09-28 口径为 Windows 两线 680325、Linux 301475、三线首跑即三判据全过——较 M4 收口口径
 （三线各 99 TU / 617742 / 269117 / 4394 / 4405）的上跳 =
 **三线同增 12 个编译数据库条目**（本波 12 个新源文件：`Source/Host/Inspect.cpp`、`Tools/VaseCli/` 五件、
@@ -795,42 +864,58 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
 
   所以「无新 warning」的判据是三条一起：**退出 0 + 正文 `error:` 0 条 +
   正文 `warning:` 0 条**，再连摘要行一起读。只 grep `warning:` 会漏掉全部被抑制的量。
-  实测基数（**M5 波末还账 2026-09-28，三线全量重跑**；波 1 遗留的正文 warning
+  实测基数（**M6 终审修复波 T6 2026-09-30，三线全量首跑即双 0；M6 收口那轮为三线全量两轮**；波 1 遗留的正文 warning
   自 M2b 终审修复波起保持清零，M3 两轮曾在 `readability-trailing-comma` 上连捕两条
-  （`HotSwapLoopTests.cpp` / `EjectTests.cpp`）并均补尾逗号归零，**本波三线首跑各捕得正文 warning**——
-  Linux 3 条（`misc-include-cleaner` 两条要 `<ios>` + `readability-redundant-lambda-parameter-list` 一条）
-  与 clang-cl 1 条 `bugprone-signed-bitwise`（同一份源、两 STL 不同：libc++ 侧不报），四处均走代码级出路
-  修掉后复跑即双 0，M4/M5 两波收口为三线首跑即双 0）。正文双 0 之外，
+  （`HotSwapLoopTests.cpp` / `EjectTests.cpp`）并均补尾逗号归零；M5 波末还账三线首跑各捕得正文 warning
+  （Linux 3 条与 clang-cl 1 条，同一份源、两 STL 不同：libc++ 侧不报那条 `bugprone-signed-bitwise`），
+  四处均代码级修掉（该波首跑非双 0；M4/M5 两波收口是三线首跑即双 0）。**M6 收口首跑回到非 0**：三线首跑捕得**同一组
+  10 条**正文 warning，全部落本波新代码——`Plan.cpp` 九条（`misc-include-cleaner` 7：`SolveNoteKind`/
+  `is_directory`/`std::move`/`ServiceRef`/`SolveOutcome`/`std::vector`/`SolveNote`；`performance-move-const-arg` 1：
+  `const Result<Preset>` 上的 `std::move` 空转；`bugprone-branch-clone` 1：两硬跳过 case 同体）与
+  `VaseCliPlanTests.cpp` 一条（`std::vector` 直接包含），均走代码级出路（补直接包含 / 照 Console.cpp
+  的 `auto loaded` 消费形 / 合并两 case 保穷举），复跑三线三判据全过、正文双 0）。**M6 终审修复波 T6 三线全量首跑即三判据全过、正文双 0**——
+  终审修复未带入正文 warning（本波新代码仅一枚用例与两处分支）。正文双 0 之外，
   抑制仍全部落在第三方头、gtest/nlohmann 模板与被 NOLINT 豁免的自有位形/宏机制代码里，
   我们自己的代码零正文 warning：
 
   | 线 | 文件数 | 摘要行 Suppressed 合计 | 单 TU 最小 / 最大 |
   |---|---|---|---|
-  | clang-cl（`win-x64-clang-debug`） | 111 | 680329 | 998 / 45609 |
-  | cl.exe（`win-x64-msvc-debug`） | 111 | 680329 | 998 / 45609 |
-  | Linux（`linux-x64-clang-debug`） | 111 | 301480 | 359 / 11334 |
+  | clang-cl（`win-x64-clang-debug`） | 115 | 766651 | 998 / 45609 |
+  | cl.exe（`win-x64-msvc-debug`） | 115 | 766651 | 998 / 45609 |
+  | Linux（`linux-x64-clang-debug`） | 115 | 314262 | 359 / 11337 |
 
-  **TU 数三线同为 111**（M5 收口实测，`run-clang-tidy` 报「111 files out of 111」；M4 的 99 → +12 =
-  本波 12 个新源文件——`Source/Host/Inspect.cpp`、`Tools/VaseCli/` 五件（`main`/`Cli`/`Scan`/`Validate`/
-  `ManifestMerge`）、`VaseCli{Scan,Validate}Tests` 与 `Inspect`/`LibraryFileName` 四个测试、枚举面
-  fixture 插件 `NoEnumeration`/`StaleEnum` 两个——两侧同幅，无平台专属新源）。每个源都是独立条目，
+  **TU 数三线同为 115**（T6 复测与 M6 收口同为「115 files out of 115」——T6 零新源文件；M5 的 111 → +4 =
+  `Tools/VaseCli/Plan.cpp` / `Doctor.cpp` 与 `Tests/Integration/VaseCli{Plan,Doctor}Tests.cpp` 四个新源——
+  两侧同幅、无平台专属新源，M6 的平台分支都在函数体内、不成独立 TU，**TU 平台差维持 0**）。每个源都是独立条目，
   `run-clang-tidy` 的按路径去重只合并同一文件多次入库（如 LoadProbe 双 target 那一例）；
-  **文件数比编译数据库条目数少 1**（本轮 json 实测 112 条目 / 111 唯一路径，三线相同），原因是
+  **文件数比编译数据库条目数少 1**（T6 复测 json 实测 116 条目 / 115 唯一路径，三线相同，与 M6 收口同形），原因是
   `fixtures/LoadProbe/LoadProbe.cpp` 同时编进 `LoadProbe` 与 `UnloadProbe` 两个 fixture（三条线都一样）。
-  历史口径：M4 收口两侧同为 99（Windows 96 → +3 = `VersionedAStampDrift` / `VersionedAServiceDrift`
+  历史口径：M5 收口两侧同为 111（M4 的 99 → +12 = `Source/Host/Inspect.cpp`、`Tools/VaseCli/` 五件
+  （`main`/`Cli`/`Scan`/`Validate`/`ManifestMerge`）、`VaseCli{Scan,Validate}Tests` 与 `Inspect`/`LibraryFileName`
+  四个测试、枚举面 fixture 插件 `NoEnumeration`/`StaleEnum` 两个）；M4 收口两侧同为 99（Windows 96 → +3 = `VersionedAStampDrift` / `VersionedAServiceDrift`
   两个新 fixture（D106）+ `NoIdentityPlugin` 跨平台化，Linux 97 → +2，M3 时「Linux 多 1 个 TU 即
   `NoBuildIdPlugin`」的平台差随之消失）；更早——波 2 时 87→93 / 88→94（新增六个条目）、M3 再 +2 至
   95 / 96、M3 终审修复波再 +1 至 96 / 97。
 
-  Suppressed 合计的上跳（617742→680325 / 269117→301475）**是新 TU 各带一份 nlohmann/gtest 模板量的
-  乘法形状**，**单 TU 极值基本未动（998 / 45609 与 359 自 M3 以来逐数相同；本波 Linux 侧 max 由 11337
-  落到 11334，落在本波未碰的 `ImageInspectPosix.cpp` 上，未归因）即为证**——
+  Suppressed 合计的上跳（680329→766651 / 301480→314262——M6 收口读数为 766650 / 314261，T6 复测两侧各 +1、
+  落非用户代码桶（NOLINT 命中与单 TU 极值零动，属乘法形状漂移，如实记）；更早 M5 收口那轮为 617742→680325 /
+  269117→301475）**是新 TU 各带一份 nlohmann/gtest 模板量的乘法形状**，**单 TU 极值基本未动
+  （Windows 998 / 45609 与 Linux min 359 自 M3 以来逐数相同；Linux max 由上一轮的 11334 回到 11337，
+  又落在本波未碰的 `ImageInspectPosix.cpp` 上、与 M5 收口前读数同值——未归因漂移再现，如实记）即为证**——
   这条判据比合计数本身可靠：真出现新诊断时，变的是某个 TU 的极值，而不是所有 TU 一起平移。
 
   数字变了不一定是错，但**要看它变在哪一类**——摘要行里还会出现 `N NOLINT`
-  （**M5 波末还账口径的抑制命中次数：Windows 两线 4710、Linux 4722——与 M5 收口的 4710 / 4722 逐数相同，
-  因为本波新增代码 `git diff -U0 -- '*.h' '*.cpp' | grep '^+.*NOLINT'` **零命中**，抑制合计的 +4 / +5
-  全落在非用户代码桶。M5 收口那波新增代码**净新增 canonical
+  （**T6 复测口径的抑制命中次数：Windows 两线 4895、Linux 4890——与 M6 收口逐数相同，T6 零新增位点
+  （`git diff HEAD -U0 -- '*.h' '*.cpp' | grep '^+.*NOLINT'` 零命中）、canonical 位点维持 4。M6 波新增代码 canonical 位点 4 处**
+  （`git diff main..HEAD -U0 -- '*.h' '*.cpp' | grep '^+.*NOLINT'` 可数，全部是 `misc-include-cleaner` 的
+  NOLINTBEGIN 区、全部只在 Windows 侧编译：`Doctor.cpp` 的 windows.h include 区与 `ProbeExclusiveOpen`
+  函数体两区、`VaseCliDoctorTests.cpp` 的同形 include 区（含 `#undef CopyFile` 尾行）与
+  `LoadLibraryW`/`FreeLibrary` 使用区两区——四处均就地带一句理由，canonical 推导留在
+  `Source/Host/LoaderWindows.cpp`，见 plan 偏离登记 T3/T4b 条）；命中增量（Windows +185、Linux +168）
+  主体是既有位点乘上 4 个新 TU 的乘法形状，Windows 侧另含这四处位点自身的命中贡献（Linux 上
+  `#ifdef _WIN32` 内不编译，故两侧增量不等）。历史：M5 波末还账 4710 / 4722——与 M5 收口的
+  4710 / 4722 逐数相同，该波新增代码 `git diff -U0 -- '*.h' '*.cpp' | grep '^+.*NOLINT'` **零命中**，
+  抑制合计的 +4 / +5 全落在非用户代码桶。M5 收口那波新增代码**净新增 canonical
   位点 7 处**（`git diff main..HEAD -U0 -- '*.h' '*.cpp' | grep '^+.*NOLINT'` 可数，均就地带理由，
   见「静态检查与格式」段），而命中增量（Windows +316、Linux +317）全属既有位点乘上 12 个新 TU 的
   乘法形状。更早：M4 收口 4394 / 4405——该波新增代码**零 NOLINT 位点**
@@ -856,5 +941,5 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
 
 - **`ctest` 在一个测试都没发现时同样返回 0。** 所以「测试全绿」不能只跑
   `ctest --preset <p>`，必须另跑一次 `ctest --preset <p> -N`，把 `Total Tests`
-  与「构建与测试」一节那张**按线分账的基数表**逐位对上（M5 收口复测六线全部对上，见该表）。`gtest_discover_tests` 用的是 `DISCOVERY_MODE PRE_TEST`，
+  与「构建与测试」一节那张**按线分账的基数表**逐位对上（M6 收口复测六线全部对上，见该表）。`gtest_discover_tests` 用的是 `DISCOVERY_MODE PRE_TEST`，
   枚举发生在 ctest 运行时——测试被漏注册时，`ctest` 会一声不吭地报成功。

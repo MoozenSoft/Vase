@@ -5,7 +5,9 @@ add_library(VaseCliCore STATIC
     Cli.cpp
     Scan.cpp
     Validate.cpp
-    ManifestMerge.cpp)
+    ManifestMerge.cpp
+    Plan.cpp
+    Doctor.cpp)
 
 target_link_libraries(VaseCliCore
     PRIVATE VaseBuildOptions)   # 只链 VaseBuildOptions：编排面自己用 VaseHost/VaseCatalog 的类型
@@ -34,3 +36,17 @@ add_test(NAME VaseCliUnknownSubcommandIsUsageError COMMAND VaseCli frobnicate)
 set_tests_properties(VaseCliUnknownSubcommandIsUsageError PROPERTIES WILL_FAIL TRUE)
 add_test(NAME VaseCliUnknownSubcommandReason COMMAND VaseCli frobnicate)
 set_tests_properties(VaseCliUnknownSubcommandReason PROPERTIES PASS_REGULAR_EXPRESSION "unknown command")
+
+add_test(NAME VaseCliPlanNoArgsIsUsageError COMMAND VaseCli plan)
+set_tests_properties(VaseCliPlanNoArgsIsUsageError PROPERTIES WILL_FAIL TRUE)
+add_test(NAME VaseCliPlanNoArgsReason COMMAND VaseCli plan)
+set_tests_properties(VaseCliPlanNoArgsReason PROPERTIES PASS_REGULAR_EXPRESSION "usage: VaseCli plan")
+
+add_test(NAME VaseCliDoctorNoArgsIsUsageError COMMAND VaseCli doctor)
+set_tests_properties(VaseCliDoctorNoArgsIsUsageError PROPERTIES WILL_FAIL TRUE)
+add_test(NAME VaseCliDoctorNoArgsReason COMMAND VaseCli doctor)
+set_tests_properties(VaseCliDoctorNoArgsReason PROPERTIES PASS_REGULAR_EXPRESSION "usage: VaseCli doctor")
+add_test(NAME VaseCliDoctorTooManyArgsIsUsageError COMMAND VaseCli doctor a b)
+set_tests_properties(VaseCliDoctorTooManyArgsIsUsageError PROPERTIES WILL_FAIL TRUE)
+add_test(NAME VaseCliDoctorTooManyArgsReason COMMAND VaseCli doctor a b)
+set_tests_properties(VaseCliDoctorTooManyArgsReason PROPERTIES PASS_REGULAR_EXPRESSION "usage: VaseCli doctor")

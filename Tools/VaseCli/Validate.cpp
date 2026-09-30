@@ -12,12 +12,9 @@
 #include "Vase/Host/ManifestExpectation.h"
 #include "Vase/PluginDescriptor.h"
 
-#include <charconv>
 #include <cstddef>
-#include <cstdint>
 #include <filesystem>
 #include <iterator>
-#include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -26,27 +23,6 @@
 
 namespace
 {
-
-// "name@version"：版本必须 ≥1（与 D64 的解析期闸同口径）；名字不得为空。
-std::optional<vase::ServiceRef> ParseHostProvided(std::string_view text)
-{
-    const std::size_t at = text.rfind('@');
-    if (at == std::string_view::npos || at == 0U || at + 1U >= text.size())
-    {
-        return std::nullopt;
-    }
-    std::uint32_t version = 0;
-    const std::string_view digits = text.substr(at + 1U);
-    // 指针形态照 Console::ParseIndex（data() 先落命名变量再进 from_chars；data()+size() 吃 pro-bounds）。
-    const char* const begin = digits.data();
-    const char* const end = std::next(begin, static_cast<std::ptrdiff_t>(digits.size()));
-    const auto parsed = std::from_chars(begin, end, version);
-    if (parsed.ec != std::errc{} || parsed.ptr != end || version < 1U)
-    {
-        return std::nullopt;
-    }
-    return vase::ServiceRef{.Name = text.substr(0, at), .Version = version};
-}
 
 std::string PrefixOf(std::string_view id) { return std::string(id) + "."; }
 
@@ -258,22 +234,11 @@ int RunValidate(const std::vector<std::string>& args, std::ostream& out, std::os
     }
     ValidateOptions options;
     options.PluginDirectory = *std::next(args.begin(), 1); // std::next 形态：pro-bounds 检查的既有惯例（同 Cli.cpp）
-    // HostProvided 的 Name 借 args 里的串（D60 窗 = 本次调用）：args 存活覆盖整个调用，安全。
-    // 一次吃「flag + 值」两格：步进放 header 的 std::advance(it, 2)（header 与体内双 ++it 触发 -Wfor-loop-analysis）。
-    for (auto it = std::next(args.begin(), 2); it != args.end(); std::advance(it, 2))
+    // 解析腿已提入 Cli 层与 plan 共用（M6/D146）；文案逐字保留（MalformedHostProvides 用例钉着）。
+    if (!ParseTrailingHostProvides(args, 2, options.HostProvided,
+                                   "usage: VaseCli validate <插件目录> [--host-provides <name>@<version>]...\n", err))
     {
-        if (*it != "--host-provides" || std::next(it) == args.end())
-        {
-            err << "usage: VaseCli validate <插件目录> [--host-provides <name>@<version>]...\n";
-            return kExitUsage;
-        }
-        const std::optional<vase::ServiceRef> provided = ParseHostProvided(*std::next(it));
-        if (!provided.has_value())
-        {
-            err << "invalid --host-provides value: " << *std::next(it) << " (expected <name>@<version>=1)\n";
-            return kExitUsage;
-        }
-        options.HostProvided.push_back(*provided);
+        return kExitUsage;
     }
     return ValidateDirectory(options, out, err);
 }

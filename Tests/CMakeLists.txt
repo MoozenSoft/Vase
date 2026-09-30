@@ -29,6 +29,8 @@ add_executable(VaseTests
     Integration/SolveTests.cpp
     Integration/VaseCliScanTests.cpp
     Integration/VaseCliValidateTests.cpp
+    Integration/VaseCliPlanTests.cpp
+    Integration/VaseCliDoctorTests.cpp
     Integration/AssemblyFromSolveTests.cpp
     Integration/LoadTimeComparisonTests.cpp
     HotSwap/EjectTests.cpp
