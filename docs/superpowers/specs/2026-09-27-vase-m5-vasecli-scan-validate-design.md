@@ -78,7 +78,7 @@
 | **§6.1 末句「宿主不占用 Vase 的命名空间」** | 记账不实现（D132）：`Vase.` 在本仓库既是框架前缀也是插件 Id 前缀 |
 | **`--check` / `--dry-run` / `--json` 模式** | `validate` 是前两者的对偶面；机器判据已有退出码（D137） |
 | **`scan` 的编号索引 / `list` 之类的附加子命令** | §11.1 没有；YAGNI |
-| macOS 腿、Android / iOS、CI | M5 后续波次（§12.3 与 `CLAUDE.md` 记的「仍无 CI（M5）」） |
+| macOS 腿、Android / iOS、CI | M5 后续波次（§12.3 与 `CLAUDE.md` 记的「仍无 CI（M5）」）。**[勘误（2026-10-03）]** macOS 腿已落（2026-10-02）；**CI / CD 经需求方裁定不做**（wiki §13.4「明确不做」）；只剩 Android / iOS 仍待 |
 
 ---
 

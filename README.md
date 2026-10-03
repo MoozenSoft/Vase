@@ -33,6 +33,9 @@ Vase is a plugin framework that treats every module like a branch in flower arra
   - Linux/WSL：`VCPKG_ROOT` 由 `/etc/profile.d/vcpkg.sh` 提供，登录 shell 可见；
     **非登录非交互的 `bash -c` 拿不到它**，这类调用方（CI 步骤、构建钩子）必须
     自己显式带上 `VCPKG_ROOT`。这是 shell 的加载规则，配置改不了。
+  - **拉依赖时若撞 curl 传输错误**（macOS 腿实撞过一次：拉 `nlohmann-json` 报 HTTP2 err16），
+    那是网络环境问题、不是仓库缺陷——`vcpkg` 的下载归档缓存在 `<VCPKG_ROOT>/downloads/`，
+    把别处已下好的同名归档拷进去即可跳过下载。
 - **macOS 侧（macOS 腿 2026-10-02 起）走 MacPorts，不走 Xcode/Apple clang**：
   - 编译器是 `clang++-mp-23`——Apple clang 是 16.0.0 且其 libc++ 头来自 SDK，与我们的
     MacPorts LLVM 23 自带头树**不同源**；工具链文件与 overlay triplet 都把它钉死在

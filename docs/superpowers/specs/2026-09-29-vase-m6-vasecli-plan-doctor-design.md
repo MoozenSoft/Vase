@@ -24,7 +24,7 @@ M2b 波 1 的 D47/D62（Notes 结构化）、D50/D58（快照事务与宽容跳�
 > **[裁定注 · brainstorming（2026-09-28，四问四裁 + 设计圈定）]** 逐条落点：
 > **Q1 · plan 形状（D141）**：`plan <插件目录> [presetFile] [--host-provides <name>@<version>]…`——提案原文 `plan <preset>` 缺目录参数，无目录即无快照；采 Console `pod new` 同形，且**吃 `--host-provides`**：wiki §11.1 那条「validate 与 plan 必须与运行时同一套规则」要求两命令的 `LoadRequest` 可同样施加，否则宿主补了服务的树会给出两样结论。
 > **Q2 · plan 退出码（D142）**：D135 同一律扩到 plan。1 = Solve 硬错误 ∪ `kMissingDependency`/`kVersionMismatch`（与 validate③ 逐字同判）；2 = 目录不存在 / preset 读不成 / 零插件树；`kDisabled` 与 warn Notes 只打不计。
-> **Q3 · doctor 定形（D143）**：收窄四项——①身份特征在场（磁盘读）②HeaderVersion 匹配（装载读）③目录可写（写探针）④残留文件锁（Windows 实测 / Linux 如实不可探测）。「编译器/版本/CRT」子项**记账不实现**（D147）。
+> **Q3 · doctor 定形（D143）**：收窄四项——①身份特征在场（磁盘读）②HeaderVersion 匹配（装载读）③目录可写（写探针）④残留文件锁（Windows 实测 / Linux 如实不可探测）。「编译器/版本/CRT」子项**记账不实现**（D147）。**[勘误（2026-10-03）]** 该子项已由需求方裁定划入 wiki §13.4「明确不做」，D147 销账。
 > **Q4 · doctor 退出码（D144）**：`doctor <插件目录>` 单参；同一律三档，任一 FAIL = 1；Linux 的「不可探测」是 info 行，不计成败也不静默丢。
 
 > **[裁定注 · grilling R1（2026-09-29，四问四裁全部裁可）]** 逐条落点：
@@ -49,7 +49,7 @@ M2b 波 1 的 D47/D62（Notes 结构化）、D50/D58（快照事务与宽容跳�
 
 | 项 | 去向 |
 |---|---|
-| 「工具链一致性」的编译器/版本/CRT 细读 | 记账不实现（D147）。PE 侧无可靠读面、ELF 侧 `.comment` 只覆盖 clang 版本，两平台可读面不对称——身份特征子集（①）才是有后果可判的部分（缺了 ⇒ 档三 Adopt 必拒） |
+| 「工具链一致性」的编译器/版本/CRT 细读 | 记账不实现（D147）。PE 侧无可靠读面、ELF 侧 `.comment` 只覆盖 clang 版本，两平台可读面不对称——身份特征子集（①）才是有后果可判的部分（缺了 ⇒ 档三 Adopt 必拒）。**[勘误（2026-10-03）]** 已由需求方裁定划入 wiki §13.4「明确不做」，D147 销账 |
 | §11.1 的 CMake 后置步骤 | 不动，仍按 D125 单独记账 |
 | macOS 腿与 `LibraryFileName` 的 `.dylib` 分支 | 仍归 macOS 那一波（D138）；doctor 第④项在 Apple 平台形态同 Linux（不可探测支），届时随平台腿一并点亮，本波不预写 |
 | `--json` / 机器可读输出 | 仍按 D137 只出人读文本；消费面（D125）未起 |
@@ -70,7 +70,7 @@ M2b 波 1 的 D47/D62（Notes 结构化）、D50/D58（快照事务与宽容跳�
 | D144 | **`doctor` argv = `VaseCli doctor <插件目录>`；退出码同一律三档**——任一 FAIL = 1（**快照未建成也算 1**，D130 同律：那是判定级发现，不是环境档）；2 = 目录不存在 / 零插件树；**Linux ④ 的「不可探测」不计成败**，但必须打成 info 行（不许静默） | 裁定注 Q4；D135 |
 | D145 | **`plan` 是全工具链唯一零装载子命令**：链上只有 Catalog 面（`Refresh`/`LoadPreset`/`Solve`），`LoadRequest::HostProvided` 借 argv 串（D60 窗 = 本次调用）、`Plan.Ordered[i].Id` 借快照（D61），打印在调用内完成——无悬垂面 | 事实取证注①；`plan` 的「预测不执行」语义（§4.4：求解不执行代码） |
 | D146 | **`--host-provides` 解析腿搬进 `Cli.{h,cpp}` 共用**：`ParseHostProvided` 出匿名 namespace，成对消费循环提为 `Cli` 层函数；validate 行为逐字不变，回归由既有 validate 用例钉 | 事实取证注⑤；同一份 argv 规则住两处必腐（规矩 7 精神在工具层的同调） |
-| D147 | **编译器/版本/CRT 细读记账不实现**：提案第①项兑现为身份特征子集；剩余子项若要做，前置是各平台可读面的独立取证 | 裁定注 Q3；事实取证注②（有后果可判的部分才进退出码） |
+| D147 | **编译器/版本/CRT 细读记账不实现**：提案第①项兑现为身份特征子集；剩余子项若要做，前置是各平台可读面的独立取证 | 裁定注 Q3；事实取证注②（有后果可判的部分才进退出码）。**[勘误（2026-10-03）]** 需求方裁定划入 wiki §13.4「明确不做」，D147 销账（取证：三平台无可靠读面 + 失败形态在树内不可达） |
 | D148 | **④ 的锁探针住 `Tools/VaseCli/Doctor.cpp` 文件内 static**，`#ifdef _WIN32` 单函数，形状照 `PlatformReopenWritable`（事实取证注⑨）；**不提进 VaseHost**——Host 侧没有它的第二个消费者（D124 的库薄工具厚判据再验一次） | D124；YAGNI |
 | D149 | **`plan` 输出文本与 Console `catalog solve` 各持一份映射**（`SkipReasonText`/`SolveNoteKindText` 形状），不抽公共前端库——前端文本原则（M3/D100、M4/D110 两份 `PrintEjectReport` 同例）；「同一套规则」钉的是**判定**（同一个 `Solve`），不是输出形状 | 事实取证注④；技能 abi-boundary / 前端先例 |
 | D150 | **③ 写探针文件名 = 时间戳唯一**（`.vase-probe-<ns>.tmp`，ns 取 steady_clock），创建→立即删除；**删除失败也算 FAIL**，文本点名残留路径交人清理 | 见 §3.3；探测不得留下不可见副作用 |

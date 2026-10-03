@@ -1,7 +1,7 @@
 # 平台工具链：Windows x64 + cl.exe。
 #
-# 与 windows-x64-clangcl.cmake 是**同一 ABI 的两个前端**（8.5）：都目标 MSVC ABI、
-# 都用 MSVC STL。Vase 本体两套都支持，让「宿主与插件可以各用一个」不只停在纸面。
+# 与 windows-x64-clangcl.cmake 都目标 MSVC ABI、都用 MSVC STL，但**同一棵树内不得混用**：
+# 要么全部库都由 cl.exe 编译，要么全部都由 clang-cl.exe 编译（需求方 2026-10-03 裁定，见 8.5）。
 #
 # 与 clang-cl 的关键差别：**cl.exe 需要 VS Developer 环境**（PATH / INCLUDE / LIB），
 # 它不像 clang-cl 那样能自行经注册表发现 MSVC。因此这套 preset 必须在

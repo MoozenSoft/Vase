@@ -25,10 +25,10 @@ else()       ImageInspectLinux.cpp    LoaderPosix.cpp   # 由 Posix 更名
 
 | 平台 | 编译器 | STL |
 |---|---|---|
-| Windows | `clang-cl` **或** `cl.exe`（两者都支持） | MSVC STL |
+| Windows | `clang-cl` **或** `cl.exe`（各一条 preset 线；**同一棵树内不得混用**） | MSVC STL |
 | Linux / macOS / Android / iOS | `clang` | libc++ |
 
-**Windows 上支持两个编译器，正是为了让"宿主与插件可以各用一个"不只是纸面约定。** 但注意它们**不等价**——见第 5 节。
+**Windows 上两条 preset 线并存，是要证明两个前端各自都能独立撑起一棵完整的构建树。** 它们**不得混用**——同一棵树要么全 `cl.exe`、要么全 `clang-cl.exe`（需求方 2026-10-03 裁定）；且**不等价**——见第 5 节。
 
 工具链文件与 triplet 的清单以根 `CLAUDE.md`「构建与测试」与「工具链 flag 是承重的」两节为准（后者还写明每条承重 flag 落在哪个文件上）。**要记住的是这个判断**：这些文件只讲编译器定位、vcvars 与 STL 选型（triplet 管 vcpkg 侧的 STL 选型），**不涉及异常设置**——异常在根 `CMakeLists.txt` 的 `VaseBuildOptions` 里，清单见规矩 1。别去工具链文件里找异常 flag。
 
@@ -71,6 +71,7 @@ else()       ImageInspectLinux.cpp    LoaderPosix.cpp   # 由 Posix 更名
 | **`std::array::begin()` 的返回类型** | MSVC STL 返回迭代器类**而非指针**。所以 `MetaArray::End()` 必须从 `Begin()` 用 `std::next` 起算，不能写 `Items.data() + Count` |
 | **CRT 选型** | `clang-cl` 与 `clang` 的驱动默认都是**静态 CRT**（`/MT`）——静态 CRT 让每个动态库各持一份堆，跨模块 new/delete 落到不同的堆上，正是 §8.3 禁止 `x64-windows-static` 的理由。仓库在根 `CMakeLists.txt` 里**显式设** `CMAKE_MSVC_RUNTIME_LIBRARY` 为动态调试/发布版 CRT（`MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`），注释原话「不该靠一个可被他人改动的默认值兜着」。**那行不是冗余，别删**；实测 Debug 下传给 clang-cl 的是 `-MDd`。**这是 §8.3「同一 CRT 配置」那条前提的落点** |
 | **`/EHs-c-` 的执行力不等价** | `clang-cl` 关闭异常时 `try` / `throw` / `catch` **全是硬错误**（完整强制）；`cl.exe` 加 `/we4530` 也**拦不住裸 `throw`**（实测 exit=0）。这一形态靠 clang-cl 构建兜住——**只跑 cl.exe 线时它是漏网的** |
+| **枚举穷举 switch 的守卫** | `clang-cl` / Linux / macOS 有 `-Wswitch`（配 `-Werror`），漏 case 即硬失败；`cl.exe` 的 C4062 **默认关且 `/W4` 不激活**，故 `VaseBuildOptions` 的 cl.exe 支显式加 `/we4062` 补上（字面值以根 `CLAUDE.md` 规矩 1 为准）。**新写「无 default 的 switch」时靠它咬住漏 case** |
 | **DLL 搜索** | 构建产物必须让可执行与 DLL 同处 `bin/`——这是 Windows 能找到 DLL 的前提。**不要改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`** |
 
 ---

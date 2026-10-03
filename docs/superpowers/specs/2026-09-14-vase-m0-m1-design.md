@@ -30,7 +30,7 @@
 | D3 | M1 边界 = **闭环 + 卸载证据**（不含双版本 reload fixture） | 纵切的意义就是让二进制生命周期风险最早暴露。卸载证据便宜，可进 M1；12.1 的双版本 fixture 重，留 M4 |
 | D4 | 测试框架 **GoogleTest** | 架构文档 12 节把「Debug 断言会触发」当正式验证手段（#16、#17、7.2、5.3），验证它需要 death test；三家主流框架只有 GoogleTest 内建支持 |
 | D5 | 依赖管理 **vcpkg manifest 模式**，M0 起用 | 13.2 已决定 CMake + vcpkg。M0 即接入，避免依赖管道推迟到 M2 才第一次撞上 |
-| D6 | Windows 编译器：**clang-cl 与 cl.exe 都支持**，各自一套 preset。clang-cl **由 PATH 环境变量解析**（不写死安装路径） | **2026-09-15 由需求方扩为两者并存**。8.5 说两者是同一 ABI 的两个前端（都目标 MSVC ABI、都用 MSVC STL），本体两套都支持，才能让「宿主与插件可以各用一个」不只是纸面约定。**clang-cl 仍是主构建**：与 Linux/macOS 同前端，clang-tidy / clang-format 判据一致。cl.exe 的两处代价见 2.1.1(e)。**注意**：原始理由里「warning 集合一致」一句已收回，见 2.1.1(d) |
+| D6 | Windows 编译器：**clang-cl 与 cl.exe 都支持**，各自一套 preset。clang-cl **由 PATH 环境变量解析**（不写死安装路径） | **2026-09-15 由需求方扩为两者并存**。8.5 说两者是同一 ABI 的两个前端（都目标 MSVC ABI、都用 MSVC STL），本体两套都支持，才能让「宿主与插件可以各用一个」不只是纸面约定。**[勘误（2026-10-03）]** 这半句**已失效**——Windows 上 `cl.exe` 与 `clang-cl.exe` **不得在同一构建树内混用**（需求方 2026-10-03 裁定），约束是「同平台 + 同 STL + 同编译器」；D6 本身（两套 preset 并存、clang-cl 为主构建）不变。见 wiki §8.5。**clang-cl 仍是主构建**：与 Linux/macOS 同前端，clang-tidy / clang-format 判据一致。cl.exe 的两处代价见 2.1.1(e)。**注意**：原始理由里「warning 集合一致」一句已收回，见 2.1.1(d) |
 | D7 | Linux 侧落点 **WSL2 Ubuntu** | 本机，迭代最快。CI 推至 M5 |
 | D8 | Effect 存储形态 = **`IEffect` 虚接口 + Scope 内 size-class 空闲链表** | 回收路径与注册点类型完全无关，账目统一性最好；跨 DLL 删除语义与 3.1 的 `VasePluginDestroy_<T>()` 同构 |
 | D9 | `EffectHandle` = **索引 + 代际** | 与 5.1 的 `SessionHandle` 同构；代际一次解决 7.2 幂等与 7.3 的「从账上移除」 |
@@ -55,7 +55,7 @@
 | Ninja | 1.13.2 | 1.11.1 | 生成器；`compile_commands.json` 干净，clang-tidy 直接可用 |
 | 编译器 | clang-cl **23.1.0**（`D:\Developer\LLVM\bin`，独立安装，**由 PATH 解析**） | clang **23.1.0**（`/opt/llvm-23.1.0`，tarball 手动安装，链接进 `/usr/local/bin`） | **两侧同版本、同源 commit（`ea7d852a`）**，见 2.1.1(c) |
 | clang-format / clang-tidy | 23.1.0 | 23.1.0 | 版本一致 → 验收 #1 / #3 / #5 双平台成立 |
-| 标准库 | MSVC STL（由 VS 安装提供） | libc++ 23.1.0（`/usr/local/lib`，实测编译+运行验证） | 8.3 的约束是「同平台 + 同 STL」 |
+| 标准库 | MSVC STL（由 VS 安装提供） | libc++ 23.1.0（`/usr/local/lib`，实测编译+运行验证） | 8.3 的约束是「同平台 + 同 STL + 同编译器」——**[勘误（2026-10-03）]** 原写「同平台 + 同 STL」；Windows 上 `cl` 与 `clang-cl` 不得混用（需求方裁定），见 wiki §8.5 |
 | vcpkg | `D:\Developer\vcpkg` HEAD `114d9fe6` | `/mnt/d/Developer/vcpkg-linux` HEAD `114d9fe6` | 见 2.2 |
 
 **环境前提**：clang-cl 需要 MSVC 的头/库/链接器。用 Ninja 生成器时若 clang-cl 自动探测不奏效，从 VS Developer 环境配置。此条写入 README，并列为 M0 验证项。
@@ -70,6 +70,10 @@
 #### 2.1.1 五处环境陷阱
 
 **（a）CMake 下限定为 4.4，以及 4.x 的 `<3.5` 报错。**
+
+> **[勘误（2026-10-03）]** 本条的两项取值**现均非如此**：`CMakeLists.txt:1` 已是 `cmake_minimum_required(VERSION 4.0)`，
+> `CMakePresets.json` 的 `"version"` 是 **9**、`cmakeMinimumRequired` 为 4.0.0（2026-10-03 下调，commit `8db3cc7`，
+> 同日八线删树重配复验全绿）。下面的原文按历史读，不改。
 
 两侧实测为 4.4.3（Windows）与 4.4.2（WSL，装在 `/opt/cmake-4.4.2`，非发行版包），只差一个补丁号，因此项目**直接以 4.4 为下限**：
 
@@ -115,7 +119,7 @@ schema 12 由 CMake 4.4 引入（对照：6→3.25、8→3.28、10→3.31、11�
 
 版本一致即意味着：验收 #1（`-Werror`）、#3（`run-clang-tidy`）、#5（格式校验）**双平台执行成立**——同版本的 format/tidy 规则是同一份代码。此前「22 vs 23 输出恰好一致」的实测现在只是佐证，不再是依赖。
 
-**残余的平台差异**只剩两件，且都不是版本问题：Windows 目标三元组是 `x86_64-pc-windows-msvc` + MSVC STL，Linux 是 `x86_64-unknown-linux-gnu` + libc++——这正是 8.3「同平台 + 同 STL」约束允许的两套平台形态。**独立安装的 clang-cl 仍依赖 VS 提供 MSVC 头/库/链接器**（经注册表自动发现），与 2.1「环境前提」同条。
+**残余的平台差异**只剩两件，且都不是版本问题：Windows 目标三元组是 `x86_64-pc-windows-msvc` + MSVC STL，Linux 是 `x86_64-unknown-linux-gnu` + libc++——这正是 8.3「同平台 + 同 STL + 同编译器」约束允许的两套平台形态（**[勘误（2026-10-03）]** 原写「同平台 + 同 STL」；Windows 上 `cl` 与 `clang-cl` 不得混用，见 wiki §8.5）。**独立安装的 clang-cl 仍依赖 VS 提供 MSVC 头/库/链接器**（经注册表自动发现），与 2.1「环境前提」同条。
 
 **安装期真坑（记录以防重蹈）**：LLVM 包自带 `libunwind.so.1`。若把它的 libunwind 也放进 `/usr/local/lib`，会**盖过发行版的同名库**——`/usr/local/lib` 在 ldconfig 搜索路径中优先，而 `libc++abi` 恰好依赖 `libunwind.so.1`。影响面是所有需要 libunwind 的进程，故障表现为无关程序诡异崩溃。**处置：只搬 `libc++*`，libunwind 用发行版的**；实测 `ldd` 解析正确（`libc++.so.1 → /usr/local/lib`、`libunwind.so.1 → /lib/x86_64-linux-gnu`）。
 

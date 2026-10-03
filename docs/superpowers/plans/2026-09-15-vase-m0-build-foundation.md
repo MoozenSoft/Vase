@@ -28,11 +28,11 @@
 - **CMake 下限**：`cmake_minimum_required(VERSION 4.4)`；`CMakePresets.json` 的 `"version"` 取 **12**。不写 `<min>...<max>`。
 - **vcpkg**：manifest 模式，`builtin-baseline` = `114d9fe62faf35856b45cf55cb93b57028a45d63`（两侧已实测一致）。**不使用 submodule。**
 - **编译器**：clang / clang-cl **23.1.0**（同源 commit `ea7d852a`），**由 PATH 解析，工具链文件里不写死任何安装路径**。换 LLVM 只改 PATH，不动仓库。
-- **Windows 上支持两个编译器**：clang-cl **与** cl.exe（8.5：同一 ABI 的两个前端，都用 MSVC STL）。各自一套 preset。支持两者的意义是让「宿主与插件可以各用一个」不只是纸面约定。**一条操作差异**：clang-cl 能自行发现 MSVC（实测无需 Developer 环境），**cl.exe 需要 VS Developer 环境**。
+- **Windows 上支持两个编译器**：clang-cl **与** cl.exe（8.5：同一 ABI 的两个前端，都用 MSVC STL）。各自一套 preset。支持两者的意义是让「宿主与插件可以各用一个」不只是纸面约定。**[勘误（2026-10-03）]** 末句**已失效**——Windows 上 `cl.exe` 与 `clang-cl.exe` **不得在同一构建树内混用**（需求方 2026-10-03 裁定）；「各自一套 preset」不变，见 wiki §8.5。**一条操作差异**：clang-cl 能自行发现 MSVC（实测无需 Developer 环境），**cl.exe 需要 VS Developer 环境**。
 - **Triplet**：Windows 用内置 `x64-windows`（**禁止 `x64-windows-static`**）；Linux 用自定义 `x64-linux-libcxx`。
 - **动态 CRT（8.3）**：跨模块 `new`/`delete` 必须落在同一个堆，因此**必须** `/MD`。注意这条同时是**驱动的默认值的反面**——实测 clang 与 clang-cl 在 Windows 上的默认都是静态 CRT（`libcmt`）。triplet 只管 vcpkg 构建的依赖，**我们自己的 target 由 `CMAKE_MSVC_RUNTIME_LIBRARY` 决定**，计划里显式设置并用产物验证。
 - **不使用 C++ 异常**（架构文档 0.3 原则 7）：全项目 `-fno-exceptions`（Windows 侧 `/EHs-c-`，已实测合法且确实关异常）。错误一律经 `Result<T>` / `Error` 显式返回。
-- **总原则**：凡影响 ABI 的默认值（CRT、异常模型、STL），**一律显式写出并验证**，不靠驱动或 CMake 的默认值兜着——插件与宿主可能由不同工具链构建，默认值不一致的代价在运行期才付。
+- **总原则**：凡影响 ABI 的默认值（CRT、异常模型、STL），**一律显式写出并验证**，不靠驱动或 CMake 的默认值兜着——默认值不一致的代价在运行期才付（**[勘误（2026-10-03）]** 原写「插件与宿主可能由不同工具链构建」：该形态已由「不对外分发」与「Windows 两编译器不得混用」两条裁定排除，原则本身照旧）。
 - **警告**：警告即错误从 M0 就开，做成 `VASE_WERROR` 选项。但**三个编译器不能用同一组 flag 写法**：实测 clang-cl 的 `-Wall` 等价于 `/Wall` 即 `-Weverything`（GNU 驱动的 `-Wall` 才是精选集），所以警告等级是 Windows `/W4` / Linux `-Wall -Wextra`；而**警告即错误**又是另一回事——`cl.exe` 把 `-Werror` 当 `/Werror` 解析并报**硬错误 D8021**，它要用 `/WX`。两条都别想「一个列表伺候所有编译器」。
 - **命名**：由 `.clang-tidy` 的 `readability-identifier-naming.*` 强制——命名空间 `lower_case`、类型/函数/成员 `CamelCase`、参数与局部变量 `camelBack`、全局变量 `gCamelCase`、各类常量 `kCamelCase`。
 - **格式**：以 `.clang-format` 为准（Allman、4 空格、`PointerAlignment: Left`、`ColumnLimit: 120`）。**它是权威**——本计划里的代码片段若与 `clang-format` 的输出不一致，改代码片段，不改配置。

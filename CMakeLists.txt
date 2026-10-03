@@ -169,6 +169,11 @@ if(WIN32)
         # clang-cl 连裸 throw 都拒。只跑 cl.exe 构建时它是漏网的，记在 spec 第 9 节。
         target_compile_options(VaseBuildOptions INTERFACE /we4530)
 
+        # C4062 = 枚举 switch 漏 case（无 default）。默认关且 /W4 不激活，若不显式升错误，
+        # 那类「穷举 switch」守卫在 cl.exe 线上是空的（clang-cl / Linux / macOS 侧有 -Wswitch）。
+        # 挂在 cl.exe 支而非 if(MSVC) 下——后者对 clang-cl 也为真，而 clang-cl 不需要它。
+        target_compile_options(VaseBuildOptions INTERFACE /we4062)
+
         # /Zc:preprocessor = MSVC 的 conforming 预处理器。VASE_CONFIG 的字段计数要把
         # __VA_ARGS__ 整串转发进另一个宏再按逗号重分裂，而旧版预处理器不重分裂（实测
         # 症状：struct 展开残缺、kFields 干脆不存在）；加上本 flag 后整条线绿。

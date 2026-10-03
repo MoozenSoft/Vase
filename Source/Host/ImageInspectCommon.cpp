@@ -615,7 +615,7 @@ ImageFormat PlatformImageFormat()
 
 Result<std::vector<std::string>> ParseImportedLibraryNames(std::span<const std::uint8_t> fileBytes)
 {
-    // 穷举 switch（无 default）：加格式时 clang 线的 -Wswitch 会顶出来。
+    // 穷举 switch（无 default）：加格式时 clang 的 -Wswitch 与 cl.exe 的 C4062（/we4062）都会顶出来。
     switch (PlatformImageFormat())
     {
     case ImageFormat::kPe:
@@ -631,7 +631,7 @@ Result<std::vector<std::string>> ParseImportedLibraryNames(std::span<const std::
 std::string FirstUnresolvableImport(std::span<const std::uint8_t> fileBytes, ImageFormat format)
 {
     Result<std::vector<std::string>> names = Result<std::vector<std::string>>::Err(Error{"unreachable image format"});
-    // 穷举 switch（无 default）：加格式时 clang 线的 -Wswitch 会顶出来。
+    // 穷举 switch（无 default）：加格式时 clang 的 -Wswitch 与 cl.exe 的 C4062（/we4062）都会顶出来。
     switch (format)
     {
     case ImageFormat::kPe:

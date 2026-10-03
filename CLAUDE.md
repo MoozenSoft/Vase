@@ -25,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 语言标准：**C++20**。
 - 项目性质：**plugin 插件管理能力库**——只负责发现插件、解析依赖、装配、运行、干净关停；不提供业务逻辑，不提供编辑器，不提供引擎适配。
-- 目标平台：**Win x64 / Linux x64 / macOS x64**（开发 + 发布）、**Android arm64 / iOS arm64**（仅发布）。macOS 原为 arm64，需求方 2026-10-01 裁定改 x64、**arm64 永久移出**——将来若要 arm64 是新增一套 preset + triplet，不是改这一套（macOS 腿 spec D157）。编译器与 STL 矩阵见架构文档 8.5——注意 Windows 上 `cl` 与 `clang-cl` 都可，Linux/macOS/Android/iOS 用 `clang` + `libc++`。
+- 目标平台：**Win x64 / Linux x64 / macOS x64**（开发 + 发布）、**Android arm64 / iOS arm64**（仅发布）。macOS 原为 arm64，需求方 2026-10-01 裁定改 x64、**arm64 永久移出**——将来若要 arm64 是新增一套 preset + triplet，不是改这一套（macOS 腿 spec D157）。编译器与 STL 矩阵见架构文档 8.5——注意 Windows 上 `cl` 与 `clang-cl` 各有一条 preset 线、**同一个构建树内不得混用**（要么全 `cl`、要么全 `clang-cl`；需求方 2026-10-03 裁定），Linux/macOS/Android/iOS 用 `clang` + `libc++`。
 - 许可证：MIT，版权归 MoozenSoft。
 - **不使用 C++ 异常**：全项目以关闭异常的方式编译（Windows `/EHs-c-`、Linux/macOS `-fno-exceptions`）。错误一律经 `Result<T>` / `Error` 显式返回，**不写 `throw` / `try` / `catch`**。连带约束（标准库与第三方库的抛错 API 改用不抛形式、`nlohmann/json` 开 `JSON_NOEXCEPTION`、`EXPECT_THROW` 在本项目 TU 不可用）见架构文档 0.3 原则 7 与 13.2，以及 M0/M1 设计文档第 9 节。
 
@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 即核心关注点是**模块的选取、挂载与干净卸载**。M1 已把它的最小形落成代码，M2a 补了装配地基那一层，M2b 两波补了清单解析/Catalog 求解与加载期比对执法（见「项目状态」；具体机制以磁盘上的头文件与实现为准，`wiki/vase-architecture.md` 里其余部分仍是提案）。**不要在文档或代码注释中把提案写成既定事实**——新增或变更机制前先与需求方确认。
 
-### 项目状态：M0、M1 完成；M2a 完成（M2 第一波），M2b 波 1 完成（清单解析/Catalog/Solve/Preset），M2b 第二波完成（加载期比对/Adopt 单轨/enum+bump/前端），M3 完成（判据 3a 全量形/3d 进程级状态登记），M4 完成（换件谱描述符维含回退/Windows 档三负例还清 M1 登记账/语义依赖知情位），M5 第一波完成（VaseCli scan/validate），M6 完成（VaseCli plan/doctor，四命令共享同一套退出码），macOS x64 平台腿完成（八线全绿：档二 _dyld 映射清单/档三 LC_UUID/无对位承重 flag 由负例把守）
+### 项目状态：M0、M1 完成；M2a 完成（M2 第一波），M2b 波 1 完成（清单解析/Catalog/Solve/Preset），M2b 第二波完成（加载期比对/Adopt 单轨/enum+bump/前端），M3 完成（判据 3a 全量形/3d 进程级状态登记），M4 完成（换件谱描述符维含回退/Windows 档三负例还清 M1 登记账/语义依赖知情位），M5 第一波完成（VaseCli scan/validate），M6 完成（VaseCli plan/doctor，四命令共享同一套退出码），macOS x64 平台腿完成（八线全绿：档二 _dyld 映射清单/档三 LC_UUID/无对位承重 flag 由负例把守），小账清理波完成（2026-10-03：verify 脚本 cd 泛化 / cl.exe 线 `/we4062` / Mach-O 三枚对抗证人 / 文书四笔），CI/CD 与对外分发两条「不做」裁定（2026-10-03）
 
 
 **M0（构建地基）、M1（Pod 闭环 + 热插拔骨架）、M2a（M2 第一波：装配地基——配置面、`LoadPlan` 定形、
@@ -131,7 +131,7 @@ T4b 需求方裁定 2026-09-30 探针改按 `PlatformReopenWritable`/`copy_file`
 不拖退出码，D144 如实报）；T4 风险 2（delete-pending 目录 ⇒ ③ FAIL）亦首测证伪——属平台事实，Windows 支按协议
 `GTEST_SKIP` + 登记、Linux chmod 555 支为真实证人，③ 的 Windows 候选构造（ACL deny-Write）待裁。**D135 同一律
 扩到四命令共享同一套退出码三档 0/1/2**（D142/D144）；清单↔二进制逐字段等值 doctor 明文不做（D155，validate①/D72
-的执法位）。**D147 为本波新记名一笔**（编译器/版本/CRT 剩余子项记账不实现——两平台可读面不对称，有后果可判的部分才进退出码）。
+的执法位）。**D147 为本波新记名一笔**（编译器/版本/CRT 剩余子项记账不实现——两平台可读面不对称，有后果可判的部分才进退出码；**该笔已于 2026-10-03 经需求方裁定划入 wiki §13.4「明确不做」**，见「项目状态」段末）。
 **M5 记名欠账五件本波清「`plan`+`doctor`」一件、余四件原位**（macOS 平台腿、D125、VasePack+C4251、CI）。
 新测试文件 2 个 `Tests/Integration/VaseCli{Plan,Doctor}Tests.cpp`（plan 12 + doctor 8：T3 共享 6 + T4 平台证人 2 系
 体内 `#ifdef`、两平台各注册各的同名一条计数对称；plan 的 12 含下述 T6 证人）+ ctest 级用法腿 6（plan 2 + doctor 4）。覆盖如实记：③ 的 `put('x')`
@@ -152,7 +152,7 @@ plan `docs/superpowers/plans/2026-10-01-vase-macos-x64-platform-leg.md`，D156�
 **M5 记名欠账至此清「macOS 平台腿」一件、余三件原位**（D125、VasePack+C4251、CI），`LibraryFileName` 的
 `.dylib` 分支随 T6 还清 **D138**。目标平台改口：macOS 只做 **x64**、arm64 **永久移出**（需求方 2026-10-01 裁，D157——
 本仓库唯一一处需求方指定前提的变更；将来若要 arm64 = 新增一套 preset + triplet，不是改这一套）。形状一句话：
-**八线全绿**（Win4 + Linux2 + macOS2，debug 334×4 / release 333×4、平台差 0）+ tidy 四线 + format 双判；
+**八线全绿**（Win4 + Linux2 + macOS2，debug 334×4 / release 333×4、平台差 0——该波读数，现值见「构建与测试」）+ tidy 四线 + format 双判；
 构建面 MacPorts `clang++-mp-23`（非 Apple clang 16——SDK 头树不同源，故 overlay triplet `x64-osx-libcxx.cmake`
 钉编译器为头号理由，`dynamic` 链接只属「与另三条线一致」，D158/D160；**`pkg-config` 为 macOS 独有环境前提**，
 缺它 gtest port 倒在 `vcpkg_fixup_pkgconfig`，脚本起手响亮检查、不出 shim，D178）；
@@ -172,6 +172,19 @@ neverUnload 实测结论**带形态限定**入技能——纯 C++/libc++、无 O
 一条比 Linux 空转更硬的理由：in-place 截断仍被映射的镜像 ⇒ 旧映射页失效、触碰即 `SIGBUS`——不许把它优化回去。
 八线基数与 tidy 四线计数随收口波落账（macOS 腿 T10 复测 2026-10-02，见「构建与测试」与「静态检查与格式」两张表；
 规矩 6 族选择子 macOS 首次入账 58——与 win/linux 同值）。
+**小账清理波（2026-10-03）**：四笔定点清理——两个 verify 脚本的机器路径 `cd` 泛化为 SCRIPT_DIR 形、
+cl.exe 支补 `/we4062`（两 msvc 线的穷举 switch 守卫自此真 armed，探底 + 变异探针取证）、`LoaderTests` 增三枚
+Mach-O 对抗证人（第三条经加固后八线可证伪）、文书四笔（`T3` 消歧 / 节名去「两侧」/ M0 spec 挂 CMake 下限勘误注 /
+README 补 vcpkg 下载兜底）。八线 337 × 4 与 336 × 4、tidy 四线三判据全过，见两张表。**D125 与 D147 经判不属于本波**
+（前置均为设计决策，原位）。**CI/CD 由需求方 2026-10-03 裁定永久不做**——自 M5 记名欠账划入 wiki §13.4「明确不做」，
+M5 欠账自此余**两件**（D125、VasePack）——五件里 `plan`+`doctor` 与 macOS 腿已还、CI 裁掉、
+「VasePack + C4251」那件的 **C4251 半边销账**（见下），只剩 VasePack 本体。
+**不对外分发 Vase（需求方 2026-10-03 裁定，全口径）**：插件永远由本仓库的构建产出、住在同一棵
+构建树内——「发布」仍指 VasePack 组合库随产品走。连带销掉 **`/wd4251` 那笔债**（树外不再有插件
+作者面，29 处 STL 成员没有受害者）、把「外部工具链构建的插件可能 `throw`」从**契约束降为机制保证**
+（树内插件 `throw` 编译期就编不过）、§8.4 的 C ABI 启用条件**前两条**标注**永不触发**（只剩「跨语言」）——三处账目见
+`wiki/vase-architecture.md` §13.3/§13.4。**VasePack 本身照旧**（发布期组合、加载、LTO、iOS `.a`）。
+**D147 与「Windows 两编译器不得混用」两条裁定（需求方 2026-10-03）**：`doctor` 的「工具链一致性（编译器 / 版本 / CRT）」细读**不做**——划入 wiki §13.4「明确不做」，M6 记名的 D147 一笔自此销账（提案 ① 项已兑现为**身份特征在场**，覆盖「有后果可判」的那一半；剩余子项三平台无可靠读面、且失败形态在树内不可达）；Windows 上 `cl` 与 `clang-cl` **不得在同一构建树内混用**（要么全 `cl`、要么全 `clang-cl`，订正入 wiki §8.5 三处早先「同平台 + 同 STL」的写法）。**纯文书改动**：零代码、零公开面增量，八线全绿结论不受影响。欠账至此余 **D125、VasePack 两件**。
 当前仓库里有什么：
 
 - **构建系统已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（四个工具链文件，macOS 腿起）、
@@ -252,7 +265,8 @@ neverUnload 实测结论**带形态限定**入技能——纯 C++/libc++、无 O
 - **第三方源码依赖一个**：`ThirdParty/cli`（`MoozenSoft/cli` 的 **git submodule**，`daniele77/cli`
   的无异常无 asio fork，BSL-1.0）。它**不走 vcpkg**，接入方式见「构建与测试」的
   「第三方依赖有两条入口」那条。
-- **仍无 CI**（M5）。
+- **不接 CI/CD**——需求方 2026-10-03 裁定**永久不做**，见 `wiki/vase-architecture.md` §13.4「明确不做」；
+  八线删树重配全量、tidy 四线与 format 双判仍由三个开发机脚本手工跑。
 
 因此：
 
@@ -305,13 +319,19 @@ neverUnload 实测结论**带形态限定**入技能——纯 C++/libc++、无 O
 ### 构建与测试
 
 
-**八个 preset，全部已实测可用**。基数的最近一次复核（**macOS 腿 T10，2026-10-02**）：**八条 preset 线
-各自删树重配 → configure → build → ctest → `ctest -N`，八线全绿、构建零警告**（`Scripts/win-verify.cmd`
-与 `Scripts/linux-verify.sh` 两脚本并行一次跑完、`Scripts/macos-verify.sh` 在 macOS 开发机上跑——见下 macOS
-块的脚注；**本轮下面记的那类 `z-applocal` 文件锁假红第 5 次撞**：`win-x64-clang-debug`、目标
-`BehindFarPlugin.dll`，按协议单线删树重跑一次即归零，其余七线首跑即绿，见该段）。本波用例净 +3
-（macOS 腿 T3 的 Mach-O 合成字节证人，八线同幅）——八线 debug 334 × 4 / release 333 × 4、平台差 0、
-release − debug 恰为 T3 那枚 death test 一条；T10 收口轮本身零用例增减，计数与 T9 落账一致（差集复测见下）。
+**八个 preset，全部已实测可用**。基数的最近一次复核（**小账清理波，2026-10-03**）：八条 preset 线各自删树重配
+→ configure → build → ctest → `ctest -N`，**八线全绿、构建零警告、零重跑**（`Scripts/win-verify.cmd` 与
+`Scripts/linux-verify.sh` 两脚本并行、`Scripts/macos-verify.sh` 在 macOS 开发机上跑）。本波用例净 +3
+（三枚 Mach-O 对抗证人，八线同幅、无 debug 门无平台门）——八线 debug **337 × 4** / release **336 × 4**、
+平台差 0、`release − debug` 仍恰为 M1 T3 那枚 death test 一条；八线逐对比过，**debug 四条线名集合两两全等、
+四条 release 线亦两两全等**。
+**macOS 腿 T10（2026-10-02）保留为历史**：其时八条 preset 线各自删树重配 → configure → build → ctest →
+`ctest -N`，八线全绿、构建零警告（`Scripts/win-verify.cmd` 与 `Scripts/linux-verify.sh` 两脚本并行一次跑完、
+`Scripts/macos-verify.sh` 在 macOS 开发机上跑——见下 macOS 块的脚注；**该轮撞到那类 `z-applocal` 文件锁假红
+（第 5 次）**：`win-x64-clang-debug`、目标 `BehindFarPlugin.dll`，按协议单线删树重跑一次即归零，其余七线首跑
+即绿，见该段）。该波用例净 +3（macOS 腿 T3 的 Mach-O 合成字节证人，八线同幅）——八线 debug 334 × 4 /
+release 333 × 4、平台差 0、release − debug 恰为 M1 T3 那枚 death test 一条；T10 收口轮本身零用例增减，
+计数与 T9 落账一致（差集复测见下）。
 **M6 终审修复波 T6（2026-09-30）保留为历史**：其时六条 preset 线（macOS 两线尚未存在）各自删树重配全量、
 六线全绿、构建零警告、`z-applocal` 假红零撞零重跑；本波代码是终审三条修复（`Plan.cpp` notes 环补 Cause 支、
 `Doctor.cpp` ④ 缺件 absent info 支、证人 `VaseCliPlan.ProviderSkippedNoteCarriesCauseAttribution` 一枚），
@@ -335,11 +355,13 @@ tidy 四条 debug 线各自跑（见「静态检查与格式」；**macOS 腿首
 | Linux / clang + libc++ | `linux-x64-clang-debug`、`linux-x64-clang-release` |
 | macOS x64 / clang + libc++（MacPorts `clang++-mp-23`） | `macos-x64-clang-debug`、`macos-x64-clang-release` |
 
-**各线 `ctest -N` 基数**（八线现值为 **macOS 腿 T10 2026-10-02 实测**，八条 preset 线删树重配全量、
-`ctest` 与 `ctest -N` 一并跑完；相对 M6 终审 T6 表 331/330/331/330/331/330 **六线各 +3 = macOS 腿 T3 的
-三枚 Mach-O 合成字节证人**（`ImageInspect.MachO{UuidExtracted,DylibNamesListed,WithoutUuidFailsLouder}`，
-D173，八线同幅、无 debug 门无平台门），macOS 两线自注册起即同值 334/333；其时六线现值 331/330 =
-相对 M6 收口表 330/329/330/329/330/329 六线各 +1 = T6 证人）：
+**各线 `ctest -N` 基数**（八线现值为 **小账清理波 2026-10-03 实测**，八条 preset 线删树重配全量、`ctest` 与
+`ctest -N` 一并跑完；相对 macOS 腿 T10 表 334/333 **八线各 +3 = 三枚 Mach-O 对抗证人**
+（`ImageInspect.MachO{RejectsGarbageBytes,UsesFirstUuidCommand,SkipsUndersizedDylibCommand}`，同波新加，
+八线同幅、无 debug 门无平台门）——八线 debug 337 / release 336；历史口径——macOS 腿 T10 表 334/333 =
+相对 M6 终审 T6 表 331/330/331/330/331/330 **六线各 +3 = macOS 腿 T3 的三枚 Mach-O 合成字节证人**
+（`ImageInspect.MachO{UuidExtracted,DylibNamesListed,WithoutUuidFailsLouder}`，D173，八线同幅），
+macOS 两线自注册起即同值 334/333；其时六线现值 331/330 = 相对 M6 收口表 330/329/330/329/330/329 六线各 +1 = T6 证人）：
 M6 相对 M5 波末表（305/304/305/304/305/304）**六线各净 +26**，两笔来源——**gtest 用例六线同幅 +20**
 （`VaseCliPlanTests` 12 + `VaseCliDoctorTests` 8：T3 共享 6 + T4 平台证人 2，后两条系**体内 `#ifdef`**、
 两平台各注册各的同名一条，计数对称，见规矩 6 那段的判据不对称与本波偏离登记；plan 的 12 含 T6
@@ -371,33 +393,34 @@ T6 Five→Fifty 与 T7 空壳用例替换均 1:1 改写净 0，M3 终审修复�
 
 | preset | `Total Tests` | 与 debug 基线的差 |
 |---|---|---|
-| `win-x64-{clang,msvc}-debug`、`linux-x64-clang-debug`、`macos-x64-clang-debug` | 334 | —（四条 debug 线零差） |
-| `win-x64-{clang,msvc}-release`、`linux-x64-clang-release`、`macos-x64-clang-release` | 333 | −1：T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门——四条 release 线恰同这一条，**平台差 0 自 macOS 入场后维持**（M4 的 `linux − win` 归零形状见下，macOS 未引入新差集，spec §5 收口形态） |
+| `win-x64-{clang,msvc}-debug`、`linux-x64-clang-debug`、`macos-x64-clang-debug` | 337 | —（四条 debug 线零差） |
+| `win-x64-{clang,msvc}-release`、`linux-x64-clang-release`、`macos-x64-clang-release` | 336 | −1：M1 T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门——四条 release 线恰同这一条，**平台差 0 自 macOS 入场后维持**（M4 的 `linux − win` 归零形状见下，macOS 未引入新差集，spec §5 收口形态） |
 
-**基数差是设计，不是漏注册**：**macOS 入场未引入任何新差集**——本波全部用例增量（T3 的合成字节三枚）与
+**基数差是设计，不是漏注册**：**macOS 入场未引入任何新差集**——macOS 腿全部用例增量（macOS 腿 T3 的合成字节三枚）与
 平台无关（D173 的设计点），体内 `#ifdef` 的两枚平台证人自 macOS 腿起在三条非 Windows 线上各注册各的同名一条；
 **`linux − win` 的 +2 差值在 M4 归零**——T11 那两条档三用例自 M4/D109 起
 **两平台同跑**：fixture `NoBuildIdPlugin` 跨平台化并更名 `NoIdentityPlugin`（Windows 侧 per-target
 `/DEBUG:NONE` 摘掉 CodeView，Linux 侧维持 `-Wl,--build-id=none` 摘掉 `.note.gnu.build-id`，**两平台各摘
 各的身份特征**；macOS 腿起转**三平台同跑**，macOS 侧 `-Wl,-no_uuid` 摘掉 `LC_UUID`——macOS 无对位承重
 flag，该负例因此反向把守它的在场，D167）。**这一格不是「洞被填上」，是刻意的平台不对称被消掉**——D109 的理由正在于此，
-所以差值变小是**设计**而非计数异常。debug 与 release 差的 1 条**不变**，仍是 T3 的 death test
+所以差值变小是**设计**而非计数异常。debug 与 release 差的 1 条**不变**，仍是 M1 T3 的 death test
 （`#ifndef NDEBUG`）——M2a 新增的 `ConfigApply.LayoutMismatchTerminates` 同为 death test 但**不带**
 这道门，debug/release 同计（两条 release 线实测全绿），故 −1 不因它而变。M4 新增的净 4 条、那两条
 改平台的用例、M5 新增的净 36 条（含 4 条 ctest 级）、M5 波末还账新增的 2 条、**M6 新增的净 26 条
-（gtest 20 + ctest 级 6，含 T6 证人）**与 **macOS 腿新增的净 3 条（合成字节证人，八线同幅）**
+（gtest 20 + ctest 级 6，含 T6 证人）**、**macOS 腿新增的净 3 条（合成字节证人，八线同幅）**与
+**小账清理波新增的净 3 条（Mach-O 对抗证人，八线同幅）**
 **无一受** `#ifndef NDEBUG` 门或平台门——M6 的 `VaseCliDoctor` 里两条体内 `#ifdef` 的平台证人
 各平台注册各的同名一条，计数对称（Windows 上其中一条按首测协议走 `GTEST_SKIP`——**SKIP 是运行时行为，
 不动 `-N` 注册计数**；macOS 腿起「两侧」是三条非 Windows 线——macOS 上 ③ 的 chmod-555 支为**真实断言**、
 ④ 打 not-observable info 行，spec §4 要求的这两处 macOS 实测确认随 T9 通过）。
 两侧都与预期值逐位对上（用例名集合的**差集本轮实测**——**macOS 腿 T10 2026-10-02 八线逐对比过**：
 win-clang ↔ win-msvc 两对、linux ↔ win、macos ↔ win、linux ↔ macos 各双向，**debug 四线与 release 四线
-任意方向的差集全空**；`debug − release` 在四条 debug 线上恰为 T3 那一条。M6 终审修复波 T6 2026-09-30 六线逐对比过，
+任意方向的差集全空**；`debug − release` 在四条 debug 线上恰为 M1 T3 那一条。M6 终审修复波 T6 2026-09-30 六线逐对比过，
 且新证人六线六条注册线全部在内：
-debug − release 在三条 debug 线上恰为 T3 那一条、`linux − win` 与 `win − linux` **两个方向都为空**、
+debug − release 在三条 debug 线上恰为 M1 T3 那一条、`linux − win` 与 `win − linux` **两个方向都为空**、
 clang-debug 与 msvc-debug 名集合逐条相同、两条 release 线的名集合也逐条相同；M6 收口 / M5 波末还账 / M5 收口与更早各轮
 （M4 收口、M3 收口/修复波三轮、波 2 收口/还账波 2026-09-26）的同形复测保留为历史。
-规矩 6 的选择子 `-R 'HotSwap|Eject|Adopt'` 在 **macOS 腿 T10 重测 win 58 / linux 58 / macOS 58（macOS 首次入账，三平台同值）**——与 M6 终审修复波 T6 / M6 收口 / M5 波末同数：
+规矩 6 的选择子 `-R 'HotSwap|Eject|Adopt'` 在 **macOS 腿 T10 重测 win 58 / linux 58 / macOS 58（macOS 首次入账，三平台同值）**、**小账清理波 2026-10-03 三线复测仍为 58 / 58 / 58（该族逐条实跑 58/58 全绿）**——与 M6 终审修复波 T6 / M6 收口 / M5 波末同数：
 M6 的新命令名 `plan` / `doctor`、T6 证人名与 macOS 腿新用例名（`ImageInspect.MachO*`）都不含选择子串；该枚相对 M5 收口 57 / 57 的增量是波末还账的
 `Adopt.ProbeSwapGuardHealsAbortResidue`（名含 `Adopt`；再往前较 M4 的
 56 / 56 那一枚是 T14 跨 Pod 证人 `Eject.SemanticDependencyPossibleAcrossPods`，
@@ -639,11 +662,12 @@ cl.exe 线的 `/we4530`、`/wd4251`、`/Zc:preprocessor`（variadic 宏前提，
 
 **C4251 走全局 `/wd4251`，不走头文件里的逐类 `#pragma` 区域**（导出类带 STL 成员：池、
 槽表、账本）。前提由 §8.5 的工具链与 STL 矩阵钉死、D13 的 `HeaderVersion` 兜着。
-两条代价已知并接受：该 flag 是整 TU 免检，所以新增「导出类带 STL 成员」**不再有逐处把关**；
-且它**出不了这棵树**——仓库外的插件作者与嵌入方 include Vase 头时，C4251 报在我们的头文件
-那一行、由他们自己的编译选项管，需要他们自行加 `/wd4251`。**若 §8.5 那条前提破掉**（允许
-插件用不同版本的 MSVC STL 构建），全局豁免即失去依据，届时改 pimpl 或把 STL 成员移出导出面。
-站点数、M5 分发时的两条还债路径，记在 [`wiki/vase-architecture.md`](wiki/vase-architecture.md) 的 13.3。
+一条代价已知并接受：该 flag 是整 TU 免检，所以新增「导出类带 STL 成员」**不再有逐处把关**。
+**它原来还有第二条代价——「出不了这棵树」——已随 2026-10-03 的裁定销账**：需求方裁定不对外
+分发 Vase 供第三方插件作者构建，插件永远由本仓库的构建产出，树外不再有插件作者面
+（wiki §13.4）。**若 §8.5 那条前提破掉**（允许插件用不同版本的 MSVC STL 构建），全局豁免即
+失去依据，届时改 pimpl 或把 STL 成员移出导出面。站点数（29 处，实测）与那笔账的来龙去脉，
+记在 [`wiki/vase-architecture.md`](wiki/vase-architecture.md) 的 13.3；`/wd4251` 本身照旧。
 
 #### 2. 测试里不要用 `EXPECT_THROW` 一族
 
@@ -860,9 +884,12 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
 stdout 打全「退出码 + 正文 `error:` 条数 + 正文 `warning:` 条数」三判据与摘要计数，**退出码非 0 即门禁未过**，
 不必再手工 grep 日志（macOS 线的 RC 与 warning 耦合，见「核这些门禁时…」的不对称形态句）。
 基数见「核这些门禁时，退出码单独用是不够的」那节的实测表，脚本不复制阈值。
-实测输出与该表逐位对上（**macOS 腿 T10 2026-10-02 复跑值**）：**四线各 116 TU** / Windows 两线 771603、
-Linux 315889、macOS 445699 / NOLINT 命中 Windows 两线 4895、Linux 4890、macOS 4891——
-**四线全量复跑三判据全过、正文双 0**；该波首跑合计捕得 21 条正文 warning（按 clang-cl 5 + Linux 6 +
+实测输出与该表逐位对上（**小账清理波 2026-10-03 复跑值**）：**四线各 116 TU** / Windows 两线 **771606**、
+Linux **315892**、macOS **445702** / NOLINT 命中 Windows 两线 **4895**、Linux **4890**、macOS **4891**——
+**四线全量复跑三判据全过、正文双 0**；相对 macOS 腿 T10 表三线 Suppressed 各 +3、NOLINT 命中与单 TU 极值
+**一字未动**（本波新增代码的 NOLINT 净增 0，canonical 位点维持 6），故属整体平移而非新诊断。
+历史口径——**macOS 腿 T10 2026-10-02 复跑值**：同 116 TU / 771603 / 315889 / 445699 / 4895 / 4890 / 4891，
+四线全量复跑三判据全过、正文双 0；**该波首跑合计捕得 21 条正文 warning**（按 clang-cl 5 + Linux 6 +
 macOS 10 计，cl.exe 线与 clang-cl 同组；macOS 的 10 条里两条系 SMB 挂载时序的陈旧快照，T10 报告 §1.4
 如实记），全部走代码级出路（`ImageIdentity` 三构造点指定初始化——不回填 NSDMI、守 D175 本意，
 `ForEachLoadCommand` 的 `Call&&` 传值化，`Put8`，POSIX 两支重排，`#ifdef`，删孤儿 `<cstring>`），
@@ -915,7 +942,7 @@ fixture 与 `NoIdentityPlugin` 跨平台化，该波零 NOLINT 位点；M3 两�
 「CXX 编译器的 clang 是 23.x」不等于「tidy / format 也是 23.x」——
 后者由环境（PATH 最前）保证，不是 configure 保证的。
 
-#### 「两侧 LLVM 同版本」是必要条件，不是充分条件
+#### 同一版 LLVM 是必要条件，不是充分条件
 
 
 **「Windows 两条线绿」不能推「Linux 绿」。** 同一版 clang-tidy（两侧均 23.1.0）跑两棵树，
@@ -989,10 +1016,10 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
 
   | 线 | 文件数 | 摘要行 Suppressed 合计 | 单 TU 最小 / 最大 |
   |---|---|---|---|
-  | clang-cl（`win-x64-clang-debug`） | 116 | 771603 | 998 / 45609 |
-  | cl.exe（`win-x64-msvc-debug`） | 116 | 771603 | 998 / 45609 |
-  | Linux（`linux-x64-clang-debug`） | 116 | 315889 | 359 / 11337 |
-  | macOS（`macos-x64-clang-debug`） | 116 | 445699 | 278 / 7278（**新线首读数、无历史可对，如实记为基线**） |
+  | clang-cl（`win-x64-clang-debug`） | 116 | 771606 | 998 / 45609 |
+  | cl.exe（`win-x64-msvc-debug`） | 116 | 771606 | 998 / 45609 |
+  | Linux（`linux-x64-clang-debug`） | 116 | 315892 | 359 / 11337 |
+  | macOS（`macos-x64-clang-debug`） | 116 | 445702 | 278 / 7278（**macOS 腿首读数 278/7278 未动**） |
 
   **TU 数四线同为 116**（macOS 腿 T10 复测，「116 files out of 116」四线一致：M6 的 115 → +1 =
   `Source/Host/ImageInspectMachO.cpp`——**无条件编译**、八线合成就链它（D161），与 `ParseElfBuildIdFile`
@@ -1012,7 +1039,10 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
   `NoBuildIdPlugin`」的平台差随之消失）；更早——波 2 时 87→93 / 88→94（新增六个条目）、M3 再 +2 至
   95 / 96、M3 终审修复波再 +1 至 96 / 97。
 
-  **macOS 腿 T10 复测（现值）**：Windows 两线 766651→**771603**（净 +4952）、Linux 314262→**315889**
+  **小账清理波 2026-10-03 复测（现值）**：三线 Suppressed 各 **+3**（Windows 771603→**771606**、
+  Linux 315889→**315892**、macOS 445699→**445702**）——三枚新 gtest 用例拖出的模板量；**单 TU 极值
+  Windows 998/45609、Linux 359/11337、macOS 278/7278 三线一字未动**即证是整体平移而非新诊断。
+  历史口径——**macOS 腿 T10 复测（当时）**：Windows 两线 766651→**771603**（净 +4952）、Linux 314262→**315889**
   （净 +1627）、macOS 445699（新线首读数）——一个 `ImageInspectMachO.cpp` 新 TU 乘出的量，
   **单 TU 极值 Windows 998/45609、Linux 359/11337 一字未动**，仍是乘法形状；macOS 侧极值 278/7278 无历史
   可比，作为基线记下，此后按「变的是极值还是整体平移」的老判据读。历史口径——Suppressed 合计的上跳
@@ -1024,7 +1054,8 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
   这条判据比合计数本身可靠：真出现新诊断时，变的是某个 TU 的极值，而不是所有 TU 一起平移。
 
   数字变了不一定是错，但**要看它变在哪一类**——摘要行里还会出现 `N NOLINT`
-  （**macOS 腿 T10 现读数：Windows 两线 4895、Linux 4890、macOS 4891——win/linux 两数一字不动的机理一句话**：
+  （**小账清理波 2026-10-03 三线复测：Windows 两线 4895、Linux 4890、macOS 4891——与 macOS 腿 T10 逐数相同，
+  本波新增代码 NOLINT 零净增；macOS 腿 T10 读数同此三数，其 win/linux 两数一字不动的机理一句话**：
   本波新增的两处抑制位点与 open 行的检查扩表全部落在 `__APPLE__` 支或 macOS 线独有的 include-cleaner
   归因上——Linux 线上那一行没有 include-cleaner 可抑制，不编译到某线就不动某线的命中。macOS 线自身
   首跑 4888→复跑 4891，+3 恰是三条被新抑制的诊断。**canonical 位点账 4→6**：macOS 腿净新增 2 处

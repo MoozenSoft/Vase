@@ -288,6 +288,74 @@ TEST(ImageInspect, MachOWithoutUuidFailsLouder)
     EXPECT_NE(r.GetError().Message().find("-no_uuid"), std::string::npos); // 指路（§8.2）
 }
 
+TEST(ImageInspect, MachORejectsGarbageBytes)
+{
+    // 两种「不是 Mach-O」的形态都走 ForEachLoadCommand 的 return false，且两个入口给出
+    // 同一条「not a Mach-O image」——「格式不对」与「缺特征」是分开的两类，见该函数注释。
+    const std::vector<std::uint8_t> tooShort(16U, 0); // 短于 32 字节头：短路在 size 检查
+    const vase::Result<vase::detail::ImageIdentity> shortResult = vase::detail::ParseMachOUuidFile(tooShort);
+    ASSERT_FALSE(shortResult.IsOk());
+    EXPECT_NE(shortResult.GetError().Message().find("not a Mach-O image"), std::string::npos);
+
+    const std::vector<std::uint8_t> wrongMagic(64U, 0); // magic=0 ≠ MH_MAGIC_64
+    const vase::Result<std::vector<std::string>> magicResult = vase::detail::ParseMachODylibNamesFile(wrongMagic);
+    ASSERT_FALSE(magicResult.IsOk());
+    EXPECT_NE(magicResult.GetError().Message().find("not a Mach-O image"), std::string::npos);
+}
+
+TEST(ImageInspect, MachOUsesFirstUuidCommand)
+{
+    // 两枚 LC_UUID：首枚胜（ForEachLoadCommand 回调里的 !found.empty() 短路）。
+    std::vector<std::uint8_t> b(32U + (2U * 0x18U), 0);
+    Put32(b, 0, 0xFEEDFACFU);
+    Put32(b, 4, 0x01000007U);
+    Put32(b, 16, 2U);    // ncmds
+    Put32(b, 20, 0x30U); // sizeofcmds = 2 × 0x18
+    for (std::size_t i = 0; i < 16U; ++i)
+    {
+        Put8(b, 32U + 8U + i, static_cast<std::uint8_t>(0x40U + i));         // 首枚
+        Put8(b, 32U + 0x18U + 8U + i, static_cast<std::uint8_t>(0x90U + i)); // 次枚
+    }
+    Put32(b, 32U, 0x1BU);
+    Put32(b, 32U + 4U, 0x18U);
+    Put32(b, 32U + 0x18U, 0x1BU);
+    Put32(b, 32U + 0x18U + 4U, 0x18U);
+
+    const vase::Result<vase::detail::ImageIdentity> r = vase::detail::ParseMachOUuidFile(b);
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    ASSERT_EQ(r.Value().Bytes.size(), 16U);
+    EXPECT_EQ(r.Value().Bytes.front(), 0x40U); // 不是次枚的 0x90
+}
+
+TEST(ImageInspect, MachOSkipsUndersizedDylibCommand)
+{
+    // cmdsize=8 装不下 lc_str.name 的 4 字节，:120 的守卫必须跳过该条、不产出名字。
+    // 两种造法都撤守卫即红：① 条目贴 buffer 尾（越界读——只有 MSVC STL 的 debug 线
+    // 有边界断言能转红，libc++ 与各 release 线实测照绿）；② buffer 比 sizeofcmds 大且
+    // 尾随为零（越界的 4 字节读进零 ⇒ 推出一个空名——八线全可证伪）。
+    const auto putUndersizedDylib = [](std::vector<std::uint8_t>& b)
+    {
+        Put32(b, 0, 0xFEEDFACFU);
+        Put32(b, 4, 0x01000007U);
+        Put32(b, 16, 1U); // ncmds
+        Put32(b, 20, 8U); // sizeofcmds = 一条 cmdsize=8 的条目
+        Put32(b, 32U, 0x0CU);
+        Put32(b, 32U + 4U, 8U);
+    };
+
+    std::vector<std::uint8_t> flushEnd(40U, 0); // ① 40 = 32 头 + 8 条目，正好贴尾
+    putUndersizedDylib(flushEnd);
+    const vase::Result<std::vector<std::string>> flushResult = vase::detail::ParseMachODylibNamesFile(flushEnd);
+    ASSERT_TRUE(flushResult.IsOk()) << flushResult.GetError().Message();
+    EXPECT_TRUE(flushResult.Value().empty());
+
+    std::vector<std::uint8_t> trailing(64U, 0); // ② 尾随 24 字节的零，读出去也是零
+    putUndersizedDylib(trailing);
+    const vase::Result<std::vector<std::string>> trailingResult = vase::detail::ParseMachODylibNamesFile(trailing);
+    ASSERT_TRUE(trailingResult.IsOk()) << trailingResult.GetError().Message();
+    EXPECT_TRUE(trailingResult.Value().empty());
+}
+
 std::filesystem::path FixturePath(const char* defineValue) { return std::filesystem::path{defineValue}; }
 
 TEST(Loader, EnsureResidentDedupsAndRejectsMissing)

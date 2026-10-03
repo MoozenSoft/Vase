@@ -10,7 +10,9 @@ if ! command -v pkg-config >/dev/null 2>&1; then
     exit 1
 fi
 
-cd ~/WindowsGit/Vase || exit 1
+# 从脚本自身位置定位仓库根：与 win-verify.cmd 的 `%~dp0..` 同形，分发脚本里不写机器路径。
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd) || exit 1
+cd "$SCRIPT_DIR/.." || exit 1
 
 run() {
     echo ""
