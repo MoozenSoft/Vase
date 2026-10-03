@@ -50,7 +50,7 @@ TEST(Eject, LeafPluginLeavesWithFullEvidence)
 #ifdef _WIN32
     EXPECT_TRUE(rep.ReopenWritableIsMeaningful && rep.ReopenWritable); // 档二 · Win 主判（辅助地位）
 #else
-    EXPECT_TRUE(rep.MappingRemovalIsObservable && rep.MappingRemoved); // 档二 · Linux 主判
+    EXPECT_TRUE(rep.MappingRemovalIsObservable && rep.MappingRemoved); // 档二 · POSIX（Linux/macOS）主判
 #endif
     EXPECT_EQ(host.Resolve(h)->PluginCount(), 0U);
     const vase::PodReport podReport = host.DestroyPod(h);

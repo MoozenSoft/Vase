@@ -1260,7 +1260,7 @@ C ABI **不是当前必需品**，作为未来扩展保留。它在以下情况�
 |---|---|---|
 | Windows x64 | `cl.exe` **或** `clang-cl.exe` | MSVC STL |
 | Linux x64 | `clang` | `libc++` |
-| macOS arm64 | `clang` | `libc++` |
+| macOS x64 | `clang` | `libc++` |
 | Android arm64 | `clang` | `libc++` |
 | iOS arm64 | `clang` | `libc++` |
 
@@ -1270,9 +1270,11 @@ C ABI **不是当前必需品**，作为未来扩展保留。它在以下情况�
 |---|---|---|---|
 | Windows x64 | 开发 + 发布 | 每插件一个 `.dll` | 组合成一个 `.dll` |
 | Linux x64 | 开发 + 发布 | 每插件一个 `.so` | 组合成一个 `.so` |
-| macOS arm64 | 开发 + 发布 | 每插件一个 `.dylib` | 组合成一个 `.dylib` |
+| macOS x64 | 开发 + 发布 | 每插件一个 `.dylib` | 组合成一个 `.dylib` |
 | Android arm64 | **仅发布** | — | 组合成一个 `.so` |
 | iOS arm64 | **仅发布** | — | 组合成一个 `.a`（静态库） |
+
+> **macOS 架构口径（2026-10-02 记）**：上面两表的 macOS 行原写 arm64，需求方 2026-10-01 裁定改 **x64**、arm64 **永久移出**——将来若要 arm64，是新增一套 preset + triplet 而非改这套（macOS 腿 spec D157）。x64 桌面腿**已于 2026-10-02 落地**（构建接入 + 档二 `_dyld` 映射清单 / 档三 `LC_UUID`，见 12.3 M5 行现状注与 `CLAUDE.md`「项目状态」）。
 
 > **两点需要留意。** 其一，`libc++` 不是 Linux 发行版的默认标准库（默认是 libstdc++），所以每个平台的工具链文件都要**显式指定**，不能依赖编译器默认。其二，Windows 上两种编译器是**同一 ABI 的两个前端**——都目标 MSVC ABI、都用 MSVC STL，所以宿主与插件可以一个用一个；而 libc++ 与 MSVC STL 是两套 ABI，跨不过去。**8.3 的约束因此准确地说是「同平台 + 同 STL」，而不是「同编译器」。**
 
@@ -1660,7 +1662,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | M2 求解 | + 依赖账本执法与解析记录（3b） |
 | M3 多插件 | + 叶判定的图反查与拒绝报告（3a，全量形 = 三插件局中对叶 50 轮）；+ Eject 自动重置登记的进程级状态并写入报告（3d）。**判据 19 的完整属主追踪器经核查否决（D97，spec §4）**——不新增可达检出情形，M3 行自此只有这两笔 |
 | M4 热替换 | **已落（Win / Linux，2026-09-27）**：换件谱扩到**描述符维含回退方向**（五步阶梯，每步只差一维；D105/D113）、**Windows 侧档三负例**（换件序列两平台统一为「改名离开+落新字节」；D108）、**语义依赖知情位**（`EjectReport::SemanticDependencyPossible`，如实上报不可知；D110/D115）。**macOS 腿顺延 M5**（与 M0–M3 平台口径一致） |
-| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外）。**VaseCli `scan` / `validate` 已落（第一波，2026-09-28，spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117–D140）**；平台腿与 `plan` / `doctor` 归后续波次（`plan` / `doctor` **已于 M6 落地，2026-09-30**，见 11.1 的 M6 现状注；macOS 平台腿仍归后续） |
+| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外）。**VaseCli `scan` / `validate` 已落（第一波，2026-09-28，spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117–D140）**；平台腿与 `plan` / `doctor` 归后续波次（`plan` / `doctor` **已于 M6 落地，2026-09-30**，见 11.1 的 M6 现状注；**macOS 平台腿已落（x64，2026-10-02）**——spec `docs/superpowers/specs/2026-10-01-vase-macos-x64-platform-leg-design.md` D156–D179：档二 `_dyld_image_count` 映射清单、档三 `LC_UUID`（链接器必写、无对位承重 flag，由 `-Wl,-no_uuid` 负例反向把守）、`LibraryFileName` 的 `.dylib` 分支还清 D138；**arm64 已由需求方 2026-10-01 裁定永久移出（D157）**；本行原先的 neverUnload「由 M5 实测判定」由该波取证**部分**回答——纯 C++/libc++ 插件形态实测不触发、清单其余项未测，结论带形态限定记在技能 `portability.md` §6 与 D171。VasePack / CI 等其余项仍归后续） |
 
 **连带文书义务**：v3 落地（M1 更名）时同步更新 `CLAUDE.md`（目录名、构建命令、ctest 基数预期）；M0/M1 设计文档不改史，挂一条指向本文的勘误标注（涉及其 2.4 判据表与 3.3(4) 的 Linux 判据去向）。
 
@@ -1686,7 +1688,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | 项 | 决定 |
 |---|---|
 | 构建系统 | CMake + vcpkg；编译矩阵由平台工具链文件承载（8.5） |
-| 目标平台 | Win x64 / Linux x64 / macOS arm64（**开发 + 发布**）；Android arm64 / iOS arm64（**仅发布**）。工具链见 8.5 |
+| 目标平台 | Win x64 / Linux x64 / macOS **x64**（**开发 + 发布**；macOS 原口径 arm64，需求方 2026-10-01 裁定改 x64、arm64 永久移出——macOS 腿 spec D157，x64 腿 2026-10-02 已落）；Android arm64 / iOS arm64（**仅发布**）。工具链见 8.5 |
 | 插件形态 | 开发期每插件一个动态库；发布期由 VasePack 组合成一个库（8.5 / 8.6） |
 | 组合库入口 | VasePack 生成 `VasePlugin_GetPlugin(id)` 分发表，靠**硬引用**保活（8.6） |
 | JSON 库 | `nlohmann/json`，**且只出现在 `PluginCatalog` 层**（4.1） |

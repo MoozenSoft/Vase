@@ -2,7 +2,7 @@
 
 // 库文件命名的唯一知识（D54；M5/D129 起为公开面）：正向由清单 binary 拼名、反向由磁盘名恢复 binary，
 // 对合法 stem 两函数互为反函数，由 round-trip 用例钉住（LibraryFileNameTests）。header-only 内联、不挂
-// 导出宏（纯字符串、无 ABI 面）；macOS 的 .dylib 与 iOS 的 .a 分支归 VasePack/M5 后续波次（D138）。
+// 导出宏（纯字符串、无 ABI 面）；iOS 的 .a 分支归 VasePack 那一波。
 
 #include <optional>
 #include <string>
@@ -14,6 +14,9 @@ namespace vase::catalog_detail
 #ifdef _WIN32
 inline constexpr std::string_view kLibraryPrefix;
 inline constexpr std::string_view kLibrarySuffix = ".dll";
+#elif defined(__APPLE__)
+inline constexpr std::string_view kLibraryPrefix = "lib";
+inline constexpr std::string_view kLibrarySuffix = ".dylib";
 #else
 inline constexpr std::string_view kLibraryPrefix = "lib";
 inline constexpr std::string_view kLibrarySuffix = ".so";

@@ -21,7 +21,8 @@ Vase is a plugin framework that treats every module like a branch in flower arra
       （形如 `D:/Developer/LLVM/bin/clang-cl.exe`）另记在
       `build-win/<preset>/CMakeFiles/<CMake 版本>/CMakeCXXCompiler.cmake` 里
       （均已实读缓存确认）。这条路没有 `-U` 的等价写法，删构建树最省事。
-  - 两侧 LLVM 必须同版本：`clang-format` / `clang-tidy` 的判据一致性依赖此条。
+  - 各侧 LLVM 同为 **23.1.x**：判据一致性要的是同一套检查器与规则版本，patch 级差异不构成反例
+    （macOS 经 MacPorts 是 23.1.2，Windows/Linux 是 23.1.0——macOS 腿 spec D172）。
   - **configure 阶段的版本校验只覆盖 CXX 编译器**（clang 需为 `23.x`；cl.exe 分支
     只查平台），**管不到 `clang-format` / `clang-tidy` 可执行文件本身**。
     所以「CXX 编译器版本不符」会在 configure 报错，但「tidy / format 版本不符」
@@ -32,6 +33,21 @@ Vase is a plugin framework that treats every module like a branch in flower arra
   - Linux/WSL：`VCPKG_ROOT` 由 `/etc/profile.d/vcpkg.sh` 提供，登录 shell 可见；
     **非登录非交互的 `bash -c` 拿不到它**，这类调用方（CI 步骤、构建钩子）必须
     自己显式带上 `VCPKG_ROOT`。这是 shell 的加载规则，配置改不了。
+- **macOS 侧（macOS 腿 2026-10-02 起）走 MacPorts，不走 Xcode/Apple clang**：
+  - 编译器是 `clang++-mp-23`——Apple clang 是 16.0.0 且其 libc++ 头来自 SDK，与我们的
+    MacPorts LLVM 23 自带头树**不同源**；工具链文件与 overlay triplet 都把它钉死在
+    `-mp-23` 上（根目录 `Cmake/Toolchains/macos-x64-clang-libcxx.cmake`、
+    `Cmake/Triplets/x64-osx-libcxx.cmake` 的注释）。`cmake` / `ninja` / `clang-format-mp-23` /
+    `run-clang-tidy-mp-23` 同在 `/opt/local/bin`，该目录要在 PATH 里。
+  - **`pkg-config` 是硬前提**（MacPorts `pkgconf` 或 Homebrew `pkg-config`）：缺它 vcpkg 的
+    gtest port 无条件倒在 `vcpkg_fixup_pkgconfig`，整条腿什么都编不出。仓库**不出 shim**——
+    那会把真实环境依赖伪装成已满足；`Scripts/macos-verify.sh` 起手检查存在性、缺了响亮报错指名。
+  - `VCPKG_ROOT` 住 `~/.zshenv`（环境类变量的属地，非交互 ssh 会话亦可见）。
+  - `find_program` 缓存陷阱**与 Linux 侧同结论**：解析结果进构建缓存，换 LLVM 版本后必须
+    干净 configure（删树重配），同一个 build 目录里重跑 `cmake --preset` 不算数。
+  - `clang-tidy` / `clang-format` 在本机 PATH 上**没有裸名**（只有 `-mp-23` 变体）——
+    `Scripts/macos-clang-tidy.sh` 为此显式递 `-clang-tidy-binary`，格式命令直接写
+    `clang-format-mp-23`。
 - **Linux 侧要 libc++，不是 libstdc++**（8.5）。clang 装在 `/opt/llvm-23.1.0`，
   libc++ 头/库在 `/usr/local/lib` 与 `/opt/llvm-23.1.0/include/c++/v1`。
   仓库用自定义 triplet `Cmake/Triplets/x64-linux-libcxx.cmake` 把它传给 vcpkg
@@ -89,11 +105,12 @@ configure + build + ctest + `ctest -N`，每步打印退出码，末尾汇总失
 Scripts\win-verify.cmd
 ```
 
-六个 preset：`win-x64-{clang,msvc}-{debug,release}`、`linux-x64-clang-{debug,release}`。
-**最近一次全量验收的读数（六线是否全绿、各线 `ctest -N` 基数、构建是否零警告）只住 `CLAUDE.md`
+八个 preset：`win-x64-{clang,msvc}-{debug,release}`、`linux-x64-clang-{debug,release}`、
+`macos-x64-clang-{debug,release}`。
+**最近一次全量验收的读数（八线是否全绿、各线 `ctest -N` 基数、构建是否零警告）只住 `CLAUDE.md`
 的「构建与测试」一节**——README 不复制它。Windows 侧构建树落 `build-win/<presetName>/`，
-可执行与 DLL 同处 `bin/`——这是 Windows 运行时能找到 DLL 的前提，
-不要改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`。
+Linux 侧落 `build-linux/`，macOS 侧落 `build-macos/`；Windows 上可执行与 DLL 同处 `bin/`——
+这是其运行时能找到 DLL 的前提，不要改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`。
 
 > `ctest` 在一个测试都没发现时**同样返回 0**。所以「测试全绿」不能只看退出码，
 > 要另跑一次 `ctest --preset <p> -N`，把 `Total Tests` 与 `CLAUDE.md`「构建与测试」
@@ -132,7 +149,22 @@ wsl -d Ubuntu -- bash -lc 'bash /mnt/d/Git/Vase/Scripts/linux-verify.sh'
 
 Linux 侧**不需要** Windows 那样的 DLL 路径处理：CMake 会把链接到的共享库目录
 写进构建树的 RPATH（我们的库在 `lib/`，vcpkg 的 gtest 在 `vcpkg_installed/.../lib`），
-`ctest` 直接就能跑。
+`ctest` 直接就能跑。macOS 侧同理（RPATH），且**必须先在 `~/.zshenv` 设好 `VCPKG_ROOT`**、
+`/opt/local/bin` 进 PATH（环境清单见「环境前提」的 macOS 段）。
+
+### macOS
+
+在 macOS 开发机上执行；从别的机器经 ssh 触发是各人环境的事，本文档不写主机别名。
+
+```bash
+cmake --preset macos-x64-clang-debug
+cmake --build --preset macos-x64-clang-debug
+ctest --preset macos-x64-clang-debug
+```
+
+`macos-x64-clang-release` 同构。删树重配全量是 `Scripts/macos-verify.sh`（与
+`linux-verify.sh` 同契约：逐步骤打印退出码、脚本自身退出码恒 0，**按日志的 RC 行判**）；
+它起手还会检查 `pkg-config` 的存在性（缺了整条腿编不出东西，见「环境前提」）。
 
 ### 静态检查与格式
 
@@ -143,16 +175,19 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
   | xargs -0 clang-format --dry-run --Werror
 ```
 
-- **三条 tidy 线都有脚本形态，且契约一致**：`Scripts/linux-clang-tidy.sh`（Linux，经登录
-  shell）与 `Scripts\win-clang-tidy.cmd`（Windows 两条 debug 线；带参数 `clangcl` / `msvc`
-  可单跑一条，不带则两条都跑）。日志落在脚本旁边（`*.log`，被 gitignore），stdout 打全三条
+- **四条 tidy 线都有脚本形态，且契约一致**：`Scripts/linux-clang-tidy.sh`（Linux，经登录
+  shell）、`Scripts\win-clang-tidy.cmd`（Windows 两条 debug 线；带参数 `clangcl` / `msvc`
+  可单跑一条，不带则两条都跑）与 `Scripts/macos-clang-tidy.sh`（macOS 本机跑；PATH 上没有裸名
+  `clang-tidy`，脚本解析 `clang-tidy-mp-23` 并以 `-clang-tidy-binary` 显式递入，缺位时 rc=2
+  响亮拒绝）。日志落在脚本旁边（`*.log`，被 gitignore），stdout 打全三条
   判据（`run-clang-tidy` 退出码 + 正文 `error:` 条数 + 正文 `warning:` 条数）与摘要计数，
-  **退出码非 0 就是门禁未过**，不必再手工 grep 日志；基数仍以 `CLAUDE.md` 的表为准，脚本
-  不复制阈值：
+  **退出码非 0 就是门禁未过**，不必再手工 grep 日志（macOS 线的 RC 与正文 warning 耦合，
+  判据仍要三条一起读）；基数仍以 `CLAUDE.md` 的表为准，脚本不复制阈值：
 
   ```bash
   wsl -d Ubuntu -- bash -lc 'bash /mnt/d/Git/Vase/Scripts/linux-clang-tidy.sh'
   Scripts\win-clang-tidy.cmd
+  bash Scripts/macos-clang-tidy.sh    # 在 macOS 开发机上
   ```
 
 - `clang-format` 那条与 build 目录无关，全仓一条命令，两侧共用。**扩展名要列全**
@@ -164,8 +199,10 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
   **两条落在两侧都编译的共享文件上**（`Source/Pod/Pod.cpp:88`、`Source/Host/PluginHost.cpp:196`
   的反向 `for`，`modernize-loop-convert`），Windows 线就是不报——成因是 **STL 不同**
   （MSVC STL 的 `rbegin()` 走另一条路径），**不是版本差**；其余 7 条落在
-  `LoaderPosix.cpp` / `ImageInspectPosix.cpp`，那两个 TU **在 Windows 上根本不编译**。
-  所以**三条 debug 线各自跑、各自读正文**。
+  `LoaderPosix.cpp` / `ImageInspectPosix.cpp`，那两个 TU **在 Windows 上根本不编译**
+  （`ImageInspectPosix.cpp` 现名 `ImageInspectLinux.cpp`，macOS 腿改名；此处保留当时的文件名）。
+  所以**四条 debug 线各自跑、各自读正文**（macOS 线同理——平台专属 TU `ImageInspectDarwin.cpp`
+  的告警只有 macOS 线看得见）。
 - **`run-clang-tidy` 退出 0 不等于「没有 warning」**：`.clang-tidy` 的
   `WarningsAsErrors` 为空（既有且经 spec 认可），tidy 永远不会因 warning 失败。
   实测两侧都另有大量「已生成、已抑制」的 warning，**只出现在摘要行里**，既不影响
@@ -185,7 +222,7 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
   所以「没有新 warning」的判据是**三条一起**：**退出 0 + 正文 `error:` 0 条 +
   正文 `warning:` 0 条**，再连摘要行一起读。只看退出码会漏掉全部被抑制的量；
   只 grep `warning:` 也会——被抑制的那些不以 `warning:` 形式出现。
-- `run-clang-tidy` 在三条 debug 线上都能跑，但 **cl.exe 线要追加一个开关**：
+- `run-clang-tidy` 在四条 debug 线上都能跑（macOS 线经 `Scripts/macos-clang-tidy.sh`），但 **cl.exe 线要追加一个开关**：
 
 ```bash
 run-clang-tidy -p build-win/win-x64-msvc-debug -extra-arg=-Wno-unused-command-line-argument

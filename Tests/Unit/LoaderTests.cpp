@@ -14,8 +14,6 @@
 
 #ifdef _WIN32
 #include <cctype> // Windows 分支用 std::tolower
-#else
-#include <algorithm> // 其余平台分支用 std::ranges::find
 #endif
 
 namespace
@@ -164,6 +162,41 @@ std::vector<std::uint8_t> MakeMinimalElf(std::uint64_t buildIdLen = 20)
     return b;
 }
 
+// 最小 Mach-O 64：32 字节头 + 一条 LC_UUID + 一条 LC_ID_DYLIB + 一条 LC_LOAD_DYLIB。
+// 与 MakeMinimalPe / MakeMinimalElf 同形状——不依赖宿主平台，八条线都能跑（D173）。
+std::vector<std::uint8_t> MakeMinimalMachO(bool withUuid = true)
+{
+    std::vector<std::uint8_t> b(0x200, 0);
+    Put32(b, 0, 0xFEEDFACFU);                                       // MH_MAGIC_64
+    Put32(b, 4, 0x01000007U);                                       // CPU_TYPE_X86_64
+    Put32(b, 16, withUuid ? 3U : 2U);                               // ncmds
+    Put32(b, 20, withUuid ? 0x18U + 0x40U + 0x38U : 0x40U + 0x38U); // sizeofcmds
+
+    std::size_t at = 32U;
+    if (withUuid)
+    {
+        Put32(b, at, 0x1BU);      // LC_UUID
+        Put32(b, at + 4U, 0x18U); // cmdsize = 8 + 16
+        for (std::size_t i = 0; i < 16U; ++i)
+        {
+            Put8(b, at + 8U + i, static_cast<std::uint8_t>(0x30U + i));
+        }
+        at += 0x18U;
+    }
+    // LC_ID_DYLIB：名字是自名，**不该**出现在依赖名清单里
+    Put32(b, at, 0xDU);
+    Put32(b, at + 4U, 0x40U);
+    Put32(b, at + 8U, 24U); // lc_str.name 相对本条目起点的偏移
+    PutStr(b, at + 24U, "libSelf.dylib");
+    at += 0x40U;
+    // LC_LOAD_DYLIB：这才是导入
+    Put32(b, at, 0xCU);
+    Put32(b, at + 4U, 0x38U);
+    Put32(b, at + 8U, 24U);
+    PutStr(b, at + 24U, "@rpath/libSibling.dylib");
+    return b;
+}
+
 TEST(ImageInspect, PeFileCodeViewExtracted)
 {
     auto b = MakeMinimalPe();
@@ -183,7 +216,7 @@ TEST(ImageInspect, PeFileImportsListed)
     ASSERT_EQ(r.Value().size(), 1U);
     EXPECT_EQ(r.Value().front(), "sibling.dll");
     // §8.2 缺依赖诊断的入口直接钉住：它只取**第一个**导入条目名，不查磁盘存在性。
-    EXPECT_EQ(vase::detail::FirstUnresolvableImport(b, /*isPe=*/true), "sibling.dll");
+    EXPECT_EQ(vase::detail::FirstUnresolvableImport(b, vase::detail::ImageFormat::kPe), "sibling.dll");
 }
 
 TEST(ImageInspect, PeWithoutCodeViewFailsLouder)
@@ -214,7 +247,7 @@ TEST(ImageInspect, ElfFileNeededListed)
     ASSERT_EQ(r.Value().size(), 1U);
     EXPECT_EQ(r.Value().front(), "libSibling.so");
     // §8.2 缺依赖诊断的入口直接钉住：它只取**第一个** DT_NEEDED 名，不查磁盘存在性。
-    EXPECT_EQ(vase::detail::FirstUnresolvableImport(b, /*isPe=*/false), "libSibling.so");
+    EXPECT_EQ(vase::detail::FirstUnresolvableImport(b, vase::detail::ImageFormat::kElf), "libSibling.so");
 }
 
 TEST(ImageInspect, ElfWithoutBuildIdNoteFailsLouder)
@@ -224,6 +257,35 @@ TEST(ImageInspect, ElfWithoutBuildIdNoteFailsLouder)
     const vase::Result<vase::detail::ImageIdentity> r = vase::detail::ParseElfBuildIdFile(b);
     ASSERT_FALSE(r.IsOk());
     EXPECT_NE(r.GetError().Message().find("--build-id"), std::string::npos); // 指路（§8.2）
+}
+
+TEST(ImageInspect, MachOUuidExtracted)
+{
+    const auto b = MakeMinimalMachO();
+    const vase::Result<vase::detail::ImageIdentity> r = vase::detail::ParseMachOUuidFile(b);
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    EXPECT_EQ(r.Value().Kind, vase::detail::IdentityKind::kMachOUuid);
+    ASSERT_EQ(r.Value().Bytes.size(), 16U);
+    EXPECT_EQ(r.Value().Bytes.front(), 0x30U);
+    EXPECT_EQ(r.Value().Bytes.back(), 0x3FU);
+}
+
+TEST(ImageInspect, MachODylibNamesListed)
+{
+    const auto b = MakeMinimalMachO();
+    const vase::Result<std::vector<std::string>> r = vase::detail::ParseMachODylibNamesFile(b);
+    ASSERT_TRUE(r.IsOk()) << r.GetError().Message();
+    ASSERT_EQ(r.Value().size(), 1U);                         // LC_ID_DYLIB 不算导入
+    EXPECT_EQ(r.Value().front(), "@rpath/libSibling.dylib"); // 契约：返回文件原文，不归一（D176）
+    EXPECT_EQ(vase::detail::FirstUnresolvableImport(b, vase::detail::ImageFormat::kMachO), "@rpath/libSibling.dylib");
+}
+
+TEST(ImageInspect, MachOWithoutUuidFailsLouder)
+{
+    const auto b = MakeMinimalMachO(/*withUuid=*/false);
+    const vase::Result<vase::detail::ImageIdentity> r = vase::detail::ParseMachOUuidFile(b);
+    ASSERT_FALSE(r.IsOk());
+    EXPECT_NE(r.GetError().Message().find("-no_uuid"), std::string::npos); // 指路（§8.2）
 }
 
 std::filesystem::path FixturePath(const char* defineValue) { return std::filesystem::path{defineValue}; }
@@ -301,10 +363,30 @@ TEST(Loader, ProbeImportsVasePod)
         }
         return std::string{};
     }(); // PE 导入表保留创建时大小写，但链接器来源不一——大小写不敏感匹配（§8.7 执法用文件名主干比对，同口径）
+#elif defined(__APPLE__)
+    // CMake 的 MACOSX_RPATH 默认为开，install_name 是 @rpath/libVasePod.dylib——
+    // 与 Windows 的裸名、Linux 的 libVasePod.so 都不同。比对按 basename（D176）。
+    const std::string expected = "libVasePod.dylib";
+    std::string found;
+    for (const auto& n : names.Value())
+    {
+        if (std::filesystem::path(n).filename().string() == expected)
+        {
+            found = expected;
+            break;
+        }
+    }
 #else
     const std::string expected = "libVasePod.so";
-    const std::string found =
-        std::ranges::find(names.Value(), expected) != names.Value().end() ? expected : std::string{};
+    std::string found; // 与 macOS 支同形：DT_NEEDED 一般就是裸名，basename 归一是三平台一条判据（D176）
+    for (const auto& n : names.Value())
+    {
+        if (std::filesystem::path(n).filename().string() == expected)
+        {
+            found = expected;
+            break;
+        }
+    }
 #endif
     EXPECT_FALSE(found.empty()); // 解析器在真实产物上工作，不只在构造字节上
     loader.Unload(*r.Value());
@@ -324,8 +406,8 @@ TEST(Loader, UnloadEvidencePerPlatform)
     EXPECT_FALSE(ev.MappingRemovalIsObservable); // Win 上无判据力的那个字段照实为假
 #else
     EXPECT_TRUE(ev.MappingRemovalIsObservable);
-    EXPECT_TRUE(ev.MappingRemoved);              // 档二 · Linux：dl_iterate_phdr 条目消失（主判之一）
-    EXPECT_FALSE(ev.ReopenWritableIsMeaningful); // Linux 上无判据力的那个字段照实为假
+    EXPECT_TRUE(ev.MappingRemoved);              // 档二 · POSIX（Linux/macOS）：已装载镜像清单条目消失（主判之一）
+    EXPECT_FALSE(ev.ReopenWritableIsMeaningful); // POSIX（Linux/macOS）上无判据力的那个字段照实为假
 #endif
 }
 

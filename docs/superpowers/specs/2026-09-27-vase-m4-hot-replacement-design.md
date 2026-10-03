@@ -58,7 +58,7 @@
 
 | # | 决定 | 依据 |
 |---|---|---|
-| D104 | **M4 范围 = 三条腿**（换件谱描述符维 + Windows 档三负例 + 语义依赖知情位），**macOS 顺延 M5**。三条在同一分支、收口一轮六线验证里收 | §12.3；需求方 2026-09-27 裁；与 M0–M3 平台口径一致 |
+| D104 | **M4 范围 = 三条腿**（换件谱描述符维 + Windows 档三负例 + 语义依赖知情位），**macOS 顺延 M5**。三条在同一分支、收口一轮六线验证里收。**〔勘误（2026-10-02 挂，不改史）：顺延的 macOS 腿已于 2026-10-02 落地、口径为 x64（需求方 2026-10-01 裁改、arm64 永久移出——macOS 腿 spec D157/D159：档二 `_dyld` 映射清单 / 档三 `LC_UUID` / 无对位承重 flag 由负例把守；本档头部地位句、不做表与 D104 的「macOS 腿」口径均按此读）〕** | §12.3；需求方 2026-09-27 裁；与 M0–M3 平台口径一致 |
 | D105 | **腿一重型 = 正例，负例降级为附属断言**（事实取证注⑤：换件语境的负例已被 `Adopt.RequestDisplayNameDriftRejected` 覆盖，差别只在漂移方向）。换件谱 = **五步阶梯、每步只差一维**（含回退方向）；`PluginId` 全程恒为 `Vase.VersionedA`——「同一个插件的下一版」才成立换件语义 | 每步只差一维才可归因；正例证的是今天**零覆盖**的性质——「描述符也变了的版本能走完 Eject→换字节→换期望→Adopt」 |
 | D106 | **新增 2 个 fixture**：`VersionedAStampDrift`（`Version` 1.0.0→1.1.0）与 `VersionedAServiceDrift`（`Provides` v1→v2）；`OUTPUT_NAME` 同为 `VersionedA`、各自独立 stage 目录（同 `VersionedAPrime` 的既有处理，否则 Ninja 报 `multiple rules generate …VersionedA.lib`）。命名取**描述性**（仓库习惯），不用 `V2`/`V3`——后者把「第几个版本」与「差哪一维」混在一个名字里，而本谱的全部意义就是每步只差一维。**不动** `VersionedA` / `VersionedAPrime` / 50 轮循环 | 现状那一步（rung0→rung1，描述符逐字节相同）已被 50 轮循环覆盖，M4 只把它当阶梯的**起始步**（D113） |
 | D107 | **不新开测试 TU**：阶梯用例进 `Tests/HotSwap/HotSwapLoopTests.cpp`（同目录同主题）、知情位用例进 `Tests/HotSwap/EjectTests.cpp`（Eject 面）、Windows 档三改动落在既有 `Tests/HotSwap/AdoptTests.cpp`。**tidy TU 预期 +2**（两个新 fixture）+1（`NoIdentityPlugin` 上 Windows） | M3 先例：两条新用例住进既有 `EjectTests.cpp`；少一个 TU 就少一份 nlohmann/gtest 模板量的乘法 |

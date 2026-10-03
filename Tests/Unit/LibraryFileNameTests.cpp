@@ -24,14 +24,24 @@ TEST(LibraryFileName, RoundTripsOnThisPlatformsOwnNaming)
 
 TEST(LibraryFileName, RejectsForeignAndMalformedNames)
 {
-    // 别的平台的形态本平台不认（这是刻意的：识别面只认自己的命名，不猜）。
-    EXPECT_FALSE(vase::catalog_detail::LibraryStem("HelloPlugin.dll").has_value() ==
-                 vase::catalog_detail::LibraryStem("libHelloPlugin.so").has_value());
+    // 本平台形态命中、别的平台形态不认（这是刻意的：识别面只认自己的命名，不猜）。
+#ifdef _WIN32
+    EXPECT_TRUE(vase::catalog_detail::LibraryStem("HelloPlugin.dll").has_value());
+    EXPECT_FALSE(vase::catalog_detail::LibraryStem("libHelloPlugin.so").has_value());
+#elif defined(__APPLE__)
+    EXPECT_TRUE(vase::catalog_detail::LibraryStem("libHelloPlugin.dylib").has_value());
+    EXPECT_FALSE(vase::catalog_detail::LibraryStem("HelloPlugin.dll").has_value());
+#else
+    EXPECT_TRUE(vase::catalog_detail::LibraryStem("libHelloPlugin.so").has_value());
+    EXPECT_FALSE(vase::catalog_detail::LibraryStem("HelloPlugin.dll").has_value());
+#endif
     EXPECT_FALSE(vase::catalog_detail::LibraryStem("readme.txt").has_value());
     EXPECT_FALSE(vase::catalog_detail::LibraryStem("").has_value());
     // 前缀剥完是空串 ⇒ 不是合法的 stem。
 #ifdef _WIN32
     EXPECT_FALSE(vase::catalog_detail::LibraryStem(".dll").has_value());
+#elif defined(__APPLE__)
+    EXPECT_FALSE(vase::catalog_detail::LibraryStem("lib.dylib").has_value());
 #else
     EXPECT_FALSE(vase::catalog_detail::LibraryStem("lib.so").has_value());
 #endif

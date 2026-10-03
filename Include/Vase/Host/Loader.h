@@ -2,8 +2,8 @@
 
 // 平台差异的唯一收口（§13.1 第二条，v3 给它加了三档证据与导入表执法的分量）。
 // Windows：LoadLibraryExW / FreeLibrary / GetProcAddress + PE 解析。
-// Linux：dlopen(**RTLD_NOW | RTLD_LOCAL，不给宿主选项**——§8.7，POCO 的
-//        RTLD_GLOBAL 默认在多插件反复进出的框架下不可接受) / dlclose / dlsym + ELF 解析。
+// POSIX（Linux/macOS）：dlopen(**RTLD_NOW | RTLD_LOCAL，不给宿主选项**——§8.7，POCO 的
+//        RTLD_GLOBAL 默认在多插件反复进出的框架下不可接受) / dlclose / dlsym + ELF/Mach-O 解析。
 //
 // 「一文件一记录」：EnsureResident 对本实例的同一绝对路径只调一次平台加载——
 // Unload 的「解除映射」语义因此与一次 FreeLibrary/dlclose 严格配对（§8.1：
@@ -43,9 +43,9 @@ struct UnloadEvidence
 {
     // §8.2 档二的平台分工写进结构：读报告的人不必背文档就知道哪个字段在本平台有判据力。
     bool ReopenWritable = false;             // Win 主判（**辅助**地位：改名替换骗得过它）
-    bool MappingRemoved = false;             // Linux 主判：dl_iterate_phdr 条目消失
-    bool ReopenWritableIsMeaningful = false; // Win: true；Linux: false（值仍记录，不作判据）
-    bool MappingRemovalIsObservable = false; // Linux: true；Win: false
+    bool MappingRemoved = false;             // POSIX（Linux/macOS）主判：镜像清单条目消失（机制见平台侧实现）
+    bool ReopenWritableIsMeaningful = false; // Win: true；POSIX: false（值仍记录，不作判据）
+    bool MappingRemovalIsObservable = false; // POSIX: true；Win: false
 };
 
 class VASE_HOST_API Loader

@@ -74,9 +74,11 @@ UnloadEvidence Loader::Unload(const BinaryRecord& record)
     // MappingRemoved 在 Windows 不可观测（§8.2 档二：FreeLibrary 返回值不保证卸载干净），
     // 主判交给 ReopenWritable，但它只是辅助——最终防「假成功」的是档三（T11）。
 #else
+    // macOS 属 #else 这一支：dyld 的镜像清单能可靠回答「还在不在」（与 dl_iterate_phdr 同构），
+    // 且 open(O_WRONLY) 与是否映射无关，故 ReopenWritable 同样无判据力（D165）。
     evidence.MappingRemoved = PlatformMappingRemoved(copy.Path);
     evidence.MappingRemovalIsObservable = true;
-    // Linux 上恒真（旧 inode 解除链接即可），记录但不作判据（§8.2）。
+    // POSIX（Linux/macOS）上恒真（旧 inode 解除链接即可），记录但不作判据（§8.2）。
     evidence.ReopenWritable = PlatformReopenWritable(copy.Path);
     evidence.ReopenWritableIsMeaningful = false;
 #endif
@@ -108,11 +110,7 @@ Result<std::vector<std::string>> Loader::ImportedLibraryNamesFromFile(const std:
     {
         return Result<std::vector<std::string>>::Err(Error{"cannot read file: " + path.string()});
     }
-#ifdef _WIN32
-    return ParsePeImports(bytes, /*loadedInMemory=*/false);
-#else
-    return ParseElfNeededFile(bytes);
-#endif
+    return ParseImportedLibraryNames(bytes);
 }
 
 std::string Loader::DescribeLoadFailure(const std::filesystem::path& path)
@@ -122,11 +120,7 @@ std::string Loader::DescribeLoadFailure(const std::filesystem::path& path)
     {
         return {};
     }
-#ifdef _WIN32
-    return FirstUnresolvableImport(bytes, /*isPe=*/true);
-#else
-    return FirstUnresolvableImport(bytes, /*isPe=*/false);
-#endif
+    return FirstUnresolvableImport(bytes, PlatformImageFormat());
 }
 
 const BinaryRecord* Loader::FindResident(const std::filesystem::path& path) const

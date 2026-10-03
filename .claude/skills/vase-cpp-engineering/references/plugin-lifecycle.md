@@ -1,6 +1,6 @@
 # 插件生命周期与热插拔
 
-这份是 Vase 独有价值最大的一块，也是**改动代价最高的一块**：`Loader`、依赖账本、`Eject` / `Adopt` 路径、描述符布局、`HeaderVersion` 这几类的改动，验证要求是 `Tests/HotSwap/` **全部**用例 + 双平台各自留证据（见 `verification.md`）。
+这份是 Vase 独有价值最大的一块，也是**改动代价最高的一块**：`Loader`、依赖账本、`Eject` / `Adopt` 路径、描述符布局、`HeaderVersion` 这几类的改动，验证要求是 `Tests/HotSwap/` **全部**用例 + Windows / Linux / macOS 各自留证据（见 `verification.md`）。
 
 ---
 
@@ -185,7 +185,8 @@ v2 的卸货发生在四下无人的静默期；**v3 的 Eject 发生在别的�
 档二 · 映射解除   Windows：FreeLibrary 后文件可覆盖写——**辅助判据**（抓引用计数残留够快够准，
                         但会被"改名替换"骗过，且探针与重载之间有 TOCTOU）。
                  Linux：  dl_iterate_phdr 条目消失（主判）。
-                 macOS：  _dyld_image_count / 路径枚举条目消失。
+                 macOS：  _dyld_image_count / 路径枚举条目消失（macOS 腿已落成代码：
+                        ImageInspectDarwin.cpp；匹配前路径须规范化——dyld 记规范化路径，D164）。
 档三 · 新代码生效  内存镜像身份特征 ↔ 磁盘文件身份特征 比对。
                  Adopt 内部默认执行，**复用驻留镜像的分支同样比对**。
 ```

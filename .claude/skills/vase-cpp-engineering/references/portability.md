@@ -4,16 +4,19 @@
 
 ## 1. 目标平台（需求方指定）
 
-**开发 + 发布**：Win x64 / Linux x64 / macOS arm64
+**开发 + 发布**：Win x64 / Linux x64 / macOS x64
 **仅发布**：Android arm64 / iOS arm64
 
-**但仓库当前实际构建的只有 Win x64 与 Linux x64 两棵。** macOS / Android / iOS 的代码路径与构建都还没落地——`Loader` 里 macOS 的 `_dyld_*` 分支、移动端的实现都不存在。**不要把 §8.5 的平台矩阵读成"已经支持"**，它是目标不是现状。
+> macOS 原口径是 arm64，需求方 2026-10-01 裁定改 x64、**arm64 永久移出**（将来若要 arm64 = 新增一套 preset + triplet，不是改这一套；macOS 腿 spec D157）。
 
-`Loader` 里今天的平台分支是二选一（`Source/Host/CMakeLists.txt`）：
+**仓库当前实际构建的是 Win x64、Linux x64、macOS x64 三棵（八条 preset 线）。** macOS 腿（2026-10-02）已落地：档二证据 = `_dyld_image_count` / 路径枚举（`Source/Host/ImageInspectDarwin.cpp`）、档三身份 = `LC_UUID`（链接器必写，**无对位承重 flag**——承重性由 `NoIdentityPlugin` 的 `-Wl,-no_uuid` 负例反向把守，D159/D167）。Android / iOS 的代码路径与构建仍未落地——移动端实现不存在。**不要把 §8.5 的平台矩阵读成"桌面三棵 = 全矩阵已支持"**；preset 名与各线基数以根 `CLAUDE.md`「构建与测试」为准。
+
+`Loader` 的平台分支今天在三选一（`Source/Host/CMakeLists.txt`；`ImageInspectMachO.cpp` 例外——**无条件编译**，八线合成字节用例都链它）：
 
 ```cmake
-if(WIN32)  ImageInspectWindows.cpp  LoaderWindows.cpp
-else()     ImageInspectPosix.cpp    LoaderPosix.cpp
+if(WIN32)    ImageInspectWindows.cpp  LoaderWindows.cpp
+elseif(APPLE) ImageInspectDarwin.cpp  LoaderPosix.cpp
+else()       ImageInspectLinux.cpp    LoaderPosix.cpp   # 由 Posix 更名
 ```
 
 ---
@@ -39,9 +42,9 @@ else()     ImageInspectPosix.cpp    LoaderPosix.cpp
 
 ## 3. flag 是承重的，不是优化
 
-`/DEBUG:FULL`（Windows 两条线）与 `-Wl,--build-id=sha1`（Linux）**不是可选的优化，是身份特征的构建要求**——**两条 flag 的字面值与它们落在哪三个工具链文件，以根 `CLAUDE.md`「工具链 flag 是承重的」那节为准**。摘掉的症状是**运行期的响亮失败**：构建照常全绿，直到 Adopt 全线拒绝才暴露。详见 `abi-boundary.md` 第 5 节。
+`/DEBUG:FULL`（Windows 两条线）与 `-Wl,--build-id=sha1`（Linux）**不是可选的优化，是身份特征的构建要求**——**flag 的字面值、它们落在哪些工具链文件、以及 macOS 为什么没有对位 flag（`LC_UUID` 链接器必写、由 `-Wl,-no_uuid` 负例反向把守，D159），以根 `CLAUDE.md`「工具链 flag 是承重的」那节为准**。摘掉的症状是**运行期的响亮失败**：构建照常全绿，直到 Adopt 全线拒绝才暴露。详见 `abi-boundary.md` 第 5 节。
 
-改这两条 → 必重跑 `Tests/HotSwap/` 主循环，双平台各自留证据。
+改这两条 → 必重跑 `Tests/HotSwap/` 主循环，双平台各自留证据；macOS 侧的同位纪律是**别摘那枚负例**（改动 `LC_UUID` 解析或 `NoIdentityPlugin` 的 macOS 支，按规矩 6 的选择子跑族、三平台各留证据）。
 
 **另一个 configure 期的坑**：`CMAKE_*_FLAGS_INIT` **只在工具链首次 configure 时进入缓存**。工具链后来才加上新 flag 而某棵树在那之前就配过，那棵树就是空的（实测：`LoadProbe.dll` 没有 `.pdb`，`Loader.MemoryIdentityMatchesFileIdentity` 当场失败）。**修法是删掉那棵树重新 configure。**
 
@@ -51,8 +54,8 @@ else()     ImageInspectPosix.cpp    LoaderPosix.cpp
 
 `Loader` 是**平台差异的唯一收口**（§13.1）。新加平台相关代码时：
 
-- 往 `Source/Host/` 加一对 `*Windows.cpp` / `*Posix.cpp`，接口由 `Source/Host/ImageInspectPlatform.h` 声明（**Host 内部头，不进公开头**）；
-- 不要在主逻辑里散落 `#ifdef _WIN32`。今天的 `#ifdef` 集中在 `Detail/Export.h`（可见性宏）与工具链文件里。
+- 往 `Source/Host/` 加平台件（今天是三件一族：`ImageInspectWindows/Linux/Darwin.cpp` + `LoaderWindows/Posix.cpp`；**纯字节解析住无条件源**，如 `ImageInspectMachO.cpp`——跨平台可测、八线都有证人，这是 macOS 腿定下的形状，D161），接口由 `Source/Host/ImageInspectPlatform.h` 声明（**Host 内部头，不进公开头**）；
+- 不要在主逻辑里散落 `#ifdef _WIN32`。格式知识的单点是 `PlatformImageFormat()`（枚举穷举，加格式忘了处置即编译期失败，D174）；`#ifdef` 集中在 `Detail/Export.h`（可见性宏）、工具链文件与 `Loader` 的 Unload 证据那一段。
 
 三个平台的**证据判据力本来就不一样**，这件事写进了结构而不是文档：`UnloadEvidence` / `EjectReport` 里成对出现"字段值"与"本平台该字段有没有判据力"（`MappingRemovalIsObservable` / `ReopenWritableIsMeaningful`）。**加平台字段时跟着这个形状走。**
 
@@ -74,7 +77,7 @@ else()     ImageInspectPosix.cpp    LoaderPosix.cpp
 
 ## 6. 尚未落地的平台风险（记着，别当已解决）
 
-- **macOS 有比 glibc 宽得多的 neverUnload 清单**（dyld4）：ObjC/Swift 元数据、**带析构函数的静态对象（static terminators）**、主程序静态依赖、`RTLD_NODELETE`——命中时 `dlclose` **返回 0 但镜像永在**。纯 C++/libc++ 栈里的主嫌疑是 terminators：**一个普通的全局 C++ 对象就可能触发。** 不设"禁用静态析构"的契约（对正常 C++ 伤得太深），登记为风险，由 M5 用真实测量回答"macOS 上哪些插件可热卸"。
+- **macOS 有比 glibc 宽得多的 neverUnload 清单**（dyld4）：ObjC/Swift 元数据、**带析构函数的静态对象（static terminators）**、主程序静态依赖、`RTLD_NODELETE`——命中时 `dlclose` **返回 0 但镜像永在**。**实测（2026-10-01，macOS 腿 spec 取证注②）：本仓库关心的形态——纯 C++/libc++ 插件、无 ObjC/Swift 元数据、无 `RTLD_NODELETE`——包括带静态析构的那一档，`dlclose` 后镜像都从 dyld 清单真实消失、neverUnload 未触发；清单其余项（ObjC/Swift 元数据、主程序静态依赖等）未测。** 这句结论**带形态限定**，不许写成"macOS 不会 neverUnload"（D171）。不设"禁用静态析构"的契约（对正常 C++ 伤得太深）；档二在 macOS 上以 `_dyld_image_count` 枚举直接观测镜像去留，命中 neverUnload 也会**被看见**而不是静默成功。
 - **移动端**：Apple 平台**禁下载代码 `dlopen`**——Android / iOS 上的任何热插拔都不做，档 ① 也不给例外。发布形态下插件必须静态链接。
 - **libc++ 自身是带异常编译的**，其内部抛错路径若被触达，会穿过我们关闭异常的栈帧。正向路径已实测正常，错误路径行为待实测。
 
@@ -82,7 +85,7 @@ else()     ImageInspectPosix.cpp    LoaderPosix.cpp
 
 ## 7. 写跨平台代码时的检查
 
-1. 这段代码在**另一棵树**上会被编译吗？——平台专属 TU（`*Posix.cpp` / `*Windows.cpp`）**天然只在一条线上被 clang-tidy 检查**，它们的告警只有 Linux 线看得见。
+1. 这段代码在**别的树**上会被编译吗？——平台专属 TU（`ImageInspectWindows.cpp` / `ImageInspectLinux.cpp` / `ImageInspectDarwin.cpp`）**天然只在一条线上被 clang-tidy 检查**，它们的告警只有对应平台线看得见；`LoaderPosix.cpp` 由 Linux/macOS 两线共用，是这一判据的例外形状。
 2. 它依赖 STL 的哪种行为？MSVC STL 与 libc++ 在容器内部布局、迭代器类型、`max_align_t` 上都有差异。
 3. 它碰了符号可见性吗？新增的公开符号要 `VASE_EXPORT`，其余保持 hidden。
 4. 它写进文件系统了吗？路径处理用 `<filesystem>` 的**带 `error_code` 重载**，且注意 `Loader` 内部把路径**绝对化**后再入表。

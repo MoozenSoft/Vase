@@ -208,6 +208,20 @@ const char* SkipReasonText(vase::SkipReason reason)
     return "?";
 }
 
+const char* IdentityKindText(vase::detail::IdentityKind kind)
+{
+    switch (kind)
+    {
+    case vase::detail::IdentityKind::kPdbCodeView:
+        return "pdbCodeView";
+    case vase::detail::IdentityKind::kElfBuildId:
+        return "elfBuildId";
+    case vase::detail::IdentityKind::kMachOUuid:
+        return "machOUuid";
+    }
+    return "?";
+}
+
 const char* SolveNoteKindText(vase::SolveNoteKind kind)
 {
     switch (kind)
@@ -859,23 +873,23 @@ void Console::CmdFileInstall(std::ostream& out, const std::vector<std::string>& 
     {
         // Windows 上这一支就是 T12 那个 sharing-violation 探针：镜像还映射着就写不开。
         out << "install " << id << " written=false path=" << entry->BinaryPath.string() << '\n';
-        // 判据力声明同样按平台分叉（与成功路径那对一致）：Linux 正常走不到这一支
+        // 判据力声明同样按平台分叉（与成功路径那对一致）：POSIX（Linux/macOS）正常走不到这一支
         // （truncate-in-place 总是开得成），到达只说明路径不可写，与 Eject 无关。
 #ifdef _WIN32
         out << "  判据力：Windows → 写不开即「Eject 没真卸」（sharing violation）。本条**有**判据力\n";
 #else
-        out << "  判据力：Linux → 写不开只说明路径不可写（只读挂载 / 目录已删），非「Eject 没真卸」\n";
+        out << "  判据力：POSIX（Linux/macOS）→ 写不开只说明路径不可写（只读挂载 / 目录已删），非「Eject 没真卸」\n";
 #endif
         MarkFailed();
         return;
     }
     out << "install " << id << " written=true path=" << entry->BinaryPath.string() << '\n';
-    // 这两行不是装饰，是这条命令存在的全部理由：同一个动作为什么在两平台证明的不是
+    // 这两行不是装饰，是这条命令存在的全部理由：同一个动作为什么在不同平台证明的不是
     // 同一件事，读输出的人必须不看文档就知道（spec §4 / CLAUDE.md 规矩 6）。
 #ifdef _WIN32
     out << "  判据力：Windows → 覆盖写不开即「Eject 没真卸」（sharing violation）。本条**有**判据力\n";
 #else
-    out << "  判据力：Linux → 覆盖是 truncate-in-place（同 inode），映射着也写得开。本条**为空转**\n";
+    out << "  判据力：POSIX（Linux/macOS）→ 覆盖是 truncate-in-place（同 inode），映射着也写得开。本条**为空转**\n";
 #endif
 }
 
@@ -986,8 +1000,7 @@ void Console::CmdFileShow(std::ostream& out, const std::vector<std::string>& arg
         return; // 指纹缺失是诊断信息，不是命令失败
     }
     const vase::detail::ImageIdentity& value = identity.Value();
-    out << "  identity kind=" << (value.Kind == vase::detail::IdentityKind::kPdbCodeView ? "pdbCodeView" : "elfBuildId")
-        << " bytes=";
+    out << "  identity kind=" << IdentityKindText(value.Kind) << " bytes=";
     for (const std::uint8_t byte : value.Bytes)
     {
         out << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(byte);

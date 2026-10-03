@@ -256,7 +256,7 @@ private:
 
 TEST(Adopt, RenameReplacementCaughtByTierThree)
 {
-    // §8.2：两平台同一条序列——先改名离开、再落新字节（Windows
+    // §8.2：三平台同一条序列——先改名离开、再落新字节（Windows
     // 允许改名映射中的文件）；改名替换对档二隐形，只有档三分得出。
     //
     // 声明序承重：guard 在 host 之前——否则 `.old` 删不掉（理由同守卫析构处）。
@@ -268,6 +268,8 @@ TEST(Adopt, RenameReplacementCaughtByTierThree)
     host.DestroyPod(host.CreatePod(Plan({{"Vase.LoadProbe", probe}})).Value()); // 驻留（拆局不卸货，§8.1）
 
     std::error_code ec;
+    // rename + copy 而不是 in-place 覆盖：macOS 上截断一个**仍被映射**的镜像会让旧映射的页失效，
+    // 进程再触碰就是 SIGBUS。M4 的序列天然避开——**不许把它优化回 in-place**。
     std::filesystem::rename(probe, guard.DisplacedPath(), ec);
     ASSERT_FALSE(ec) << ec.message();
     std::filesystem::copy_file(VASE_FIXTURE_UNLOADPROBE, probe, std::filesystem::copy_options::overwrite_existing, ec);
@@ -358,8 +360,8 @@ TEST(Adopt, ProbeSwapGuardHealsAbortResidue)
 
 TEST(Adopt, MissingIdentityFeatureRejectedWithPointer)
 {
-    // §8.2 的「特征缺失 = 直接拒绝」，两平台各有自己的指路 token：Linux 指 --build-id、
-    // Windows 指 /DEBUG:FULL（错误臂单源，见 ImageInspectCommon.cpp 的两个 Missing*Error）。
+    // §8.2 的「特征缺失 = 直接拒绝」，三平台各有指路 token：Linux 指 --build-id、Windows 指
+    // /DEBUG:FULL、macOS 指 -no_uuid（错误臂单源各住一处，见 ImageInspect{Common,MachO}.cpp）。
     vase::PluginHost host;
     const vase::LoadPlan plan = Plan({{"Vase.NoIdentity", VASE_FIXTURE_NOIDENTITY}});
     host.DestroyPod(host.CreatePod(plan).Value()); // CreatePod 不设身份闸（v2 语义）——先驻留一回
@@ -369,6 +371,8 @@ TEST(Adopt, MissingIdentityFeatureRejectedWithPointer)
     ASSERT_FALSE(r.IsOk()); // ASSERT_：下面立刻取 GetError()，Ok 上取会终止进程
 #ifdef _WIN32
     EXPECT_NE(r.GetError().Message().find("/DEBUG:FULL"), std::string::npos); // 报告指路补链接标志
+#elif defined(__APPLE__)
+    EXPECT_NE(r.GetError().Message().find("-no_uuid"), std::string::npos); // D168：Mach-O 身份缺失的错误臂含此 token
 #else
     EXPECT_NE(r.GetError().Message().find("--build-id"), std::string::npos);
 #endif

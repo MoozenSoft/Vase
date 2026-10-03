@@ -1,12 +1,12 @@
 #include "Vase/Detail/ImageInspect.h"
 
+#include "Detail/ImageBytes.h"
 #include "ImageInspectPlatform.h"
 #include "Vase/Detail/Result.h"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -21,61 +21,6 @@ namespace vase::detail
 {
 namespace
 {
-
-// ——— 边界与读取 ———
-//
-// 纪律：每个取字节前都先 InBounds，查不过就 Err，绝不越界读。整数一律 memcpy 进
-// 本地变量——非对齐安全（PE / ELF 的字段本来就不保证对齐），且两平台同码。
-// 目标矩阵（x64 / arm64）全是小端，故「按本机序读」就是 LE 读法，不需要逐字节拼。
-
-[[nodiscard]] bool InBounds(std::size_t offset, std::size_t length, std::size_t total)
-{
-    return offset <= total && length <= total - offset;
-}
-
-[[nodiscard]] std::uint8_t ReadU8(std::span<const std::uint8_t> bytes, std::size_t at)
-{
-    std::uint8_t value = 0;
-    std::memcpy(&value, bytes.subspan(at, sizeof(value)).data(), sizeof(value));
-    return value;
-}
-
-[[nodiscard]] std::uint16_t ReadU16(std::span<const std::uint8_t> bytes, std::size_t at)
-{
-    std::uint16_t value = 0;
-    std::memcpy(&value, bytes.subspan(at, sizeof(value)).data(), sizeof(value));
-    return value;
-}
-
-[[nodiscard]] std::uint32_t ReadU32(std::span<const std::uint8_t> bytes, std::size_t at)
-{
-    std::uint32_t value = 0;
-    std::memcpy(&value, bytes.subspan(at, sizeof(value)).data(), sizeof(value));
-    return value;
-}
-
-[[nodiscard]] std::uint64_t ReadU64(std::span<const std::uint8_t> bytes, std::size_t at)
-{
-    std::uint64_t value = 0;
-    std::memcpy(&value, bytes.subspan(at, sizeof(value)).data(), sizeof(value));
-    return value;
-}
-
-// 读一条 NUL 结尾的字符串；扫到镜像末尾仍没有 NUL 就是 Err（不越界、不猜）。
-[[nodiscard]] Result<std::string> ReadNulTerminated(std::span<const std::uint8_t> bytes, std::size_t at)
-{
-    std::string text;
-    for (std::size_t index = at; index < bytes.size(); ++index)
-    {
-        const std::uint8_t value = ReadU8(bytes, index);
-        if (value == 0U)
-        {
-            return Result<std::string>::Ok(std::move(text));
-        }
-        text.push_back(static_cast<char>(value));
-    }
-    return Result<std::string>::Err(Error{"unterminated string in image"});
-}
 
 [[nodiscard]] Error MissingCodeViewError()
 {
@@ -240,10 +185,10 @@ struct DataDirectoryEntry
         return Identity::Err(MissingCodeViewError());
     }
     const std::span<const std::uint8_t> guidAge = image.subspan(at + sizeof(std::uint32_t), kCodeViewGuidAgeSize);
-    ImageIdentity identity;
-    identity.Kind = IdentityKind::kPdbCodeView;
-    identity.Bytes.assign(guidAge.begin(), guidAge.end());
-    return Identity::Ok(std::move(identity));
+    return Identity::Ok(ImageIdentity{
+        .Kind = IdentityKind::kPdbCodeView,
+        .Bytes = std::vector<std::uint8_t>(guidAge.begin(), guidAge.end()),
+    });
 }
 
 // ——— ELF ———
@@ -529,10 +474,10 @@ Result<ImageIdentity> ExtractBuildIdFromNotes(std::span<const std::uint8_t> note
         if (type == kNtGnuBuildId && nameSize == 4U && IsGnuNoteName(notes, nameAt))
         {
             const std::span<const std::uint8_t> desc = notes.subspan(descAt, descSize);
-            ImageIdentity identity;
-            identity.Kind = IdentityKind::kElfBuildId;
-            identity.Bytes.assign(desc.begin(), desc.end());
-            return Identity::Ok(std::move(identity));
+            return Identity::Ok(ImageIdentity{
+                .Kind = IdentityKind::kElfBuildId,
+                .Bytes = std::vector<std::uint8_t>(desc.begin(), desc.end()),
+            });
         }
         const std::size_t next = descAt + AlignUp4(descSize);
         if (next <= at)
@@ -657,10 +602,48 @@ Result<std::vector<std::string>> ParseElfNeededFile(std::span<const std::uint8_t
     return Names::Ok(std::move(names));
 }
 
-std::string FirstUnresolvableImport(std::span<const std::uint8_t> fileBytes, bool isPe)
+ImageFormat PlatformImageFormat()
 {
-    const Result<std::vector<std::string>> names =
-        isPe ? ParsePeImports(fileBytes, /*loadedInMemory=*/false) : ParseElfNeededFile(fileBytes);
+#ifdef _WIN32
+    return ImageFormat::kPe;
+#elif defined(__APPLE__)
+    return ImageFormat::kMachO;
+#else
+    return ImageFormat::kElf;
+#endif
+}
+
+Result<std::vector<std::string>> ParseImportedLibraryNames(std::span<const std::uint8_t> fileBytes)
+{
+    // 穷举 switch（无 default）：加格式时 clang 线的 -Wswitch 会顶出来。
+    switch (PlatformImageFormat())
+    {
+    case ImageFormat::kPe:
+        return ParsePeImports(fileBytes, /*loadedInMemory=*/false);
+    case ImageFormat::kElf:
+        return ParseElfNeededFile(fileBytes);
+    case ImageFormat::kMachO:
+        return ParseMachODylibNamesFile(fileBytes);
+    }
+    return Result<std::vector<std::string>>::Err(Error{"unreachable image format"});
+}
+
+std::string FirstUnresolvableImport(std::span<const std::uint8_t> fileBytes, ImageFormat format)
+{
+    Result<std::vector<std::string>> names = Result<std::vector<std::string>>::Err(Error{"unreachable image format"});
+    // 穷举 switch（无 default）：加格式时 clang 线的 -Wswitch 会顶出来。
+    switch (format)
+    {
+    case ImageFormat::kPe:
+        names = ParsePeImports(fileBytes, /*loadedInMemory=*/false);
+        break;
+    case ImageFormat::kElf:
+        names = ParseElfNeededFile(fileBytes);
+        break;
+    case ImageFormat::kMachO:
+        names = ParseMachODylibNamesFile(fileBytes);
+        break;
+    }
     if (!names.IsOk() || names.Value().empty())
     {
         return {};

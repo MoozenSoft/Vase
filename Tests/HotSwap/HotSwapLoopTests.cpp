@@ -142,8 +142,8 @@ TEST(HotSwap, FullLoopFlipsBehaviorAndNeverTouchesNeighbor)
     ws.InstallPrime(); // A′ 覆盖 A 的位置；A/A′ 描述符逐字节相同，期望不需要跟着换
     const vase::Result<vase::AdoptReport> adopt = host.AdoptPlugin(h, LoopAdoptRequest(versionedA, ws.APath));
     ASSERT_TRUE(adopt.IsOk()) << adopt.GetError().Message();
-    // §12.1 要的是「真 Eject 之后走**全新装载**分支」。Linux 上 `ReusedResidentImage` 是唯一
-    // 判据；Windows 上 `InstallPrime()` 的覆盖断言先红（镜像还映射着就写不动），它是语义锚点。
+    // §12.1 要的是「真 Eject 之后走**全新装载**分支」。POSIX（Linux/macOS）上 `ReusedResidentImage`
+    // 是唯一判据；Windows 上 `InstallPrime()` 的覆盖断言先红（镜像还映射着就写不动），它是语义锚点。
     // IdentityVerified 在成功路径上被无条件置 true（PluginHost.cpp），是报告字段不是判据。
     EXPECT_FALSE(adopt.Value().ReusedResidentImage);
 

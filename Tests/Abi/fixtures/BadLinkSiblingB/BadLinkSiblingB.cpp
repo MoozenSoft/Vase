@@ -4,8 +4,8 @@
 // hidden，隐藏之后插件唯一导出的符号是 VASE_PLUGIN 生成的 `VasePlugin_GetPlugin`——
 // 而 A 与 B **各有一份同名的**，A 调它自己那份即可，链接器不会为 A 记下指向 B 的边。
 // 「A 链了 B」于是只写在 CMake 里、什么导入条目也不产生（Windows 无引用导出的导入库
-// 是空的）。Linux 侧无引用的 .so 留不留取决于 `--as-needed`，**本机 clang 驱动默认不开**，
-// 所以那一侧的 NEEDED 只是偶然活着——不是「链接器在替我们兜着」。
+// 是空的）。POSIX（Linux/macOS）侧未引用条目同样默认不剥（GNU ld `--as-needed` / ld64
+// `-dead_strip_dylibs` 都没开）——NEEDED/LC_LOAD_DYLIB 只是偶然活着，不是「链接器在替我们兜着」。
 // 3e 要拦的是**真实的**导入条目，所以 B 必须多露一个 A 无法自给的名字，A 真的调它。
 #include "Vase/Plugin.h"
 

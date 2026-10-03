@@ -50,12 +50,13 @@ void* Loader::PlatformSymbol(void* raw, const char* name)
 
 bool Loader::PlatformReopenWritable(const std::filesystem::path& path)
 {
-    // §8.2 档二 · Linux 侧恒真的那一半：旧 inode 解除链接即可，与是否还映射着无关。
+    // §8.2 档二 · POSIX 侧恒真（Linux 与 macOS）的那一半：旧 inode 解除链接即可，与是否还映射着无关。
     //
     // open(2) 的**声明**本身就是可变参数（第三个 mode 可选），两参数形态照样落在
     // pro-type-vararg 里。没有等价替代：这里要的是「以写权限真开一次」，而
     // fopen("r+") 额外要求可读、access(W_OK) 只查权限位不真开——两者都改判据语义（§8.2）。
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+    // macOS 线：include-cleaner 不把 open/O_WRONLY 归给 <fcntl.h>（Linux 同处干净）——与 Doctor.cpp 伞形头位点同形。
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg, misc-include-cleaner)
     const int descriptor = ::open(path.c_str(), O_WRONLY);
     if (descriptor < 0)
     {
@@ -67,7 +68,7 @@ bool Loader::PlatformReopenWritable(const std::filesystem::path& path)
 
 bool Loader::PlatformMappingRemoved(const std::filesystem::path& path)
 {
-    // §8.2 档二 · Linux 主判：dl_iterate_phdr 的清单里还有没有它。
+    // §8.2 档二 · POSIX（Linux/macOS）主判：已装载镜像清单里还有没有它（机制各平台不同）。
     return !IsImageMapped(path);
 }
 

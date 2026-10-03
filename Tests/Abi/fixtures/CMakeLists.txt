@@ -4,8 +4,8 @@
 #
 # **只写 LINK_LIBRARIES 不产生条目**——两端代码必须真有一条引用，理由写在
 # BadLinkSiblingA.cpp / BadLinkSiblingB.cpp 的顶部（只链不引 = Windows 的空导入库，
-# 3e 会为错的原因绿）。Linux 侧无引用的 .so 留不留取决于 `--as-needed`，**本机 clang
-# 驱动默认不开**，于是那一侧的 NEEDED 只是偶然活着——别把它读成「链接器已经在保护我们」。
+# 3e 会为错的原因绿）。POSIX（Linux/macOS）侧未引用的 .so/.dylib 条目同样默认不剥（GNU ld
+# `--as-needed` / ld64 `-dead_strip_dylibs` 本机都没开），于是那一侧的链接条目只是偶然活着——别把它读成「链接器已经在保护我们」。
 vase_add_plugin_fixture(BadLinkSiblingB
     SOURCES BadLinkSiblingB/BadLinkSiblingB.cpp
     LINK_LIBRARIES VasePod)

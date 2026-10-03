@@ -3,8 +3,8 @@
 // 导入表这道执法，Eject(B) 会当场假成功（引用计数被 A 的导入表焊死，B 卸不掉）。
 #include "Vase/Plugin.h"
 
-// B 的标记：只在链接期被解析（Windows 走 BadLinkSiblingB.lib 的导入跳板；
-// Linux 走 libBadLinkSiblingB.so）。
+// B 的标记：只在链接期被解析（Windows 走 BadLinkSiblingB.lib 的导入跳板、
+// Linux 走 libBadLinkSiblingB.so、macOS 走 libBadLinkSiblingB.dylib）。
 extern "C" int VaseBadLinkSiblingBMarker();
 
 namespace

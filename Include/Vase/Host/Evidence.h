@@ -51,7 +51,7 @@ struct EjectReport
     bool ScopeEmptied = false;
     bool CrossPodInstancesZeroed = false; // 多开同插件时这是「能不能卸货」的闸
 
-    // 档二 · 映射解除：Linux 主判 = 条目消失；Windows 主判 = 文件可写开，**辅助**地位
+    // 档二 · 映射解除：POSIX（Linux/macOS）主判 = 条目消失；Windows 主判 = 文件可写开，**辅助**地位
     // （改名替换骗得过它，§8.2 v3 修订——最终防假成功的是档三）。
     bool MappingRemoved = false;
     bool ReopenWritable = false;

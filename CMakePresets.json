@@ -67,6 +67,28 @@
       "inherits": "linux-x64-clang",
       "displayName": "Linux x64 / clang / libc++ / Release",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "macos-x64-clang",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-macos/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/Cmake/Toolchains/macos-x64-clang-libcxx.cmake",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "macos-x64-clang-debug",
+      "inherits": "macos-x64-clang",
+      "displayName": "macOS x64 / clang / libc++ / Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "macos-x64-clang-release",
+      "inherits": "macos-x64-clang",
+      "displayName": "macOS x64 / clang / libc++ / Release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     }
   ],
   "buildPresets": [
@@ -75,7 +97,9 @@
     { "name": "win-x64-msvc-debug", "configurePreset": "win-x64-msvc-debug" },
     { "name": "win-x64-msvc-release", "configurePreset": "win-x64-msvc-release" },
     { "name": "linux-x64-clang-debug", "configurePreset": "linux-x64-clang-debug" },
-    { "name": "linux-x64-clang-release", "configurePreset": "linux-x64-clang-release" }
+    { "name": "linux-x64-clang-release", "configurePreset": "linux-x64-clang-release" },
+    { "name": "macos-x64-clang-debug", "configurePreset": "macos-x64-clang-debug" },
+    { "name": "macos-x64-clang-release", "configurePreset": "macos-x64-clang-release" }
   ],
   "testPresets": [
     {
@@ -106,6 +130,16 @@
     {
       "name": "linux-x64-clang-release",
       "configurePreset": "linux-x64-clang-release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "macos-x64-clang-debug",
+      "configurePreset": "macos-x64-clang-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "macos-x64-clang-release",
+      "configurePreset": "macos-x64-clang-release",
       "output": { "outputOnFailure": true }
     }
   ]

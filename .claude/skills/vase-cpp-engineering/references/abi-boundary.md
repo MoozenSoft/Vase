@@ -126,9 +126,9 @@ struct DamageEvent {
 |---|---|---|
 | Windows | PE 调试目录的 CodeView **RSDS** GUID + Age | **`/DEBUG:FULL`**（没有它就没有 RSDS） |
 | Linux | `.note.gnu.build-id` 的 desc | **`-Wl,--build-id=sha1`** |
-| macOS | `LC_UUID` | 链接器必写，天然满足 |
+| macOS | `LC_UUID` | **无需 flag**——链接器必写（D159）；承重性由 `NoIdentityPlugin` 的 macOS 支 `-Wl,-no_uuid` 负例**反向把守**（D167） |
 
-**这两条 flag 不是可选的优化，是身份特征的构建要求**，写在三个工具链文件的 `CMAKE_SHARED_LINKER_FLAGS_INIT` 里——**flag 的字面值与"改动必须重跑 HotSwap 主循环"这条要求，以根 `CLAUDE.md`「工具链 flag 是承重的」那节为准**（本表留着是因为它按平台对位身份特征，那份没有 macOS 一行）。**摘掉它们的症状是运行期的响亮失败，不是编译失败**：构建照常全绿，直到 Adopt 全线拒绝才暴露。
+**这两条 flag 不是可选的优化，是身份特征的构建要求**——Windows 两条线与 Linux 的工具链文件在 `CMAKE_SHARED_LINKER_FLAGS_INIT` 里各写一条，**macOS 没有对位 flag**（上表 macOS 行就是这条不对称的全部真相）。**flag 的字面值、落在哪几个工具链文件、"改动必须重跑 HotSwap 主循环"与 macOS 侧「别摘负例」的同位纪律，以根 `CLAUDE.md`「工具链 flag 是承重的」那节为准**（本表留着是因为它按平台对位身份特征）。**摘掉它们的症状是运行期的响亮失败，不是编译失败**：构建照常全绿，直到 Adopt 全线拒绝才暴露。
 
 **特征缺失 = Adopt 直接拒绝**，报告指路补链接标志——**响亮的失败，不做"跳过验新"的静默降级**。内存哈希兜底记在 §13.1，暂不设计。
 
@@ -163,4 +163,4 @@ struct DamageEvent {
 6. 它是字符串吗？`string_view` 借用 + 明确"谁的镜像在它背后"（见 `ownership-lifetime.md` 第 3 节）。
 7. 它进描述符了吗？那就必须是纯数据、可平凡拷贝、指向只读字面量。
 
-**改了这一节里任何一条，验证要求就是 `verification.md` 表里的"Loader / 描述符布局 / `HeaderVersion`"那一行**——`Tests/HotSwap/` 全部用例，双平台各自留证据。
+**改了这一节里任何一条，验证要求就是 `verification.md` 表里的"Loader / 描述符布局 / `HeaderVersion`"那一行**——`Tests/HotSwap/` 全部用例，Windows / Linux / macOS 各自留证据。

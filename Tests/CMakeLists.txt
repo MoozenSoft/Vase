@@ -110,12 +110,12 @@ target_compile_definitions(VaseTests PRIVATE
     VASE_FIXTURE_BADLINKB="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingB>>"
     VASE_FIXTURE_MANIFESTS="$<PATH:CMAKE_PATH,${CMAKE_CURRENT_SOURCE_DIR}/Integration/fixtures/manifests>")
 
-# 档三「特征缺失」fixture（T11；M4/D109 跨平台化）：两个平台各摘各的身份特征——
-# Linux 是 .note.gnu.build-id，Windows 是 PE 调试目录里的 CodeView(RSDS)。
+# 档三「特征缺失」fixture（T11；M4/D109 跨平台化）：三个平台各摘各的身份特征——
+# Linux 是 .note.gnu.build-id，Windows 是 PE 调试目录里的 CodeView(RSDS)，macOS 是 LC_UUID。
 #
 # 链接顺序是**实测**钉住的：`target_link_options` 排在工具链 `CMAKE_SHARED_LINKER_FLAGS_INIT`
 # 之后，后者胜——Linux 侧 M1 已用 GNU ld 证过（记录见 task-11-report.md），Windows 侧
-# `/DEBUG:NONE` 压过 `/DEBUG:FULL` 也已实测（M4 探针 P2），两平台产物均无身份特征。
+# `/DEBUG:NONE` 压过 `/DEBUG:FULL` 也已实测（M4 探针 P2）；macOS 无对位 flag 可压（D167，见下 APPLE 分支注），三平台产物均无身份特征。
 #
 # **这个 fixture 自守**：标志一旦失效，产物就长出身份特征，Adopt 会走到装配并返回 Ok，
 # `ASSERT_FALSE(r.IsOk())` 当场变红——静默失效不可能产生假绿。
@@ -124,6 +124,10 @@ vase_add_plugin_fixture(NoIdentityPlugin
     LINK_LIBRARIES VasePod)
 if(WIN32)
     target_link_options(NoIdentityPlugin PRIVATE "/DEBUG:NONE")
+elseif(APPLE)
+    # macOS 侧摘的是 LC_UUID；工具链本就没加对位的 flag，故这里没有「要压过的东西」，
+    # 与另两平台的「后者胜」形态不同——那是预期的，不是没验过（D167）。
+    target_link_options(NoIdentityPlugin PRIVATE "-Wl,-no_uuid")
 else()
     target_link_options(NoIdentityPlugin PRIVATE "-Wl,--build-id=none")
 endif()

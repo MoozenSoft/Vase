@@ -228,7 +228,7 @@ PluginHost::~PluginHost()
     {
         const detail::UnloadEvidence evidence = Loader.Unload(record);
         // 档二证据只记不判：进程正在退出，日志即可——端到端断言推迟到 CI/M5
-        // （gtest 测不了自家析构）。Linux 看 MappingRemoved，Windows 看 ReopenWritable。
+        // （gtest 测不了自家析构）。POSIX（Linux/macOS）看 MappingRemoved，Windows 看 ReopenWritable。
         const bool unloaded = evidence.ReopenWritableIsMeaningful ? evidence.ReopenWritable : evidence.MappingRemoved;
         if (!unloaded)
         {
@@ -1029,7 +1029,7 @@ Result<AdoptReport> PluginHost::AdoptImpl(PodHandle handle, const std::string& i
         }
         if (!(memory.Value() == disk.Value()))
         {
-            // 档二看不见的那种替换：Linux 上旧 inode 仍映射、路径已被换血，只有特征比对分得出。
+            // 档二看不见的那种替换：POSIX（Linux/macOS）上旧 inode 仍映射、路径已被换血，只有特征比对分得出。
             return Result<AdoptReport>::Err(
                 Refusal(id, Phase::kAdopt,
                         "adopt refused: resident image and file on disk differ — tier three caught a replacement "
@@ -1101,7 +1101,10 @@ Result<AdoptReport> PluginHost::AdoptImpl(PodHandle handle, const std::string& i
     const std::string selfName = LowerAscii(absPath.filename().string());
     for (const std::string& imported : imports.Value())
     {
-        const std::string lowered = LowerAscii(imported);
+        // 导入名可能带路径：macOS 的 LC_LOAD_DYLIB 记 `@rpath/libX.dylib`，而 ELF 的
+        // DT_NEEDED 同样允许带斜杠。兄弟集依 D71 契约已是裸文件名，故 basename 只取导入侧——
+        // 归一放在比对点而不是解析层，三个格式一次覆盖（D176）。
+        const std::string lowered = LowerAscii(std::filesystem::path(imported).filename().string());
         const bool siblingHit = std::ranges::any_of(siblings, [&lowered](const std::string& sibling)
                                                     { return LowerAscii(sibling) == lowered; });
         if (lowered != selfName && siblingHit)

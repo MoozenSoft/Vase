@@ -26,8 +26,8 @@ namespace
 {
 
 // 文件名比对走小写（§8.7 本来就不做大小写敏感）：Windows 的导入表保留创建时大小写，
-// 而 Linux 的 DT_NEEDED 是另一个拼法（`libBadLinkSiblingB.so`）。小写化之后两平台
-// **同一条断言**都能用——不写 #ifdef，就没有「只在天平一侧被验过」的那一半。
+// Linux/macOS 的拼法又不同（`libBadLinkSiblingB.so` / `@rpath/libBadLinkSiblingB.dylib`）。
+// 小写化后三平台**同一条断言**都能用——不写 #ifdef，就没有「只在天平一侧被验过」的那一半。
 std::string LowerAscii(std::string_view text)
 {
     std::string lowered(text);

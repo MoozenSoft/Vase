@@ -1,9 +1,9 @@
-// 档三「特征缺失」探针（T11）：与 LoadProbe 同源，唯一的差别是**不带**自己的身份特征（两个平台
+// 档三「特征缺失」探针（T11）：与 LoadProbe 同源，唯一的差别是**不带**自己的身份特征（三个平台
 // 各摘各的，见 Tests/CMakeLists.txt）。CreatePod 不设身份闸（v2 语义），所以它照常装载；
 // Adopt 的档三一读到「没有特征」就得拒绝并指路补标志。
 //
 // M4/D109：跨平台化并改名——它的存在理由是平台中性的「身份特征缺失」（Linux 无 .note.gnu.build-id /
-// Windows 无 CodeView）。
+// Windows 无 CodeView / macOS 无 LC_UUID）。
 #include "Vase/Plugin.h"
 
 #include <cstdint>

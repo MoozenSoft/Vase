@@ -24,7 +24,7 @@ vase_add_plugin_fixture(TimerPlugin
 # 那个**叫 VersionedA 名**的文件，测试才能用它的字节覆盖「A 的位置」。
 set_target_properties(VersionedAPrime PROPERTIES OUTPUT_NAME VersionedA)
 
-# 三个输出目录全分开（RUNTIME=.dll / .so 与可执行，LIBRARY=Linux .so，ARCHIVE=Windows
+# 三个输出目录全分开（RUNTIME=.dll 与可执行，LIBRARY=Linux .so / macOS .dylib，ARCHIVE=Windows
 # 导入库 .lib）。ARCHIVE 这一项不是装饰：两个 target 同名时它默认都落 build/<preset>/lib/，
 # Ninja 会在生成期报 "multiple rules generate .../VersionedA.lib" 而整棵树构建失败。
 set_target_properties(VersionedA PROPERTIES

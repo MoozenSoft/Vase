@@ -1,3 +1,5 @@
+// Linux 专属（<elf.h>/<link.h>/dl_iterate_phdr）；macOS 的对位实现是 ImageInspectDarwin.cpp。
+
 #include "Vase/Detail/ImageInspect.h"
 
 #include "ImageInspectPlatform.h"

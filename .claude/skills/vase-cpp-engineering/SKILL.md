@@ -1,6 +1,6 @@
 ---
 name: vase-cpp-engineering
-description: Vase 插件框架的 C++ 工程约束。在 Vase 仓库里设计、实现、修改、评审任何 C++ 代码时使用——覆盖架构不变量（铁律、三层分层、依赖账本）、所有权与生命周期、跨 DLL / ABI 边界、Adopt/Eject 热插拔、错误通道（Result<T>，全项目无异常）、单线程并发契约、性能口径与六 preset 验证制度。只要任务涉及 Include/Vase、Source/{Pod,Host}、插件 target、Effect / Service / Event / Loader，或 Tests/ 下的用例，就先读本 skill：这个仓库里"编得过、测试也绿"常常正是架构已经坏掉的形态，而坏掉的那部分恰好是本库存在的理由。
+description: Vase 插件框架的 C++ 工程约束。在 Vase 仓库里设计、实现、修改、评审任何 C++ 代码时使用——覆盖架构不变量（铁律、三层分层、依赖账本）、所有权与生命周期、跨 DLL / ABI 边界、Adopt/Eject 热插拔、错误通道（Result<T>，全项目无异常）、单线程并发契约、性能口径与八 preset 验证制度。只要任务涉及 Include/Vase、Source/{Pod,Host}、插件 target、Effect / Service / Event / Loader，或 Tests/ 下的用例，就先读本 skill：这个仓库里"编得过、测试也绿"常常正是架构已经坏掉的形态，而坏掉的那部分恰好是本库存在的理由。
 ---
 
 # Vase C++ 工程
@@ -50,7 +50,7 @@ description: Vase 插件框架的 C++ 工程约束。在 Vase 仓库里设计、
 ## 仓库当前状态（读其余内容前先记住）
 
 - **M0（构建地基）与 M1（Pod 闭环 + 热插拔骨架）已完成。** 已落地的机制以**磁盘上的头文件与实现**为准。
-- `wiki/vase-architecture.md` v3 里**未落成代码的部分仍是提案**（清单 / Preset / Catalog / 配置宏反射 / 级联热替换 / C ABI / macOS 与移动端）。不要把提案写成既定事实；新增或变更机制前先与需求方确认。
+- `wiki/vase-architecture.md` v3 里**未落成代码的部分仍是提案**（清单 / Preset / Catalog / 配置宏反射 / 级联热替换 / C ABI / 移动端）。macOS 不再在其列——**x64 桌面腿已落**（2026-10-02，见根 `CLAUDE.md`「项目状态」与 macOS 腿 spec）。不要把提案写成既定事实；新增或变更机制前先与需求方确认。
 - 仓库根 `CLAUDE.md` 是命令、规矩与基数的唯一真值来源。本 skill 与它冲突时以它为准，并回来修正本 skill。
 
 ## 一、路由表：现在该读哪一份
@@ -164,10 +164,10 @@ C++ 与边界：
 
 | 改动类型 | 必须做的验证 |
 |---|---|
-| 任何提交 | 六 preset 全绿；`ctest --preset <p> -N` 的 `Total Tests` 逐位对上根 `CLAUDE.md` 那张按线分账的基数表；差值的成因要能说出来（`references/verification.md` 第 2 节） |
-| **Loader、依赖账本、Eject / Adopt 路径、描述符布局、`HeaderVersion`** | 另加 `Tests/HotSwap/` **全部**用例，Windows 与 Linux 各自留证据。选择子见根 `CLAUDE.md` 规矩 6——**写成只匹配主循环那一类，会把守 Eject / Adopt 边界的用例整套漏掉** |
-| 两条承重的工具链 flag（清单见根 `CLAUDE.md`「工具链 flag 是承重的」） | 同上（它们是档三身份特征的**构建要求**，摘掉的症状是运行期 Adopt 全线拒绝，不是编译失败） |
-| 跨平台行为 | 双平台各自跑。**"Windows 两条线绿"推不出"Linux 绿"**，且成因有两种：STL 不同（同一份共享文件也不报），以及平台专属 TU（`*Posix.cpp` / `*Windows.cpp`）在另一条线上**根本不编译**、天然只有一条线看得见 |
+| 任何提交 | 八 preset 全绿；`ctest --preset <p> -N` 的 `Total Tests` 逐位对上根 `CLAUDE.md` 那张按线分账的基数表；差值的成因要能说出来（`references/verification.md` 第 2 节） |
+| **Loader、依赖账本、Eject / Adopt 路径、描述符布局、`HeaderVersion`** | 另加 `Tests/HotSwap/` **全部**用例，Windows、Linux 与 macOS 各自留证据。选择子见根 `CLAUDE.md` 规矩 6——**写成只匹配主循环那一类，会把守 Eject / Adopt 边界的用例整套漏掉** |
+| 两条承重的工具链 flag（清单见根 `CLAUDE.md`「工具链 flag 是承重的」；macOS 无对位 flag、由负例把守） | 同上（它们是档三身份特征的**构建要求**，摘掉的症状是运行期 Adopt 全线拒绝，不是编译失败） |
+| 跨平台行为 | 三平台各自跑。**"Windows 两条线绿"推不出"Linux 绿"，也推不出"macOS 绿"**，且成因有两种：STL 不同（同一份共享文件也不报），以及平台专属 TU（`ImageInspectWindows/Linux/Darwin.cpp`）在别的线上**根本不编译**、天然只有一条线看得见 |
 | 新增 / 改动构建树 | 删树重配，不要用 `-D` 钉手工 override（`CMAKE_*_FLAGS_INIT` 只在首次 configure 进缓存，会把后续工具链改动一起遮住） |
 
 命令块、preset 名、脚本形态与基数表都在根 `CLAUDE.md`；`references/verification.md` 只补判据与三条它没有的坑。

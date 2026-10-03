@@ -60,7 +60,7 @@ std::uint32_t ReadLeU32(const std::string& bytes, std::size_t index)
 }
 #endif
 
-// 翻掉 machine 字段后写回；两侧头部 sanity 不符即响亮失败（staging 缺料当场响，CopyFile 同形）。
+// 翻掉 machine 字段后写回；三平台头部 sanity 不符即响亮失败（staging 缺料当场响，CopyFile 同形）。
 void FlipMachineField(const std::filesystem::path& binary)
 {
     std::string bytes;
@@ -86,6 +86,19 @@ void FlipMachineField(const std::filesystem::path& binary)
     const std::ptrdiff_t machine = static_cast<std::ptrdiff_t>(lfanew) + 4; // COFF 头前两字节
     *std::next(bytes.begin(), machine) = static_cast<char>(0x4E);           // IMAGE_FILE_MACHINE_I386
     *std::next(bytes.begin(), machine + 1) = static_cast<char>(0x01);
+#elif defined(__APPLE__)
+    if (at(0U) != 0xCFU || at(1U) != 0xFAU || at(2U) != 0xEDU || at(3U) != 0xFEU)
+    {
+        ADD_FAILURE() << "not a parsable Mach-O header in " << binary;
+        return;
+    }
+    // 翻的是**装载器认得的字段**（cputype@4），不是身份特征——本函数服务于
+    // UnloadableBinaryIsNamedByCheckTwo：要让 ② 红、① 照常绿（identity ok）。
+    // 翻成 CPU_TYPE_I386(7)：macOS 14 已无 32 位，dyld 以「不支持的架构」拒收。
+    *std::next(bytes.begin(), 4) = static_cast<char>(0x07);
+    *std::next(bytes.begin(), 5) = static_cast<char>(0x00);
+    *std::next(bytes.begin(), 6) = static_cast<char>(0x00);
+    *std::next(bytes.begin(), 7) = static_cast<char>(0x00);
 #else
     if (at(0U) != 0x7FU || at(1U) != 'E' || at(2U) != 'L' || at(3U) != 'F')
     {
@@ -120,7 +133,7 @@ TEST(VaseCliDoctor, HealthyTreePassesAllChecks)
 TEST(VaseCliDoctor, MissingIdentityFeatureFailsCheckOne)
 {
     const CatalogSandbox sandbox("doctor-noident");
-    // NoIdentityPlugin 两平台各摘各的身份特征（M4/D108）——①的负例因此两侧同构成立。
+    // NoIdentityPlugin 三平台各摘各的身份特征（M4/D108，macOS 支 D167）——①的负例自此三侧同构成立。
     Stage(sandbox, "NoId", "NoIdentityPlugin", VASE_FIXTURE_NOIDENTITY, "Vase.NoId");
 
     std::ostringstream out;
@@ -200,7 +213,7 @@ TEST(VaseCliDoctor, ResidentMappingProbeIsPlatformAsymmetric)
     ::FreeLibrary(held); // 尽力还原；Windows 下 kept-resident 时 temp 残留归 sandbox 的尽力清理
     // NOLINTEND(misc-include-cleaner)
 #else
-    // 正半句：Linux 上锁不可探测——info 行逐字钉、且**不拖退出码**（D144④）。
+    // 正半句：POSIX（Linux/macOS）上锁不可探测——info 行逐字钉、且**不拖退出码**（D144④）。
     std::ostringstream out;
     std::ostringstream err;
     EXPECT_EQ(tools::cli::DoctorDirectory(sandbox.Root, out, err), tools::cli::kExitOk) << out.str() << err.str();
