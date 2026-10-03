@@ -1,6 +1,6 @@
 {
   "version": 9,
-  "cmakeMinimumRequired": { "major": 4, "minor": 3, "patch": 0 },
+  "cmakeMinimumRequired": { "major": 4, "minor": 0, "patch": 0 },
   "configurePresets": [
     {
       "name": "win-x64-clang",

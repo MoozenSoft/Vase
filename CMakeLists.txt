@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.3)
+cmake_minimum_required(VERSION 4.0)
 
 project(Vase
     VERSION 0.1.0

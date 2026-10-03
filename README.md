@@ -3,7 +3,7 @@ Vase is a plugin framework that treats every module like a branch in flower arra
 
 ## 环境前提
 
-- **CMake ≥ 4.4**，**Ninja**（任一近期版本）。
+- **CMake ≥ 4.0**，**Ninja**（任一近期版本）。
 - **clang / clang-cl 23.1.x**，且**由 PATH 解析**。Windows 侧把 LLVM 的 `bin`
   目录加入 PATH 最前（本机为 `D:\Developer\LLVM\bin`）。仓库不写死任何 LLVM
   安装路径。
