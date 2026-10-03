@@ -19,7 +19,8 @@ target_compile_definitions(VaseEmbedding PRIVATE
     VASE_HELLO_PATH="$<PATH:CMAKE_PATH,$<TARGET_FILE:HelloPlugin>>")
 
 # 判据 #1 的 CI 化：连跑 20 局，全 Clean 才退 0。
-# COMMAND 写 target 名时 CMake 换成产物完整路径；DLL 由可执行文件同目录（bin/）找到。
+# COMMAND 写 target 名时 CMake 换成产物完整路径；插件路径由 $<TARGET_FILE> 直接给出（见上第 19 行），
+# 本程序不猜也不扫目录——框架库那半边由宿主静态导入（见 CLAUDE.md「工具链 flag 是承重的」段）。
 add_test(NAME EmbeddingLoop20 COMMAND VaseEmbedding loop 20)
 
 # 前端字段集的机器守卫（M5 波末记账那笔）：这份打印此前**零 ctest 消费**——`loop 20` 不经过

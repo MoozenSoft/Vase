@@ -1452,10 +1452,10 @@ Vase/
 │
 ├── Samples/                  人可读的，演示怎么用
 │   ├── HelloCommon/          Hello 家族的共享头（Greeter / 事件 / Mood）——实有久矣，M2b 波 2 补列
-│   ├── HelloPlugin/          最小插件：提供并消费一个服务
-│   ├── HelloPluginPrime/     Hello 的换件材料（同 Id、不同返回）——实有久矣，M2b 波 2 补列
-│   ├── DependentPlugin/      依赖声明与拓扑加载（M2b 波 2 成实，D86/D19）
-│   ├── FailingPlugin/        加载失败 → Skipped 语义（M2b 波 2 成实，D86/D19）
+│   ├── HelloPlugin/          最小插件：提供并消费一个服务（+ plugin.json，见下注）
+│   ├── HelloPluginPrime/     Hello 的换件材料（同 Id、不同返回）——无清单（D184）
+│   ├── DependentPlugin/      依赖声明与拓扑加载（M2b 波 2 成实，D86/D19）（+ plugin.json）
+│   ├── FailingPlugin/        加载失败 → Skipped 语义（M2b 波 2 成实，D86/D19）（+ plugin.json）
 │   └── Embedding/            最小验证宿主：play / stop / reload
 │
 ├── Tests/                    自动化的，验证契约
@@ -1472,6 +1472,8 @@ Vase/
 ```
 
 > **[M2b波2 勘误（2026-09-25, spec `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md` D86）]** 本节标着「已确认」，此改动随该 spec 评审一并经需求方过目：`Samples/` 的 `DependentPlugin` / `FailingPlugin` 两格自提案转实有，树同步补列盘上久已实有的 `HelloCommon` / `HelloPluginPrime`。本节其余格未动。
+
+> **[插件产物布局波 勘误（2026-10-03, spec `docs/superpowers/specs/2026-10-03-vase-plugin-artifact-layout-design.md` D181/D182/D184/D185）]** （a）`Samples/` 三个样本插件（`HelloPlugin` / `DependentPlugin` / `FailingPlugin`）各带一份手写 `plugin.json`——自 `Tests/Integration/fixtures/manifests/` **搬家**至此（D182：清单与它描述的插件同址，不留副本）；`HelloPluginPrime` 是换件材料、与 `HelloPlugin` 同 Id，**不带清单**（D184，否则同树重复 Id 令整棵树 `Refresh` 直接 Err）。**（b）构建产物的落位**：全仓插件目标（44 个，只此一处出口 `vase_add_plugin_fixture`）**一律独占 `<产物根>/<target 名>/`**——Windows 的 `bin/`、Linux/macOS 的 `lib/` 之下按 target 名成子目录（`bin/HelloPlugin/`…，目录里是它的库文件与（若有）`plugin.json`），宿主可执行与框架库仍在产物根平铺（D185）；**唯一的记名例外是 D194 的 `Versioned` 四兄弟**——它们经同一 helper 创建、随后**显式改指**到各自的 `Tests/HotSwap/fixtures/stage*` 目录（`VersionedA` / `VersionedAPrime` / `VersionedAStampDrift` / `VersionedAServiceDrift`）。落实形态见 §11.1 结案注。本节其余格未动。
 
 ### 10.1 关于 Samples
 
@@ -1529,7 +1531,9 @@ VaseCli doctor                  环境诊断，检查四项：
 
 > **[M5波1 现状注（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D119/D125/D131/D135/D137）]** 本节上方「这些工具一个都还没实现」自此**限缩**：`scan` / `validate` 已落第一波（`Tools/VaseCli/`，内部静态库 `VaseCliCore` + 薄 `main`，argv 手写不接 `ThirdParty/cli`）；`plan` / `doctor` 归后续波次（D119），`VasePack` 仍未实现。**上句「构建后自动运行」本波未接**——CMake 后置步骤单独记账（D125：接线的前置是划清「哪些目录允许自动重生成」，`Tests/Integration/fixtures/manifests/` 下那 6 份刻意手写的两侧样本不能被自动重写）。`validate` 相对提议多一个可重复的 **`--host-provides <name>@<version>`**（D131，喂 `LoadRequest::HostProvided`；`kDisabled` 不算第三项未过）；退出码三档 0/1/2、零个插件的树算用法/环境错（D135）。
 
-> **[M6 现状注（2026-09-30, spec `docs/superpowers/specs/2026-09-29-vase-m6-vasecli-plan-doctor-design.md` D141–D155）]** `plan` / `doctor` 已落（`Tools/VaseCli/`，`VaseCliCore` 内新源 `Plan.{h,cpp}` / `Doctor.{h,cpp}`）——本节**四条子命令至此全部落地**，上方仍未实有的只剩 `VasePack` 与「构建后自动运行」的 CMake 后置步骤（D125 指针不动）。**`plan` 采 `plan <插件目录> [presetFile] [--host-provides <name>@<version>]…` 形**——提案原文 `plan <preset>` 缺目录参数，勘误入账（D141）；它是全工具链唯一**零装载**子命令（D145：链只走 `Refresh` / `LoadPreset` / `Solve`，装载不了的二进制照出计划），退出码按 D135 同一律**扩到四命令共享三档 0/1/2**（D142/D144）。**`doctor` 四项收窄定形**（D143）：① 身份特征在场——逐插件 `FileIdentity` **磁盘读**，承重 flag 被摘的症状自运行期响亮失败提前到诊断时刻；② `check 2 (load & header version)`——装载读，收集序 **①③④→② 置后**（D152：② 的 kept-resident 镜像会自喂 ④ 的假阳性，先探锁后装载，结构免疫）；③ 目录写探针——根 + 各插件子目录创建→关→删，删除失败也算 FAIL（D150，探测不留不可见副作用）；④ 残留文件锁——**Windows 写开独占**（M6-T4 首测证伪了原读开形：驻留映射下 `GENERIC_READ`+share=0 实测 gle=0、`GENERIC_WRITE` 才 gle=32；2026-09-30 需求方裁定探针与 `PlatformReopenWritable` / `copy_file` 同律取 install 语义，「上轮卸载没干净」自此有自动化证人；假阴性类「允许写但拒绝读」的持有者明记接受）；Linux 支 info 行不拖退出码（D144）。提案第①项的编译器/版本/CRT 细读经 **2026-10-03 裁定划入 §13.4「明确不做」**（D147 销账）；清单↔二进制逐字段等值明文不做——那是 validate① 与加载期比对（D72）的执法位（D155）。
+> **[M6 现状注（2026-09-30, spec `docs/superpowers/specs/2026-09-29-vase-m6-vasecli-plan-doctor-design.md` D141–D155）]** `plan` / `doctor` 已落（`Tools/VaseCli/`，`VaseCliCore` 内新源 `Plan.{h,cpp}` / `Doctor.{h,cpp}`）——本节**四条子命令至此全部落地**，上方仍未实有的只剩 `VasePack` 与「构建后自动运行」的 CMake 后置步骤（D125 指针不动；**该笔已于 2026-10-03 以「拷贝」形态兑现并结案，见下条**）。**`plan` 采 `plan <插件目录> [presetFile] [--host-provides <name>@<version>]…` 形**——提案原文 `plan <preset>` 缺目录参数，勘误入账（D141）；它是全工具链唯一**零装载**子命令（D145：链只走 `Refresh` / `LoadPreset` / `Solve`，装载不了的二进制照出计划），退出码按 D135 同一律**扩到四命令共享三档 0/1/2**（D142/D144）。**`doctor` 四项收窄定形**（D143）：① 身份特征在场——逐插件 `FileIdentity` **磁盘读**，承重 flag 被摘的症状自运行期响亮失败提前到诊断时刻；② `check 2 (load & header version)`——装载读，收集序 **①③④→② 置后**（D152：② 的 kept-resident 镜像会自喂 ④ 的假阳性，先探锁后装载，结构免疫）；③ 目录写探针——根 + 各插件子目录创建→关→删，删除失败也算 FAIL（D150，探测不留不可见副作用）；④ 残留文件锁——**Windows 写开独占**（M6-T4 首测证伪了原读开形：驻留映射下 `GENERIC_READ`+share=0 实测 gle=0、`GENERIC_WRITE` 才 gle=32；2026-09-30 需求方裁定探针与 `PlatformReopenWritable` / `copy_file` 同律取 install 语义，「上轮卸载没干净」自此有自动化证人；假阴性类「允许写但拒绝读」的持有者明记接受）；Linux 支 info 行不拖退出码（D144）。提案第①项的编译器/版本/CRT 细读经 **2026-10-03 裁定划入 §13.4「明确不做」**（D147 销账）；清单↔二进制逐字段等值明文不做——那是 validate① 与加载期比对（D72）的执法位（D155）。
+
+> **[插件产物布局波 结案注（2026-10-03, spec `docs/superpowers/specs/2026-10-03-vase-plugin-artifact-layout-design.md` §5, D186）]** 上文「`scan` 在构建后自动运行（CMake 后置步骤）」自此**结案**——它**以「拷贝」形态兑现**：`vase_add_plugin_fixture`（规矩 5 的唯一出口）接受可选 `MANIFEST <path>`，POST_BUILD 把该清单 `copy_if_different` 成 `$<TARGET_FILE_DIR>/plugin.json`。这不是「划入 §13.4 明确不做」，是**换了形态的兑现**：清单**一律来自手写源**、构建期只拷贝、从不重生成，于是 M5 记的接线前置（划清「哪些目录允许自动重生成」）有了确定答案——**一个都没有**。`scan` 仍只是人的工具、**不接**后置步骤（其破坏性回写 D122/D134 保持原样、不新增护栏）。载体是 `Samples/{HelloPlugin,DependentPlugin,FailingPlugin}/plugin.json` 三份（§10 那三份随插件住的清单）。M5 记名欠账自此余 **VasePack** 一件。
 
 ### 11.2 宿主重编译单个插件的流程（v3：全程局不死）
 
@@ -1538,8 +1542,8 @@ VaseCli doctor                  环境诊断，检查四项：
 ```text
 1. EjectPlugin(pod, X)          ← 账本执法（5.6）；档一、档二证据随 EjectReport 交付
 2. 调用宿主的构建系统编译该插件   ← Vase 不负责这一步（用什么构建系统是宿主的自由）
-3. VaseCli scan 重新生成清单     ← CMake 后置步骤自动跑（11.1），保证清单与二进制同步
-                                   【现状：后置步骤未接（D125），此步须手动跑】
+3. 清单随构建拷进产物目录        ← 构建期由 `MANIFEST` 步骤把源清单拷成 <产物根>/<X>/plugin.json
+                                  （见 11.1 结案注）；`scan` 不接后置步骤，此步无须手动
 4. AdoptPlugin(pod, X)          ← 清单↔描述符比对（3.4）+ 导入表执法（8.7）+ 档三身份特征验新
 ```
 

@@ -3,6 +3,7 @@ find_package(GTest CONFIG REQUIRED)
 add_executable(VaseTests
     Smoke/CrossDllSmoke.cpp
     Unit/CatalogWiringSmoke.cpp
+    Unit/ArtifactLayoutTests.cpp
     Unit/DetailTests.cpp
     Unit/DescriptorTests.cpp
     Unit/EffectTests.cpp
@@ -71,6 +72,7 @@ target_compile_definitions(VaseTests PRIVATE
     VASE_FIXTURE_LOADPROBE="$<PATH:CMAKE_PATH,$<TARGET_FILE:LoadProbe>>"
     VASE_FIXTURE_UNLOADPROBE="$<PATH:CMAKE_PATH,$<TARGET_FILE:UnloadProbe>>"
     VASE_FIXTURE_HELLO="$<PATH:CMAKE_PATH,$<TARGET_FILE:HelloPlugin>>"
+    VASE_FIXTURE_HELLOPRIME="$<PATH:CMAKE_PATH,$<TARGET_FILE:HelloPluginPrime>>"
     VASE_FIXTURE_STALEHEADER="$<PATH:CMAKE_PATH,$<TARGET_FILE:StaleHeaderPlugin>>"
     VASE_FIXTURE_FAILINGLOAD="$<PATH:CMAKE_PATH,$<TARGET_FILE:FailingLoadPlugin>>"
     VASE_FIXTURE_FAILINGSTART="$<PATH:CMAKE_PATH,$<TARGET_FILE:FailingStartPlugin>>"
@@ -108,6 +110,14 @@ target_compile_definitions(VaseTests PRIVATE
     VASE_FIXTURE_VERSIONEDASERVICEDRIFT="$<PATH:CMAKE_PATH,$<TARGET_FILE:VersionedAServiceDrift>>"
     VASE_FIXTURE_BADLINKA="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingA>>"
     VASE_FIXTURE_BADLINKB="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingB>>"
+    # Samples 的三份随插件住（spec D182）；fixtures 的三份仍住 fixtures/manifests。
+    # VASE_FIXTURE_MANIFESTS 保留——VaseCliValidateTests 仍消费它。
+    VASE_FIXTURE_HELLO_MANIFEST="$<PATH:CMAKE_PATH,${PROJECT_SOURCE_DIR}/Samples/HelloPlugin/plugin.json>"
+    VASE_FIXTURE_DEPENDENT_MANIFEST="$<PATH:CMAKE_PATH,${PROJECT_SOURCE_DIR}/Samples/DependentPlugin/plugin.json>"
+    VASE_FIXTURE_FAILING_MANIFEST="$<PATH:CMAKE_PATH,${PROJECT_SOURCE_DIR}/Samples/FailingPlugin/plugin.json>"
+    VASE_FIXTURE_SHAREDPROVIDER_MANIFEST="$<PATH:CMAKE_PATH,${CMAKE_CURRENT_SOURCE_DIR}/Integration/fixtures/manifests/shared_provider/plugin.json>"
+    VASE_FIXTURE_EDGECONSUMER_MANIFEST="$<PATH:CMAKE_PATH,${CMAKE_CURRENT_SOURCE_DIR}/Integration/fixtures/manifests/edge_consumer/plugin.json>"
+    VASE_FIXTURE_SHAREDCONSUMER2_MANIFEST="$<PATH:CMAKE_PATH,${CMAKE_CURRENT_SOURCE_DIR}/Integration/fixtures/manifests/shared_consumer2/plugin.json>"
     VASE_FIXTURE_MANIFESTS="$<PATH:CMAKE_PATH,${CMAKE_CURRENT_SOURCE_DIR}/Integration/fixtures/manifests>")
 
 # 档三「特征缺失」fixture（T11；M4/D109 跨平台化）：三个平台各摘各的身份特征——

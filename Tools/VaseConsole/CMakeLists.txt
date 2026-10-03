@@ -18,12 +18,12 @@ target_include_directories(VaseConsole PRIVATE "${PROJECT_SOURCE_DIR}/Samples/He
 set(VASE_CONSOLE_REPLAY_DIR "${CMAKE_CURRENT_BINARY_DIR}/replay")
 set(VASE_CONSOLE_MANIFEST_DIR "${VASE_CONSOLE_REPLAY_DIR}/manifests")
 set(VASE_CONSOLE_PRESET_DIR "${VASE_CONSOLE_REPLAY_DIR}/preset")
-set(VASE_CONSOLE_HELLO_MANIFEST "${PROJECT_SOURCE_DIR}/Tests/Integration/fixtures/manifests/hello/plugin.json")
+set(VASE_CONSOLE_HELLO_MANIFEST "${PROJECT_SOURCE_DIR}/Samples/HelloPlugin/plugin.json")
 set(VASE_CONSOLE_SHARED_MANIFEST "${PROJECT_SOURCE_DIR}/Tests/Integration/fixtures/manifests/shared_provider/plugin.json")
 
 # —— 生成的清单材料（比对生效后的 D57 逐字义务：全部按各插件 .cpp 描述符抄）——
 
-# HelloPluginPrime 的清单（D87 双 install 的另一半）：结构抄 fixtures/manifests/hello/plugin.json，
+# HelloPluginPrime 的清单（D87 双 install 的另一半）：结构抄 Samples/HelloPlugin/plugin.json，
 # 只动三处漂移值——displayName「示例插件（prime 版）」、Mood 默认「响亮」（kLoud=1）；
 # binary 保持 HelloPlugin——换件写的是影子上的同一格。
 file(GENERATE OUTPUT "${VASE_CONSOLE_MANIFEST_DIR}/hello_prime.json"

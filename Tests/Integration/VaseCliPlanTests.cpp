@@ -83,7 +83,7 @@ TEST(VaseCliPlan, PresetOverrideDisablesAPlugin)
 TEST(VaseCliPlan, MissingDependencyIsAHardSkipAndFail)
 {
     const CatalogSandbox sandbox("plan-missing");
-    sandbox.CopyFile("Dep/plugin.json", std::filesystem::path{VASE_FIXTURE_MANIFESTS} / "dependent" / "plugin.json");
+    sandbox.CopyFile("Dep/plugin.json", VASE_FIXTURE_DEPENDENT_MANIFEST);
 
     std::ostringstream out;
     std::ostringstream err;
@@ -95,7 +95,7 @@ TEST(VaseCliPlan, MissingDependencyIsAHardSkipAndFail)
 TEST(VaseCliPlan, HostProvidedTurnsTheHardSkipIntoLoad)
 {
     const CatalogSandbox sandbox("plan-hostprov");
-    sandbox.CopyFile("Dep/plugin.json", std::filesystem::path{VASE_FIXTURE_MANIFESTS} / "dependent" / "plugin.json");
+    sandbox.CopyFile("Dep/plugin.json", VASE_FIXTURE_DEPENDENT_MANIFEST);
 
     std::ostringstream out;
     std::ostringstream err;

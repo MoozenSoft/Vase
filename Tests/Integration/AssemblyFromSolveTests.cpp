@@ -55,24 +55,36 @@ public:
 
     void StageAll()
     {
-        const std::filesystem::path manifests = VASE_FIXTURE_MANIFESTS;
         struct Roster
         {
             const char* Dir;
             const char* BinaryMacro;
+            const char* Manifest;
         };
         const std::array<Roster, 4> roster{
             {
-                Roster{.Dir = "hello", .BinaryMacro = VASE_FIXTURE_HELLO},
-                Roster{.Dir = "shared_provider", .BinaryMacro = VASE_FIXTURE_SHAREDPROVIDER},
-                Roster{.Dir = "edge_consumer", .BinaryMacro = VASE_FIXTURE_EDGECONSUMER},
-                Roster{.Dir = "shared_consumer2", .BinaryMacro = VASE_FIXTURE_SHAREDCONSUMER2},
+                Roster{.Dir = "hello", .BinaryMacro = VASE_FIXTURE_HELLO, .Manifest = VASE_FIXTURE_HELLO_MANIFEST},
+                Roster{
+                    .Dir = "shared_provider",
+                    .BinaryMacro = VASE_FIXTURE_SHAREDPROVIDER,
+                    .Manifest = VASE_FIXTURE_SHAREDPROVIDER_MANIFEST,
+                },
+                Roster{
+                    .Dir = "edge_consumer",
+                    .BinaryMacro = VASE_FIXTURE_EDGECONSUMER,
+                    .Manifest = VASE_FIXTURE_EDGECONSUMER_MANIFEST,
+                },
+                Roster{
+                    .Dir = "shared_consumer2",
+                    .BinaryMacro = VASE_FIXTURE_SHAREDCONSUMER2,
+                    .Manifest = VASE_FIXTURE_SHAREDCONSUMER2_MANIFEST,
+                },
             },
         };
         for (const Roster& item : roster)
         {
             const std::filesystem::path binary{item.BinaryMacro};
-            Sandbox.CopyFile(std::string(item.Dir) + "/plugin.json", manifests / item.Dir / "plugin.json");
+            Sandbox.CopyFile(std::string(item.Dir) + "/plugin.json", item.Manifest);
             Sandbox.CopyFile(std::string(item.Dir) + "/" + binary.filename().string(), binary);
         }
         const auto refreshed = Catalog.Refresh(Sandbox.Root);
@@ -84,15 +96,15 @@ public:
     {
         std::string Dir;
         std::string Binary;
+        const char* Manifest;
     };
 
     void Stage(const std::vector<StagedPlugin>& items)
     {
-        const std::filesystem::path manifests = VASE_FIXTURE_MANIFESTS;
         for (const StagedPlugin& item : items)
         {
             const std::filesystem::path binary{item.Binary};
-            Sandbox.CopyFile(item.Dir + "/plugin.json", manifests / item.Dir / "plugin.json");
+            Sandbox.CopyFile(item.Dir + "/plugin.json", item.Manifest);
             Sandbox.CopyFile(item.Dir + "/" + binary.filename().string(), binary);
         }
         const auto refreshed = Catalog.Refresh(Sandbox.Root);
@@ -182,9 +194,9 @@ TEST_F(AssemblyFromSolve, SkippedEntriesPassThroughHost)
 TEST_F(AssemblyFromSolve, SampleFailingStartKeepsDependentLive)
 {
     Stage({
-        StagedPlugin{.Dir = "hello", .Binary = VASE_FIXTURE_HELLO},
-        StagedPlugin{.Dir = "dependent", .Binary = VASE_FIXTURE_DEPENDENT},
-        StagedPlugin{.Dir = "failing", .Binary = VASE_FIXTURE_FAILING},
+        StagedPlugin{.Dir = "hello", .Binary = VASE_FIXTURE_HELLO, .Manifest = VASE_FIXTURE_HELLO_MANIFEST},
+        StagedPlugin{.Dir = "dependent", .Binary = VASE_FIXTURE_DEPENDENT, .Manifest = VASE_FIXTURE_DEPENDENT_MANIFEST},
+        StagedPlugin{.Dir = "failing", .Binary = VASE_FIXTURE_FAILING, .Manifest = VASE_FIXTURE_FAILING_MANIFEST},
     });
     const auto solved = Catalog.Solve(LoadRequest{});
     ASSERT_TRUE(solved.IsOk()) << solved.GetError().Message();
@@ -221,8 +233,8 @@ TEST_F(AssemblyFromSolve, SampleFailingStartKeepsDependentLive)
 TEST_F(AssemblyFromSolve, DependentStaticallySkippedWithoutHello)
 {
     Stage({
-        StagedPlugin{.Dir = "dependent", .Binary = VASE_FIXTURE_DEPENDENT},
-        StagedPlugin{.Dir = "failing", .Binary = VASE_FIXTURE_FAILING},
+        StagedPlugin{.Dir = "dependent", .Binary = VASE_FIXTURE_DEPENDENT, .Manifest = VASE_FIXTURE_DEPENDENT_MANIFEST},
+        StagedPlugin{.Dir = "failing", .Binary = VASE_FIXTURE_FAILING, .Manifest = VASE_FIXTURE_FAILING_MANIFEST},
     });
     const auto solved = Catalog.Solve(LoadRequest{});
     ASSERT_TRUE(solved.IsOk()) << solved.GetError().Message();

@@ -47,8 +47,7 @@ public:
     {
         const std::filesystem::path hello{VASE_FIXTURE_HELLO};
         Sandbox.CopyFile("VaseHello/" + hello.filename().string(), hello);
-        Sandbox.CopyFile("VaseHello/plugin.json",
-                         std::filesystem::path{VASE_FIXTURE_MANIFESTS} / "hello" / "plugin.json");
+        Sandbox.CopyFile("VaseHello/plugin.json", VASE_FIXTURE_HELLO_MANIFEST);
         RefreshOrFail(Catalog, Sandbox);
     }
 

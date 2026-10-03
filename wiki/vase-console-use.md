@@ -57,7 +57,8 @@ Vase 只负责发现插件、装配、运行、干净关停；`VaseConsole` 把�
 ## 2. 拿到二进制与启动
 
 按 [`CLAUDE.md`](../CLAUDE.md)「构建与测试」任选 preset 构建即可，`VaseConsole` 是六条线都建的
-target。产物与所有插件 DLL 同处构建树的 `bin/`（这是 Windows 能找到 DLL 的前提，布局不要动）。
+target。**可执行在构建树的 `bin/`**，每个插件独占 `bin/<插件名>/`（Linux/macOS 是 `lib/<插件名>/`），
+宿主可执行与框架库仍在产物根平铺（依赖解析依据见 `CLAUDE.md`「工具链 flag 是承重的」段）。
 
 ```
 usage: VaseConsole [--script <file>]
@@ -167,11 +168,11 @@ file show Vase.Hello
   整份文件没有一条有效记录 → 报错。以上都判非零，且**在建局之前**发生；
 - 数组序 = 文件序 = 装配序。
 
-示例（路径写成相对 `bin/` 的形式）：
+示例（路径写成相对 `bin/` 的形式；新布局下插件住 `bin/<插件名>/`，Linux/macOS 是 `lib/<插件名>/`）：
 
 ```
 # 一局一个 Hello
-Vase.Hello HelloPlugin.dll
+Vase.Hello HelloPlugin/HelloPlugin.dll
 ```
 
 > **旁路不是遗物**（D85/D68）：老 plan 格式在波 2 没有退场，而是整体移进 `pod new-raw` 续命——
@@ -229,7 +230,7 @@ rc=0
 pod new replay/cat_hot
 get
 eject Vase.Hello
-file stage Vase.Hello ../../bin/HelloPluginPrime.dll
+file stage Vase.Hello ../../bin/HelloPluginPrime/HelloPluginPrime.dll
 file install Vase.Hello
 file stage-manifest Vase.Hello replay/manifests/hello_prime.json
 file install-manifest Vase.Hello
@@ -242,6 +243,12 @@ get
 pod destroy
 exit
 ```
+
+> 第 4 行那条换件材料的路径是相对**回放根**（`<构建树>/Tools/VaseConsole`，ctest 跑 `--script` 时的
+> 工作目录）写的：新布局下每个插件独占 `<产物根>/<插件名>/`，故 Windows 是
+> `../../bin/HelloPluginPrime/HelloPluginPrime.dll`，Linux/macOS 是
+> `../../lib/HelloPluginPrime/libHelloPluginPrime.so` / `.dylib`。
+> 本波之前插件平铺在 `bin/` 下，旧写法 `../../bin/HelloPluginPrime.dll` 在新布局下会断。
 
 下面是**从刚刷回的 (base, base) 影子起跑**的实测输出（`staged` / `install` / `install-manifest` /
 `show` / `destroy` 开头的行是报告行，组前缀不在，属契约——第 3 节；`<…>` 为回放根下的实际路径；

@@ -50,3 +50,13 @@ add_test(NAME VaseCliDoctorTooManyArgsIsUsageError COMMAND VaseCli doctor a b)
 set_tests_properties(VaseCliDoctorTooManyArgsIsUsageError PROPERTIES WILL_FAIL TRUE)
 add_test(NAME VaseCliDoctorTooManyArgsReason COMMAND VaseCli doctor a b)
 set_tests_properties(VaseCliDoctorTooManyArgsReason PROPERTIES PASS_REGULAR_EXPRESSION "usage: VaseCli doctor")
+
+# 产物根的布局＋清单一致性证人（spec D189）：指着整棵产物根跑 validate。
+# D128：缺清单只 warn、不计退出码，故根里 37 个无清单插件不拖 rc——
+# 本用例钉的是「根可刷新」+「三个手写清单与其二进制逐字段一致」。
+if(WIN32)
+    set(VASE_PLUGIN_ROOT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+else()
+    set(VASE_PLUGIN_ROOT "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+endif()
+add_test(NAME VaseCliValidateProductRoot COMMAND VaseCli validate "${VASE_PLUGIN_ROOT}")

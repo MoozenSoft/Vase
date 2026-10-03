@@ -72,7 +72,7 @@ else()       ImageInspectLinux.cpp    LoaderPosix.cpp   # 由 Posix 更名
 | **CRT 选型** | `clang-cl` 与 `clang` 的驱动默认都是**静态 CRT**（`/MT`）——静态 CRT 让每个动态库各持一份堆，跨模块 new/delete 落到不同的堆上，正是 §8.3 禁止 `x64-windows-static` 的理由。仓库在根 `CMakeLists.txt` 里**显式设** `CMAKE_MSVC_RUNTIME_LIBRARY` 为动态调试/发布版 CRT（`MultiThreaded$<$<CONFIG:Debug>:Debug>DLL`），注释原话「不该靠一个可被他人改动的默认值兜着」。**那行不是冗余，别删**；实测 Debug 下传给 clang-cl 的是 `-MDd`。**这是 §8.3「同一 CRT 配置」那条前提的落点** |
 | **`/EHs-c-` 的执行力不等价** | `clang-cl` 关闭异常时 `try` / `throw` / `catch` **全是硬错误**（完整强制）；`cl.exe` 加 `/we4530` 也**拦不住裸 `throw`**（实测 exit=0）。这一形态靠 clang-cl 构建兜住——**只跑 cl.exe 线时它是漏网的** |
 | **枚举穷举 switch 的守卫** | `clang-cl` / Linux / macOS 有 `-Wswitch`（配 `-Werror`），漏 case 即硬失败；`cl.exe` 的 C4062 **默认关且 `/W4` 不激活**，故 `VaseBuildOptions` 的 cl.exe 支显式加 `/we4062` 补上（字面值以根 `CLAUDE.md` 规矩 1 为准）。**新写「无 default 的 switch」时靠它咬住漏 case** |
-| **DLL 搜索** | 构建产物必须让可执行与 DLL 同处 `bin/`——这是 Windows 能找到 DLL 的前提。**不要改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`** |
+| **DLL 搜索** | Windows 上插件能加载、且它依赖的框架库能解析，靠的是「**加载器与被依赖框架库同进程**」——`VaseHost.dll` 里的 `LoadLibraryExW` 带 `LOAD_WITH_ALTERED_SEARCH_PATH`，而 `VasePod.dll` 早已被宿主静态导入、按已加载模块名命中。插件**每个独占 `<产物根>/<插件名>/`**、框架库平铺在产物根，别改 `vase_add_plugin_fixture` 的输出目录设置（字面值以根 `CLAUDE.md`「工具链 flag 是承重的」段为准） |
 
 ---
 

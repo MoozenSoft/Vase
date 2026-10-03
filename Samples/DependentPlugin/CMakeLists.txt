@@ -1,5 +1,8 @@
 # 与 HelloPlugin 同法：插件形态唯一出口 vase_add_plugin_fixture（规矩 5），只链 VasePod。
-vase_add_plugin_fixture(DependentPlugin SOURCES DependentPlugin.cpp LINK_LIBRARIES VasePod)
+vase_add_plugin_fixture(DependentPlugin
+    SOURCES DependentPlugin.cpp
+    LINK_LIBRARIES VasePod
+    MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.json")
 
 # 消费端与 Hello 提供方共用 Greeter.h（标识 kName/kVersion 从它来）。
 target_include_directories(DependentPlugin PRIVATE

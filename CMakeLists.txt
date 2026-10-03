@@ -42,8 +42,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# 可执行与动态库放同一目录：Windows 的 DLL 查找路径里包含可执行文件所在目录，
-# 测试可执行文件与 VasePod/VaseHost 同处 bin/ 才能直接跑起来。
+# 产物落位：可执行在 bin/；POSIX 侧框架库与静态库在 lib/。
+# **每个插件独占 <产物根>/<target 名>/**（Windows bin/、Linux/macOS lib/）——
+# 规则与理由（三平台的依赖解析依据）见 Cmake/VasePluginHelpers.cmake 与 CLAUDE.md。
+# 注意：下面的 *_OUTPUT_DIRECTORY 仍是产品根的默认值，插件目标的子目录由
+# vase_add_plugin_fixture 在 target 级覆盖，不要在这里改。
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
