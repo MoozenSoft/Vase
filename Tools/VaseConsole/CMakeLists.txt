@@ -11,7 +11,7 @@ target_link_libraries(VaseConsole
 
 # get 要认识 samples::IGreeter（TryGet 的类型实参），它住在 Samples/HelloCommon。
 # 命令层因此直接看见服务接口——这正是「宿主不需要插件的实现，只需要标识」的形态。
-target_include_directories(VaseConsole PRIVATE "${PROJECT_SOURCE_DIR}/Samples/HelloCommon")
+target_link_libraries(VaseConsole PRIVATE HelloCommon)
 
 # 回放资产用 file(GENERATE) 而不是 configure_file：产物路径要到 generate 期才求值，
 # configure_file 拿不到 $<TARGET_FILE:...>（spec §7.2 的待实测项，此处即答案）。

@@ -114,7 +114,8 @@ Scripts\win-verify.cmd
 的「构建与测试」一节**——README 不复制它。Windows 侧构建树落 `build-win/<presetName>/`，
 Linux 侧落 `build-linux/`，macOS 侧落 `build-macos/`；**可执行在 `bin/`**（POSIX 侧框架库与
 静态库在 `lib/`），**每个插件独占 `<产物根>/<插件名>/`**——Windows 是 `bin/<插件名>/`、
-Linux/macOS 是 `lib/<插件名>/`，宿主可执行与框架库仍在产物根平铺。产物落位与依赖解析依据见
+Linux/macOS 是 `lib/<插件名>/`，宿主可执行与框架库仍在产物根平铺，**发布期组合库（`VasePlugins`）
+也平铺在产物根**——它既不是可执行/框架库、也不进插件子目录。产物落位与依赖解析依据见
 `CLAUDE.md` 的「构建与测试」与「工具链 flag 是承重的」两节；别改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`。
 
 > `ctest` 在一个测试都没发现时**同样返回 0**。所以「测试全绿」不能只看退出码，
@@ -312,7 +313,8 @@ Vase/
 
 `Samples/Embedding` 是验证宿主（v3 §10.1：没有 UI、没有业务，只有演示命令），
 证明「干净地起、干净地灭、可重复无数次」。宿主可执行在 `<构建树>/bin/`，每个插件在
-`<构建树>/bin/<插件名>/`（Linux/macOS 是 `lib/<插件名>/`），框架库仍在产物根平铺：
+`<构建树>/bin/<插件名>/`（Linux/macOS 是 `lib/<插件名>/`），框架库与**发布期组合库
+（`VasePlugins`）**均在产物根平铺（组合库既不是可执行/框架库、也不进插件子目录）：
 
 ```bash
 build-win/win-x64-clang-debug/bin/VaseEmbedding play       # 跑一局，打印 PodReport

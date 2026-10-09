@@ -3,7 +3,4 @@
 # 与 Samples/HelloPlugin 的同名文件逐行同形。
 vase_add_plugin_fixture(HelloPluginPrime
     SOURCES HelloPlugin.cpp
-    LINK_LIBRARIES VasePod)
-
-target_include_directories(HelloPluginPrime PRIVATE
-    "${PROJECT_SOURCE_DIR}/Samples/HelloCommon")
+    LINK_LIBRARIES VasePod HelloCommon)

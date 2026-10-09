@@ -1322,6 +1322,8 @@ VasePlugin_GetPlugin(const char* id)
 
 > **唯一仍需交代的例外**：iOS 的产物是静态库（`.a`），最终由**宿主**链进 App。宿主必须真的引用到包导出的符号（正常做法就是把入口交给 `PluginHost`，见 8.1），那条引用链才成立。**这一条要写进 VasePack 的产物说明**，否则又会被误当成「加个 `-force_load` 就好了」。
 
+> **[VasePack 现状注（2026-10-04, spec `docs/superpowers/specs/2026-10-04-vasepack-desktop-design.md` D196–D215）]** 本节上方的工具形态**改口**：VasePack 落地为 **CMake 函数**，**没有 `Tools/VasePack/` 目录、没有可执行文件**（D196）——规矩 1（`VaseBuildOptions` 是编译选项唯一出口）与规矩 5（`vase_add_plugin_fixture` 是插件形态唯一出口）都是硬边界，本仓库只有一个构建系统、集成点天然是 CMake。机制载体是 `Cmake/VasePluginHelpers.cmake` 的两个函数：`vase_add_plugin_fixture(... PACK)` 额外建 pack 形**静态库** `${name}.Pack`（D199），`vase_pack_plugins(<name> PLUGINS …)` 生成分发表并链成 SHARED 库 `VasePlugins`。**三点与本节提案原文不同**：① **分发表不写 Id 字面量**（D200——路由靠遍历描述符比对 `Meta->Id`，生成物全部机械可导，没有「清单改了生成物没跟上」的漂移面；上方那张写 `strcmp` 的示例是提案形，落地形不含任何 Id 字面量）；② **pack 形走静态库、保活因此承重**（D199——凡对象库形态都会把对象全量塞进组合库，本节下半「保活问题」根本不出现；静态库「按需提取」才复现原始场景且可证伪）；③ **`VASE_PLUGIN` 宏新增编译期开关 `VASE_PLUGIN_PACK_OBJECT`**——不开即逐字退回今天的展开物，`kHeaderVersion` / 描述符布局 / 开发形导出集合三不动。**范围**：桌面三平台先行（Windows / Linux / macOS），移动产物（iOS `.a` / Android `.so`，即上面那条「唯一仍需交代的例外」）**留桩**，见 11.3。**定位**：组合库的唯一消费者是验证证人，仓库里没有产品——本波交付的是机制，不是某个产品的发布形（13.4 已裁定对外分发不做）。
+
 ### 8.7 符号可见性与链接纪律（v3）
 
 热插拔把「符号污染」从卫生问题升格为**安全问题**——插件会反复进出，任何一条隐式耦合都是日后 Eject 假成功的伏笔。三条纪律，全部可机器执法：
@@ -1577,6 +1579,8 @@ VasePack pack <插件列表> --output VasePlugins
 
 **它只依赖清单**（插件 Id、二进制名），所以与 `VaseCli` 共享 `PluginCatalog` 的清单解析。4.1 说 JSON 依赖落在 Catalog 层，这里又一次付了利息。
 
+> **[VasePack 现状注（2026-10-04, spec `docs/superpowers/specs/2026-10-04-vasepack-desktop-design.md` D196/D201）]** 本节上方的命令行形态（`VasePack pack <插件列表> --output VasePlugins`）**作废**——VasePack 落地为 **CMake 函数**而非独立工具，**没有 `Tools/VasePack/` 目录、没有可执行文件**；理由见 8.6 的现状注。上表**本波只兑现桌面三行**——Windows `VasePlugins.dll` / Linux `libVasePlugins.so` / macOS `libVasePlugins.dylib`，输出名 `VasePlugins`、**平铺在产物根**（D201——它不是插件 fixture、不设 `RUNTIME/LIBRARY_OUTPUT_DIRECTORY`，故不进插件子目录）；**Android / iOS 两行留桩**（移动产物本波不做）。下方「它属于构建期……」「它只依赖清单……」两段仍是提案：落地的分发表**不读清单、不写 Id 字面量**（D200），故「与 `VaseCli` 共享 `PluginCatalog` 的清单解析」描述的**不是**现存机制——组合库的 N:1 清单问题（`plugin.json` 是 1:1 形态）明记不做，`VaseCli` 面对组合库的行为本波不验、不保证。
+
 ---
 
 ## 12. 验证策略
@@ -1695,7 +1699,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 |---|---|
 | 构建系统 | CMake + vcpkg；编译矩阵由平台工具链文件承载（8.5） |
 | 目标平台 | Win x64 / Linux x64 / macOS **x64**（**开发 + 发布**；macOS 原口径 arm64，需求方 2026-10-01 裁定改 x64、arm64 永久移出——macOS 腿 spec D157，x64 腿 2026-10-02 已落）；Android arm64 / iOS arm64（**仅发布**）。工具链见 8.5 |
-| 插件形态 | 开发期每插件一个动态库；发布期由 VasePack 组合成一个库（8.5 / 8.6） |
+| 插件形态 | 开发期每插件一个动态库；发布期由 VasePack 组合成一个库（8.5 / 8.6）。**发布期那一半已于 2026-10-04 落地**（VasePack 波 spec D196–D215：`Tools/VasePack` 工具形态改口为 **CMake 函数**、桌面三平台先行、移动产物留桩——见 8.6 现状注） |
 | 组合库入口 | VasePack 生成 `VasePlugin_GetPlugin(id)` 分发表，靠**硬引用**保活（8.6） |
 | JSON 库 | `nlohmann/json`，**且只出现在 `PluginCatalog` 层**（4.1） |
 | 配置 `type` 取值 | `bool` / `int32` / `int64` / `float` / `double` / `string` / `enum`；**不支持嵌套对象与数组**（4.2） |
@@ -1759,7 +1763,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 - **一个服务标识多个实现**（2.3 第 4 条）
 - **进程级状态在宿主侧的展示形态**——宿主界面怎么画，是宿主的事；9.1 只保证「可被登记、可重置」（`.Describe` 经 M3/D92 裁定不做，「可描述」随之撤出承诺）
 - **CI / CD（持续集成 / 交付流水线）**——本仓库**不接**（需求方 2026-10-03 裁定）。八线删树重配全量、tidy 四线与 format 双判仍由开发机脚本手工跑（`Scripts/` 下的 `win-verify.cmd` / `linux-verify.sh` / `macos-verify.sh` 与三条 clang-tidy 脚本），判据与基数见根 `CLAUDE.md` 的「构建与测试」/「静态检查与格式」。**这是「不做」不是「还没做」**——将来若要接是重新立项，不是补一笔欠账；本条也销掉 M5 记名欠账里的 CI 一件
-- **对外分发 Vase 供第三方插件作者构建**——**不做**（需求方 2026-10-03 裁定，**全口径**：插件永远由本仓库的构建产出、住在同一棵构建树内）。「发布」仍指 §13.2 的 VasePack 组合库随**产品**走，不是把 Vase 当 SDK 发出去。**连带三笔**：13.3 的 `/wd4251` 债**销账**（树的边界上不再有插件作者面，29 处 STL 成员没有受害者）、13.3 那条「外部工具链构建的插件可能 `throw`」**降级为机制保证**（树内插件经 `vase_add_plugin_fixture` 链 `VaseBuildOptions`，`throw` 编译期就编不过）、§8.4 的 C ABI 启用条件**前两条一并永不触发**（只剩「跨语言」）
+- **对外分发 Vase 供第三方插件作者构建**——**不做**（需求方 2026-10-03 裁定，**全口径**：插件永远由本仓库的构建产出、住在同一棵构建树内）。「发布」仍指 §13.2 的 VasePack 组合库随**产品**走，不是把 Vase 当 SDK 发出去。**组合库机制已于 2026-10-04 落地**（VasePack 波，spec D196–D215，见 8.6 现状注）——它随产品走、不是把 Vase 当 SDK 发；本仓库里组合库的唯一消费者是验证证人，**没有产品**。**连带三笔**：13.3 的 `/wd4251` 债**销账**（树的边界上不再有插件作者面，29 处 STL 成员没有受害者）、13.3 那条「外部工具链构建的插件可能 `throw`」**降级为机制保证**（树内插件经 `vase_add_plugin_fixture` 链 `VaseBuildOptions`，`throw` 编译期就编不过）、§8.4 的 C ABI 启用条件**前两条一并永不触发**（只剩「跨语言」）
 - **`doctor` 的「工具链一致性（编译器 / 版本 / CRT）」细读**——**不查**（需求方 2026-10-03 裁定，销 M6 记名的 D147 一笔）。提案 §11.1 的 `doctor`① 项兑现为**身份特征在场**（`Loader::FileIdentity` 磁盘读），那已经是「有后果可判」的那一半：特征缺失 ⇒ 档三 Adopt 必拒。剩余子项**三平台无可靠读面**——「编译器 / 版本」在 PE / ELF / Mach-O 上没有载体（PE 只有未公开且 XOR 混淆的 Rich header；ELF 的 `.comment` 不在现有 PT_NOTE 解析腿的读程内、且只覆盖 C 编译器；Mach-O 无默认载体），「CRT 动态静态」只有 Windows 导入表一条；且**失败形态在树内不可达**——插件永远由本仓库产出，同平台、同 STL、同编译器（8.5）。**这是「不做」不是「还没做」**；将来若要做，前置是各平台可读面的独立取证，属重新立项。**连带一笔（同日同裁定）**：Windows 上 `cl.exe` 与 `clang-cl.exe` **不得混用**（见 8.5）
 
 ---

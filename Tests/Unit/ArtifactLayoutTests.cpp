@@ -54,3 +54,17 @@ TEST(ArtifactLayout, HandWrittenManifestsAreStagedBesideTheirBinary)
     const std::filesystem::path neighbor{VASE_FIXTURE_NEIGHBORC};
     EXPECT_FALSE(std::filesystem::exists(neighbor.parent_path() / "plugin.json")) << neighbor.parent_path().string();
 }
+
+// VasePack spec D215：组合库是唯一一条**反向**布局规则——不是插件 fixture、平铺在产物根，
+// 与「每个插件独占 <产物根>/<名>/」相反。取证注⑪：Refresh 只扫子目录、本文件又逐目标断言，
+// 故平铺这条此前没有任何东西看得见它（本用例补上）。
+TEST(ArtifactLayout, PackedLibraryStaysFlatInTheProductRoot)
+{
+    const std::filesystem::path packed{VASE_FIXTURE_VASEPLUGINS};
+    EXPECT_TRUE(std::filesystem::exists(packed)) << packed.string();
+
+    const std::filesystem::path root{VASE_FIXTURE_HELLO}; // 插件在 <根>/<名>/，故父目录的父目录就是根
+    EXPECT_EQ(packed.parent_path(), root.parent_path().parent_path()) << packed.string();
+    // 它**不是**自己的一个目录（对照：插件必须是）。
+    EXPECT_NE(packed.parent_path().filename().string(), "VasePlugins") << packed.string();
+}

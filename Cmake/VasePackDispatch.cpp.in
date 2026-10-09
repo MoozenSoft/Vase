@@ -1,0 +1,47 @@
+// 由 vase_pack_plugins 生成（VasePack spec D200）——**不含任何 Id 字面量**：
+// 路由靠遍历描述符比对 Meta->Id，与 VASE_PLUGIN 单插件入口的行为逐字同律。
+//
+// 本文件落**构建树**（D205），且会被 run-clang-tidy 扫到（compile_commands 含它）——
+// 故它必须自己写到零正文 warning。下列 NOLINT 区是「无代码级出路」的那种，理由见区内。
+#include "Vase/Detail/Export.h"
+#include "Vase/PluginDescriptor.h"
+
+#include <array>
+#include <cstdint>
+#include <string_view>
+
+// NOLINTBEGIN(readability-identifier-naming) 本文件通篇是 ABI 契约名（`VasePlugin_GetPlugin` /
+// `VasePlugin_Descriptors` / 生成的 `VasePluginDesc_<类名>`）——extern "C" 的约定名，改不动、无代码级
+// 出路（插件 TU 里同名出自宏展开、被 tidy 跳过；生成的源不是宏，故在此说明）。
+@VASE_PACK_DECLS@
+
+namespace
+{
+
+const std::array kVasePluginTable{@VASE_PACK_ENTRIES@};
+
+} // namespace
+
+extern "C" VASE_EXPORT const ::vase::PluginDescriptor* VasePlugin_GetPlugin(const char* id)
+{
+    if (id == nullptr)
+    {
+        return nullptr;
+    }
+    const std::string_view wanted{id};
+    for (const ::vase::PluginDescriptor* descriptor : kVasePluginTable)
+    {
+        if (descriptor->Meta->Id == wanted)
+        {
+            return descriptor;
+        }
+    }
+    return nullptr;
+}
+
+extern "C" VASE_EXPORT const ::vase::PluginDescriptor* const* VasePlugin_Descriptors(::std::uint32_t* outCount)
+{
+    *outCount = static_cast<::std::uint32_t>(kVasePluginTable.size());
+    return kVasePluginTable.data();
+}
+// NOLINTEND(readability-identifier-naming)

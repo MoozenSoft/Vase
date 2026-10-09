@@ -2,9 +2,9 @@
 # 「插件 target 长什么样」全仓库只此一处，示例也不例外。
 vase_add_plugin_fixture(HelloPlugin
     SOURCES HelloPlugin.cpp
-    LINK_LIBRARIES VasePod
-    MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.json")
+    LINK_LIBRARIES VasePod HelloCommon
+    MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.json"
+    PACK)
 
-# 提供方与消费方共用 Greeter.h，它住在 Samples/HelloCommon。
-target_include_directories(HelloPlugin PRIVATE
-    "${PROJECT_SOURCE_DIR}/Samples/HelloCommon")
+# 注：提供的头（Greeter.h）住在 Samples/HelloCommon，经 LINK_LIBRARIES 取——
+# 调用点之后不再追加编译期输入（VasePack spec D210）。

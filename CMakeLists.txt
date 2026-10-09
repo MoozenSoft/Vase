@@ -282,6 +282,10 @@ add_subdirectory(Source/Pod)
 add_subdirectory(Source/Host)
 add_subdirectory(Source/Catalog)
 
+# HelloCommon（VasePack spec D209）：Samples 三个插件与两个可执行共用服务契约头，
+# 立成 INTERFACE 库。必须在 HelloPlugin 之前——后者经 LINK_LIBRARIES 取它。
+add_subdirectory(Samples/HelloCommon)
+
 # Samples 在 Tests 之前：Tests 与 VaseEmbedding 都要用 $<TARGET_FILE:HelloPlugin>，
 # 生成器表达式求值时该 target 必须已存在。
 add_subdirectory(Samples/HelloPlugin)
@@ -293,6 +297,9 @@ add_subdirectory(Samples/Embedding)
 # 故同样必须在 add_subdirectory(Tests) 之前就位。
 add_subdirectory(Samples/DependentPlugin)
 add_subdirectory(Samples/FailingPlugin)
+# 组合库要在三个成员之后（它们要先有 .Pack 静态库），且必须在 add_subdirectory(Tests)
+# 之前——VaseTests 要用 $<TARGET_FILE:VasePlugins>。
+add_subdirectory(Samples/VasePlugins)
 add_subdirectory(Tools/VaseConsole)
 # VaseCli（M5）：必须在 Tests 之前——VaseTests 要链它的 VaseCliCore（同 VaseHost 的既有范式）。
 add_subdirectory(Tools/VaseCli)

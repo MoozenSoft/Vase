@@ -34,6 +34,7 @@ add_executable(VaseTests
     Integration/VaseCliDoctorTests.cpp
     Integration/AssemblyFromSolveTests.cpp
     Integration/LoadTimeComparisonTests.cpp
+    Integration/VasePackTests.cpp
     HotSwap/EjectTests.cpp
     HotSwap/AdoptTests.cpp
     HotSwap/AdoptManifestTests.cpp
@@ -110,6 +111,9 @@ target_compile_definitions(VaseTests PRIVATE
     VASE_FIXTURE_VERSIONEDASERVICEDRIFT="$<PATH:CMAKE_PATH,$<TARGET_FILE:VersionedAServiceDrift>>"
     VASE_FIXTURE_BADLINKA="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingA>>"
     VASE_FIXTURE_BADLINKB="$<PATH:CMAKE_PATH,$<TARGET_FILE:BadLinkSiblingB>>"
+    # VasePack 组合库（spec D204）：证人经 Loader 按路径装载它——不链进 VaseTests，
+    # 免得整个测试二进制从启动起就驻留它、绕过 Loader（spec §5.1）。
+    VASE_FIXTURE_VASEPLUGINS="$<PATH:CMAKE_PATH,$<TARGET_FILE:VasePlugins>>"
     # Samples 的三份随插件住（spec D182）；fixtures 的三份仍住 fixtures/manifests。
     # VASE_FIXTURE_MANIFESTS 保留——VaseCliValidateTests 仍消费它。
     VASE_FIXTURE_HELLO_MANIFEST="$<PATH:CMAKE_PATH,${PROJECT_SOURCE_DIR}/Samples/HelloPlugin/plugin.json>"

@@ -107,10 +107,11 @@ public:
 
 } // namespace vase
 
-// 生成物全集（spec 3.3(1) 探针定稿 + M5/D118）：工厂 + 唯一命名描述符 + 统一入口 + 枚举面 `VasePlugin_Descriptors`。
+// 生成物全集（spec 3.3(1) 探针定稿 + M5/D118 + VasePack）：工厂 + 唯一命名描述符 + 统一入口 + 枚举面。
 // 符号名由类名派生不是插件 Id（Id 含点号不是合法标识符；类名在镜像内天然唯一，§3.1）。
-// 一个库装一个插件才有 GetPlugin；组合库的分发表由 VasePack 生成（M5，§8.6），
-// 与本宏无关。
+// 两枚入口（`VasePlugin_GetPlugin` / `VasePlugin_Descriptors`）是 **extern "C"、每库各一份**——
+// 「一个库装一个插件」的前提就写在这里。组合库要装 N 个，故 pack 形（VASE_PLUGIN_PACK_OBJECT）
+// 不发它们，由 VasePack 生成的分发表 TU 代发（VasePack spec D197/D200）。**不开这个开关 = 逐字不变。**
 //
 // 作者侧写法：VASE_PLUGIN(MyPlugin){ ... }; —— 花括号紧贴宏。它落在宏实参内，
 // 不受 Allman 管辖，换行写会被格式门判红。
@@ -127,6 +128,28 @@ public:
 // 与 spec 3.3(1) 的探针定稿相比，宏体的外围写法有**四处**不同：上面两处、匿名命名空间的
 // 包裹、以及 GetPlugin 的 nullptr 守卫（探针片段没有）。探针证明的**机制**——用户花括号
 // 落在宏末行的变量声明上——原样保留。spec 是历史记录，不改史；其宏体写法以此为最新。
+// pack 形与开发形的唯一分岔点（VasePack spec D197）：pack 形把两枚每库一份的入口让给
+// 分发表 TU，自己只留唯一命名的描述符。漏发开关的症状是**重定义、链接失败**（响亮）。
+// 本开关只辖**宏展开**的入口：手写自己 VasePlugin_GetPlugin 的二进制（如
+// Tests/Integration/fixtures/StaleHeaderPlugin/StaleHeaderPlugin.cpp:55，模拟老二进制）不受它影响，
+// 若把它 PACK 进组合库同样重定义——别当成「开关失灵」（D214）。
+#ifdef VASE_PLUGIN_PACK_OBJECT
+#define VASE_PLUGIN_ENTRIES(Type)
+#else
+#define VASE_PLUGIN_ENTRIES(Type)                                                                                      \
+    extern "C" VASE_EXPORT const ::vase::PluginDescriptor* VasePlugin_GetPlugin(const char* id)                        \
+    {                                                                                                                  \
+        return id != nullptr && std::string_view{id} == kVaseMeta_##Type.Id ? VasePluginDesc_##Type() : nullptr;       \
+    }                                                                                                                  \
+    /* 枚举面（M5/D118）：一个库里的全部描述符。纯追加——既有生成物一字不变*/                                           \
+    /* kHeaderVersion 不动。名字是契约：工具按字面取它；组合库由 VasePack 生成同名（§8.6）。  */                       \
+    extern "C" VASE_EXPORT const ::vase::PluginDescriptor* const* VasePlugin_Descriptors(::std::uint32_t* outCount)    \
+    {                                                                                                                  \
+        static const ::vase::PluginDescriptor* const kAll[] = {VasePluginDesc_##Type()};                               \
+        *outCount = 1;                                                                                                 \
+        return static_cast<const ::vase::PluginDescriptor* const*>(kAll);                                              \
+    }
+#endif
 #define VASE_PLUGIN(Type)                                                                                              \
     extern const ::vase::PluginMeta kVaseMeta_##Type;                                                                  \
     namespace                                                                                                          \
@@ -140,16 +163,5 @@ public:
                                                     &VasePluginCreate_##Type, &VasePluginDestroy_##Type};              \
         return &kDesc;                                                                                                 \
     }                                                                                                                  \
-    extern "C" VASE_EXPORT const ::vase::PluginDescriptor* VasePlugin_GetPlugin(const char* id)                        \
-    {                                                                                                                  \
-        return id != nullptr && std::string_view{id} == kVaseMeta_##Type.Id ? VasePluginDesc_##Type() : nullptr;       \
-    }                                                                                                                  \
-    /* 枚举面（M5/D118）：一个库里的全部描述符。纯追加——既有生成物一字不变*/                                           \
-    /* kHeaderVersion 不动。名字是契约：工具按字面取它；组合库由 VasePack 生成同名（§8.6）。  */                       \
-    extern "C" VASE_EXPORT const ::vase::PluginDescriptor* const* VasePlugin_Descriptors(::std::uint32_t* outCount)    \
-    {                                                                                                                  \
-        static const ::vase::PluginDescriptor* const kAll[] = {VasePluginDesc_##Type()};                               \
-        *outCount = 1;                                                                                                 \
-        return static_cast<const ::vase::PluginDescriptor* const*>(kAll);                                              \
-    }                                                                                                                  \
+    VASE_PLUGIN_ENTRIES(Type)                                                                                          \
     const ::vase::PluginMeta kVaseMeta_##Type = ::vase::PluginMeta

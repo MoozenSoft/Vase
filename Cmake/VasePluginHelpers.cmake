@@ -5,14 +5,22 @@
 # 一插件一目录（spec D180/D183）：产物落 <产物根>/<target 名>/，宿主可执行与框架库仍平铺。
 # Tests/HotSwap/fixtures 的 Versioned 四兄弟是记名的例外——它们**在调用本函数之后**
 # 显式设三项输出目录到各自的 stage* 目录（D194），靠的是「后设者胜」，顺序别调换。
+#
+# PACK（VasePack spec D199）：额外建一个**静态库** ${name}.Pack——同一个源、同一组链接库、
+# 同样的可见性收紧，外加 VASE_PLUGIN_PACK_OBJECT（pack 形不发两枚每库一份的入口）与
+# POSITION_INDEPENDENT_CODE（它要被链进 SHARED 库的 vase_pack_plugins 产物）。
+# 必须显式设 PIC：全仓今天零处 POSITION_INDEPENDENT_CODE，本目标是第一个被链进 SHARED 的静态库。
+# 归档落 pack-objects/：它是构建中间物，不进产物根（D212）。
+# VASE_PLUGIN_CLASS（D198）：分发表拼 VasePluginDesc_<类名> 时读它，缺省 = target 名。
 function(vase_add_plugin_fixture name)
-    cmake_parse_arguments(FIX "" "MANIFEST" "SOURCES;LINK_LIBRARIES" ${ARGN})
+    cmake_parse_arguments(FIX "PACK" "MANIFEST" "SOURCES;LINK_LIBRARIES" ${ARGN})
     add_library(${name} SHARED ${FIX_SOURCES})
     target_link_libraries(${name}
         PRIVATE VaseBuildOptions ${FIX_LINK_LIBRARIES})
     set_target_properties(${name} PROPERTIES
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN ON
+        VASE_PLUGIN_CLASS "${name}"
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${name}")
 
@@ -24,4 +32,74 @@ function(vase_add_plugin_fixture name)
                     "${FIX_MANIFEST}" "$<TARGET_FILE_DIR:${name}>/plugin.json"
             COMMENT "staging plugin.json for ${name}")
     endif()
+
+    if(FIX_PACK)
+        add_library(${name}.Pack STATIC ${FIX_SOURCES})
+        target_link_libraries(${name}.Pack
+            PRIVATE VaseBuildOptions ${FIX_LINK_LIBRARIES})
+        target_compile_definitions(${name}.Pack PRIVATE VASE_PLUGIN_PACK_OBJECT)
+        set_target_properties(${name}.Pack PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN ON
+            POSITION_INDEPENDENT_CODE ON
+            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/pack-objects")
+    endif()
+endfunction()
+
+# 发布期组合库（VasePack spec D196）：把若干 pack 形静态库链成一个 SHARED 库，
+# 并生成一张统一入口的分发表 TU。表单 §8.6 的「硬引用链」保活——分发表显式调用每个
+# 插件的描述符符号，而静态库按需提取，那条引用链才把成员拉进库（D199/D213）。
+# 主动闸三项（D211）：未 PACK / 重复 / 空——后两项都会**静默**造出坏产物（重复 Id 的
+# 枚举面、装零个插件的库），故一律在配置期带名拒绝。
+# 三条地雷（D214）：① 一个描述符符号不得由两个 .Pack 定义——LoadProbe 与 UnloadProbe 编**同一份**
+# LoadProbe.cpp（类 LoadProbePlugin）⇒ 同符号 VasePluginDesc_LoadProbePlugin；同列 PLUGINS ⇒
+# 重定义、链接失败（响亮）。（HelloPlugin 与 HelloPluginPrime 编**两个不同文件**、符号不同，不属 ①。）
+# ② 两个 target 共享同一 Id 者不得同列 PLUGINS——HelloPlugin 与 HelloPluginPrime 都是 Vase.Hello，
+# 枚举面会带重复 Id；上面的重复闸只挡 target 名、挡不住这形，**静默**。
+# ③ VasePlugin_Descriptors 返回顺序无契约（= PLUGINS 书写顺序，不对外承诺）。
+function(vase_pack_plugins target)
+    cmake_parse_arguments(PACK "" "" "PLUGINS" ${ARGN})
+
+    if(NOT PACK_PLUGINS)
+        message(FATAL_ERROR
+            "vase_pack_plugins(${target}): PLUGINS 为空——装零个插件的组合库没有意义（同 VaseCli 的 D135 同一律）")
+    endif()
+    set(declared ${PACK_PLUGINS})
+    list(REMOVE_DUPLICATES declared)
+    list(LENGTH PACK_PLUGINS declaredCount)
+    list(LENGTH declared uniqueCount)
+    if(NOT declaredCount EQUAL uniqueCount)
+        message(FATAL_ERROR
+            "vase_pack_plugins(${target}): PLUGINS 有重复成员——会生成含重复 Id 的枚举面")
+    endif()
+
+    set(VASE_PACK_DECLS "")
+    set(VASE_PACK_ENTRIES "")
+    foreach(plugin IN LISTS PACK_PLUGINS)
+        if(NOT TARGET ${plugin}.Pack)
+            message(FATAL_ERROR
+                "vase_pack_plugins(${target}): ${plugin} 未声明 PACK——请在它的 vase_add_plugin_fixture 调用点加 PACK")
+        endif()
+        # VASE_PLUGIN_CLASS 由 vase_add_plugin_fixture 无条件设（见上），故此处不会拿到 NOTFOUND；
+        # 刻意不设兜底——真绕过该函数立库时，拼出的 VasePluginDesc_pluginClass-NOTFOUND() 是非法
+        # 符号名、编生成的 TU 即响亮失败，胜过静默。
+        get_target_property(pluginClass ${plugin} VASE_PLUGIN_CLASS)
+        string(APPEND VASE_PACK_DECLS
+            "extern \"C\" const ::vase::PluginDescriptor* VasePluginDesc_${pluginClass}();\n")
+        string(APPEND VASE_PACK_ENTRIES "    VasePluginDesc_${pluginClass}(),\n")
+    endforeach()
+
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/Cmake/VasePackDispatch.cpp.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/${target}.dispatch.cpp"
+        @ONLY)
+
+    add_library(${target} SHARED "${CMAKE_CURRENT_BINARY_DIR}/${target}.dispatch.cpp")
+    target_link_libraries(${target} PRIVATE VaseBuildOptions VasePod)
+    set_target_properties(${target} PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON)
+    foreach(plugin IN LISTS PACK_PLUGINS)
+        target_link_libraries(${target} PRIVATE ${plugin}.Pack)
+    endforeach()
 endfunction()
