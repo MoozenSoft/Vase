@@ -1,0 +1,8 @@
+# Windows 项目配置；模型、账号和审批策略继承用户或受管设置。
+# 项目配置需在 Codex 中信任本仓库后加载，参见 docs/codex-setup.md。
+
+[mcp_servers.codegraph]
+command = "cmd.exe"
+args = ["/d", "/c", "codegraph.cmd", "serve", "--mcp"]
+startup_timeout_sec = 30
+tool_timeout_sec = 120

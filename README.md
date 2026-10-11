@@ -1,6 +1,8 @@
 # Vase
 Vase is a plugin framework that treats every module like a branch in flower arranging — carefully selected, gracefully placed, and cleanly removed.
 
+Codex 项目配置与启动方法见 [docs/codex-setup.md](docs/codex-setup.md)；工程规则由根 `CLAUDE.md` 共用。
+
 ## 环境前提
 
 - **CMake ≥ 4.0**，**Ninja**（任一近期版本）。
