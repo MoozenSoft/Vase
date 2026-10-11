@@ -187,6 +187,7 @@ M5 欠账自此余**两件**（D125、VasePack）——五件里 `plan`+`doctor`
 **D147 与「Windows 两编译器不得混用」两条裁定（需求方 2026-10-03）**：`doctor` 的「工具链一致性（编译器 / 版本 / CRT）」细读**不做**——划入 wiki §13.4「明确不做」，M6 记名的 D147 一笔自此销账（提案 ① 项已兑现为**身份特征在场**，覆盖「有后果可判」的那一半；剩余子项三平台无可靠读面、且失败形态在树内不可达）；Windows 上 `cl` 与 `clang-cl` **不得在同一构建树内混用**（要么全 `cl`、要么全 `clang-cl`，订正入 wiki §8.5 三处早先「同平台 + 同 STL」的写法）。**纯文书改动**：零代码、零公开面增量，八线全绿结论不受影响。欠账至此余 **VasePack 一件**（D125 于本次插件产物布局波以「拷贝」形态结案，见下笔）。
 **插件产物布局波（2026-10-03，分支 `plugin-artifact-layout`，spec D180–D195，一步到位）**：全仓 44 个插件目标改为一插件一目录——`vase_add_plugin_fixture`（规矩 5 的唯一出口）给 target 设 `RUNTIME/LIBRARY_OUTPUT_DIRECTORY = <产物根>/<target 名>`，宿主可执行与框架库仍在 `bin/`(win)/`lib/`(posix) 平铺、`Versioned` 四兄弟维持各自 stage 目录（D194）；新增可选 `MANIFEST <path>` 参数，POST_BUILD 把清单**拷贝**进 `$<TARGET_FILE_DIR>/plugin.json`（D186）；三份描述 Samples 插件的清单自 `Tests/Integration/fixtures/manifests/` **搬家**至 `Samples/<X>/plugin.json`（D182，原地剩 3 份 fixture 清单不动）。承重理由改准：由「必须同处一目录」换成「按平台的依赖解析契约」——Windows 靠「加载器与被依赖框架库同进程」、POSIX 靠链接期烘入的 `RUNPATH`/`LC_RPATH`（D187，三平台各实测；该加载器 flag 同时升为承重条款 D195）；规矩 6 增第六类触发「产物布局」（D191）。新增两处证人（D189）：gtest `Tests/Unit/ArtifactLayoutTests.cpp` 三条 + ctest 级 `VaseCliValidateProductRoot`（指着产物根跑 `validate`、rc=0，D128 缺清单只 warn 不拖 rc）——**收口波八线实测：八线 debug 341 × 4 / release 340 × 4**（自 337/336 净 +4），平台差 0、`release − debug` 恰为 M1 T3 那条 death test，八线用例名集合 debug 四条与 release 四条各两两全等（此前只重建 `win-x64-clang-debug` 一棵树、其余按不变量推得的半句至此由实测兑现）。**D125 以「拷贝」形态兑现并结案**（spec §5：构建后置步骤自此就是这条 POST_BUILD 拷贝，`scan` 不接后置步骤）——M5 记名欠账自此余 **VasePack 一件**。**收口波 tidy 四线复跑即全绿**：TU 117 与基数对上、三判据全过、正文双 0（**首跑**曾捕得正文各 3 条 `readability-trailing-comma`，落本波 01115a8 改写的 `Tests/Integration/AssemblyFromSolveTests.cpp:69,72,75`——多行指定初始化尾缺逗号；收口波内补逗号修复后复跑归零，见「静态检查与格式」两张表）。
 **VasePack 发布期组合库波（2026-10-04，分支 `vasepack-desktop`，spec D196–D215）**：把 §8.6 的组合库从提案落成机制，两段——**机制** + **证人**。开篇定性照 spec §1：**本波组合库的唯一消费者是那几条证人，仓库里没有产品**（§13.4 已裁定对外分发不做；本波交付的是机制、不是某个产品的发布形）。**机制**：`vase_add_plugin_fixture` 增裸关键字 `PACK`（额外建 pack 形**静态库** `${name}.Pack`，显式设 `POSITION_INDEPENDENT_CODE ON` + `VASE_PLUGIN_PACK_OBJECT`，D199——静态库「按需提取」才让 §8.6 的保活问题真出现且可证伪，对象库会把对象全量塞进组合库、问题根本不出现）与 target 属性 `VASE_PLUGIN_CLASS`（缺省 = target 名，是符号名的唯一真值；`CLASS` 关键字**不加**，D198——本波零使用零证人，YAGNI）；`VASE_PLUGIN` 宏抽出 `VASE_PLUGIN_ENTRIES(Type)` 由该开关决定空否——**不开开关 = 今天的展开物逐字不变**（`kHeaderVersion` / 描述符布局 / 开发形导出集合三不动，这是「C++ 面零 ABI 增量」的依据；漏发开关的症状是**重定义、链接失败**，响亮）；新增 `vase_pack_plugins` 函数把若干 `.Pack` 链成一个 SHARED 库 `VasePlugins` 并 `configure_file` 出一张**不写 Id 字面量**的分发表 TU（D200：路由靠遍历描述符比对 `Meta->Id`，生成物全部机械可导，无「清单改了生成物没跟上」的漂移面；配 `PLUGINS` 配置期主动闸三项——未 `PACK` / 重复 / 空，后两项都会**静默**造坏产物，D211）；`Samples/HelloCommon` 立成 **INTERFACE 库**、五处消费者（三插件 fixture + `Samples/Embedding` + `Tools/VaseConsole`）一律经 `LINK_LIBRARIES` 全收编（D209——`PACK` 的目标拿不到「调用之后」加的 include，照原样 pack 形编不过；五处全收编是「一处字面真值」的要求）。**`Tools/VasePack` 的工具形态自此改口为 CMake 函数**（D196）：规矩 1 与规矩 5 都是硬边界，本仓库只有一个构建系统——**没有 `Tools/VasePack/` 目录、没有可执行文件**，机制载体是 `Cmake/VasePluginHelpers.cmake` 里新增的两个函数。**证人**：新测试文件 `Tests/Integration/VasePackTests.cpp` 六条，**一律经 `Loader` 按路径装载后取符号**（组合库**不链进** `VaseTests`——链进去会让整个测试二进制从启动起驻留它、且导入表直连绕过 `Loader`，恰好挖空本波要证的「宿主零改动」那一跳，D204）；第 6 条 `LoaderFindsEntryByLiteralContractName` 为承重位——走真宿主路径、另钉两枚**字面契约名**（`VasePlugin_GetPlugin` / `VasePlugin_Descriptors`）**外加一条错名负例**；`Tests/Unit/ArtifactLayoutTests.cpp` 增一条断言钉**组合库平铺在产物根**（D215——该文件此前只断言「每个插件独占 `<产物根>/<name>/`」，而组合库是唯一一条**反向**规则：不是插件 fixture、不进子目录）。**D208 欠账收窄**：VasePack 桌面机制本波兑现并收窄，M5 记名欠账自此余项 = **移动产物**（iOS `.a` / Android `.so`）与**发布形清单/装配链**（组合库的 N:1 清单问题、`CreatePod` 把组合库装进 Pod，均明记不做，D203）。**范围改口（需求方 2026-10-09 裁定，spec §1 有完整裁定注）**：本波交付的**桌面形态记为机制演练、不是发布形态的答案**——理由三条（§8.6 的保活论证针对**静态链接**，而桌面插件本就按名动态加载，组合库在桌面上只省几个文件；组合库**平铺在产物根**而 `Refresh` **只扫子目录** ⇒ `scan`/`validate`/`plan`/`doctor` 与 `VaseCliValidateProductRoot` **一个都看不见它**，宿主要用只能**手写 `LoadPlan` 硬编码 Id**，恰放弃了组合库本该带来的「发现」；故其**可用性存疑，且该事实已入账、不再是未察缺口**）。**正式目标是移动端发布形态**——那才是保活问题真实存在处（静态库由宿主链入、未引用成员被整个丢掉，§8.6 末那条 iOS 例外说的就是它）。**欠账形状随之升格为「余项 = 目标本身」**。**八线基数与 tidy 计数已随收口波落账（2026-10-04）**：八线删树重配全量、debug **348 × 4** / release **347 × 4**、平台差 0、Windows/Linux 六线零重跑、macOS debug 线一处 discovery-timeout 假红（重跑即绿）；四线 tidy 首跑即三判据全过、正文双 0（TU 119）；规矩 6 族三平台各 58/58——现值见「构建与测试」与「静态检查与格式」两张表。
+**静态链入波（2026-10-10，分支 `vasepack-static-link`，spec `docs/superpowers/specs/2026-10-09-vasepack-static-link-design.md`，D216–D241）**：把 §8.6 的组合库从「按名动态装载」扩出**静态链入（进程内来源）**那半边——桌面可证的部分，是移动端发布形态（iOS `.a`：宿主链入、未引用成员被整个丢掉）的前置，**真 iOS/Android 构建腿（甲）、移动产物形态（乙）、组合库 N:1 清单/装配链（丁）三笔明记不做**（D226）。**机制**：接入形状取**入口指针来源**——`LoadPlanEntry` 增 `InProcessEntry`（D216/D217：两来源同填即 `Err` 带名），宿主持有 `&VasePlugin_GetPlugin`**这个取址动作本身即链接期硬引用**（保活由类型承载；不引新注册面、不走 self 后端）；`Loader` 增进程内记录（`BinaryRecord::InProcess` / `Entry`，去重键 = 入口指针；`EnsureInProcess`**永不失败却返回 `Result`**只为让装配循环的分流同形，D218/D232），分支整支住共享层、平台文件零改动；`vase_pack_plugins` 增裸关键字 **`STATIC`**（缺省 `SHARED` 逐字不变，D222），`.Pack` 与 STATIC 组合库统一落 **`VASE_PACK_INTERMEDIATE_DIR`**（`${CMAKE_BINARY_DIR}/pack-objects/`，D231）；`LoadPlanEntry` 加字段是宿主面 **ABI 增量**（D227，`kHeaderVersion` 与描述符布局**不动**）。**拒绝面**：`EjectPlugin` 对进程内条目在**任何拆除之前**早闸、契约子串 `linked-in binary cannot be ejected`（D219——档二对进程内来源结构性不可达，放行即「Eject 假成功」）；`AdoptPlugin`**不加新通道**——`AdoptRequest` 只收文件路径、**结构上无法表达**进程内来源（D220），另在 `FindResident` 层排除进程内记录（D239 主防：它的 `Path` 为空，而「按路径查」本就不该命中它）+ `AdoptImpl` 空路径早闸（第二层，把文档句变成运行期断言）。**两条宿主级正例**住 `Tests/{StaticLink,Integration/InProcessSource}Tests.cpp`，其中**保活证**是一条**会红的**负例——未列入 `PLUGINS` 的 `.Pack` 对象不许被提取，观测手段按平台三分岔（D241：**Apple ld 会把弱未定义引用当提取压力**，故 macOS 支走 `dlsym(RTLD_SELF, …)`；Windows 支读产物导出表；Linux 支弱符号直判），承重位与对照组**走同一套机制**（否则一个恒「不在」的探针会让承重位假通过）；**`MakeInstance` 覆盖共享记录进程级状态的既有缺陷在本波被发现并修复**（D236/D237：全仓唯一把「一 binary ⇔ 一插件」当真的地方，潜伏至今是因为「一库 N 插件」这条路径从没有测试走过——**这条记史本身是教训**，桌面波把「宿主零改动」写成承重承诺却少了这条证人，本波补的正是它）。**进程内来源上的进程级状态永无重置路径**（D229）**接受并记名**（Reset 是二进制级语义，而进程内来源的 binary 就是宿主）——入 `wiki` §13.3。**八线基数与 tidy 计数已随收口波落账**：见「构建与测试」与「静态检查与格式」两张表。
 当前仓库里有什么：
 
 - **构建系统已建立**：`CMakeLists.txt`、`CMakePresets.json`、`Cmake/Toolchains/`（四个工具链文件，macOS 腿起）、
@@ -234,6 +235,12 @@ M5 欠账自此余**两件**（D125、VasePack）——五件里 `plan`+`doctor`
   `HotSwap/{Adopt,HotSwapLoop}Tests` 与 `Abi/ImportEnforcementTests`，另 `TwoProvidersPlugin`
   fixture；原 `manifests/{dependent,failing}` 两个清单已随插件产物布局波（2026-10-03，D182）搬家至
   `Samples/{DependentPlugin,FailingPlugin}/plugin.json`（六线净 +54 的现值见「构建与测试」基数表）。
+  **静态链入波（2026-10-10，D216–D241）净 +10 条 gtest 用例**，住四处：新目录 `Tests/StaticLink/`
+  （独立 gtest 可执行 `VaseStaticLinkTests`——D223：隔离进程内镜像，与 iOS「宿主是一个独立二进制」同形；
+  四条证人）+ `Tests/Integration/InProcessSourceTests.cpp`（5 条：两条拒绝面、`DestroyPodStillWorks`、
+  两条组合库宿主面）+ `Tests/Unit/LoaderTests.cpp` 一条 `Loader.InProcessEntryResolvesWithoutPlatformLoad`，
+  新 fixture `Tests/StaticLink/fixtures/KeepAliveProbe`（`PACK`、**不列入** `PLUGINS` 的保活探针）与
+  `Tests/Integration/fixtures/StatefulPack{A,B}`（各带 `PACK`，供进程级状态并集证）。
 - **示例**：`Samples/{HelloCommon,HelloPlugin,HelloPluginPrime,DependentPlugin,FailingPlugin,Embedding}`——
   `VaseEmbedding play | loop <N> | swapdemo`，`HelloPluginPrime` 是换件材料（自波 2 起**必须与清单
   成对覆盖**，D87）。`DependentPlugin`（requires Greeter、经 `IFarewell` 提供 `Vase.Dependent.Farewell`，
@@ -322,7 +329,21 @@ M5 欠账自此余**两件**（D125、VasePack）——五件里 `plan`+`doctor`
 ### 构建与测试
 
 
-**八个 preset，全部已实测可用**。基数的最近一次复核（**VasePack 发布期组合库波，2026-10-04**）：八条 preset 线各自
+**八个 preset，全部已实测可用**。基数的最近一次复核（**静态链入波，2026-10-10**）：八条 preset 线各自
+删树重配 → configure → build → ctest → `ctest -N`，**八线全绿、构建零警告**（`Scripts/win-verify.cmd` 与
+`Scripts/linux-verify.sh` 两脚本、`Scripts/macos-verify.sh` 在 macOS 开发机上跑）。本波用例净 **+10**
+（gtest：`Tests/StaticLink/StaticLinkTests.cpp` 四条 + `Tests/Integration/InProcessSourceTests.cpp` 五条 +
+`Tests/Unit/LoaderTests.cpp` 一条 `Loader.InProcessEntryResolvesWithoutPlatformLoad`，八线同幅、无 debug 门无平台门）
+——八线 debug **358 × 4** / release **357 × 4**、平台差 0、`release − debug` 仍恰为 M1 T3 那枚 death test 一条；
+八线逐对比过，**debug 四条线名集合两两全等、四条 release 线亦两两全等**（跨平台差集亦全空）。
+**该轮近乎零重跑**：Windows 四条与 Linux 两条首跑即绿、零重跑；**macOS 两条线各撞一次已知环境性假红**
+——全量脚本首跑预清 `rm -rf` 撞 class-3 `Resource busy`（SMB，`pkill` 复核后重试即删净、重跑整轮），
+debug 线首跑 `ctest` / `-N` 各返回 RC=8 而正文是 class-4 `discover_tests failed to run command … Process
+terminated due to timeout`（`PRE_TEST` 枚举步超时，**不是用例回归**），单线重跑即 **358/358 全绿**。
+**tidy 四线**：收口轮（T10a3）全量首跑即三判据全过、正文双 0（TU 126）——**但本波第一轮 tidy（T10a）
+曾捕得四线各 11 条正文 warning**（全落本波新代码），代码级修复后归零，见「静态检查与格式」；
+**format 三平台 RC=0**。
+**VasePack 发布期组合库波（2026-10-04）保留为历史**：其时八条 preset 线各自
 删树重配 → configure → build → ctest → `ctest -N`，**八线全绿、构建零警告**（`Scripts/win-verify.cmd` 与
 `Scripts/linux-verify.sh` 两脚本、`Scripts/macos-verify.sh` 在 macOS 开发机上跑）。本波用例净 +7
 （gtest `Tests/Integration/VasePackTests.cpp` 六条 + `Tests/Unit/ArtifactLayoutTests.cpp` 一条平铺断言，八线同幅、
@@ -374,8 +395,10 @@ tidy 四条 debug 线各自跑（见「静态检查与格式」；**macOS 腿首
 | Linux / clang + libc++ | `linux-x64-clang-debug`、`linux-x64-clang-release` |
 | macOS x64 / clang + libc++（MacPorts `clang++-mp-23`） | `macos-x64-clang-debug`、`macos-x64-clang-release` |
 
-**各线 `ctest -N` 基数**（八线现值为 **VasePack 发布期组合库波 2026-10-04 实测**，八条 preset 线删树重配全量、`ctest` 与
-`ctest -N` 一并跑完；相对插件产物布局波表 341/340 **八线各 +7 = 六枚 gtest**（`Tests/Integration/VasePackTests.cpp`
+**各线 `ctest -N` 基数**（八线现值为 **静态链入波 2026-10-10 实测**，八条 preset 线删树重配全量、`ctest` 与
+`ctest -N` 一并跑完；相对 VasePack 波表 348/347 **八线各 +10 = 十枚 gtest**（`InProcessSource` 5 + `StaticLink` 4 +
+`Loader.InProcessEntryResolvesWithoutPlatformLoad` 1，八线同幅、无 debug 门无平台门）——八线 debug 358 / release 357；
+历史口径——VasePack 波 2026-10-04 表 348/347 = 相对插件产物布局波表 341/340 **八线各 +7 = 六枚 gtest**（`Tests/Integration/VasePackTests.cpp`
 的 `VasePack.*` 六条）**+ 一条 gtest**（`Tests/Unit/ArtifactLayoutTests.cpp` 新增的平铺断言
 `ArtifactLayout.PackedLibraryStaysFlatInTheProductRoot`，D215），八线同幅、无 debug 门无平台门）——八线 debug 348 / release 347；
 历史口径——插件产物布局波 2026-10-03 表 341/340 = 相对小账清理波表 337/336 **八线各 +4 = 三枚 gtest**
@@ -418,8 +441,8 @@ T6 Five→Fifty 与 T7 空壳用例替换均 1:1 改写净 0，M3 终审修复�
 
 | preset | `Total Tests` | 与 debug 基线的差 |
 |---|---|---|
-| `win-x64-{clang,msvc}-debug`、`linux-x64-clang-debug`、`macos-x64-clang-debug` | 348 | —（四条 debug 线零差） |
-| `win-x64-{clang,msvc}-release`、`linux-x64-clang-release`、`macos-x64-clang-release` | 347 | −1：M1 T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门——四条 release 线恰同这一条，**平台差 0 自 macOS 入场后维持**（M4 的 `linux − win` 归零形状见下，macOS 未引入新差集，spec §5 收口形态） |
+| `win-x64-{clang,msvc}-debug`、`linux-x64-clang-debug`、`macos-x64-clang-debug` | 358 | —（四条 debug 线零差） |
+| `win-x64-{clang,msvc}-release`、`linux-x64-clang-release`、`macos-x64-clang-release` | 357 | −1：M1 T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门——四条 release 线恰同这一条，**平台差 0 自 macOS 入场后维持**（M4 的 `linux − win` 归零形状见下，macOS 未引入新差集，spec §5 收口形态） |
 
 **基数差是设计，不是漏注册**：**macOS 入场未引入任何新差集**——macOS 腿全部用例增量（macOS 腿 T3 的合成字节三枚）与
 平台无关（D173 的设计点），体内 `#ifdef` 的两枚平台证人自 macOS 腿起在三条非 Windows 线上各注册各的同名一条；
@@ -435,7 +458,8 @@ flag，该负例因此反向把守它的在场，D167）。**这一格不是「�
 （gtest 20 + ctest 级 6，含 T6 证人）**、**macOS 腿新增的净 3 条（合成字节证人，八线同幅）**、
 **小账清理波新增的净 3 条（Mach-O 对抗证人，八线同幅）**、
 **插件产物布局波新增的净 4 条（gtest 3 + ctest 级 1，八线同幅）**与
-**VasePack 波新增的净 7 条（gtest 7，八线同幅）**
+**VasePack 波新增的净 7 条（gtest 7，八线同幅）**与
+**静态链入波新增的净 10 条（gtest 10，八线同幅）**
 **无一受** `#ifndef NDEBUG` 门或平台门——M6 的 `VaseCliDoctor` 里两条体内 `#ifdef` 的平台证人
 各平台注册各的同名一条，计数对称（Windows 上其中一条按首测协议走 `GTEST_SKIP`——**SKIP 是运行时行为，
 不动 `-N` 注册计数**；macOS 腿起「两侧」是三条非 Windows 线——macOS 上 ③ 的 chmod-555 支为**真实断言**、
@@ -447,7 +471,7 @@ win-clang ↔ win-msvc 两对、linux ↔ win、macos ↔ win、linux ↔ macos 
 debug − release 在三条 debug 线上恰为 M1 T3 那一条、`linux − win` 与 `win − linux` **两个方向都为空**、
 clang-debug 与 msvc-debug 名集合逐条相同、两条 release 线的名集合也逐条相同；M6 收口 / M5 波末还账 / M5 收口与更早各轮
 （M4 收口、M3 收口/修复波三轮、波 2 收口/还账波 2026-09-26）的同形复测保留为历史。
-规矩 6 的选择子 `-R 'HotSwap|Eject|Adopt'` 在 **macOS 腿 T10 重测 win 58 / linux 58 / macOS 58（macOS 首次入账，三平台同值）**、**小账清理波 2026-10-03 三线复测仍为 58 / 58 / 58（该族逐条实跑 58/58 全绿）**、**插件产物布局波 2026-10-03 复算仍为 58**（按 `ctest -N` 名集合导出复算：四线各 57 个名匹配 + ctest 自动拉入的 fixture `VaseConsoleCatalogStage` = 58，win 线 `ctest -R … -N` 实测确认；八线全量 `ctest` 逐条跑过族内全部用例并通过）、**VasePack 波 2026-10-04 三平台各实跑 58/58 全绿**（规则 6 因本波动了描述符宏 `PluginDescriptor.h` 而触发，D206）——与 M6 终审修复波 T6 / M6 收口 / M5 波末同数：
+规矩 6 的选择子 `-R 'HotSwap|Eject|Adopt'` 在 **macOS 腿 T10 重测 win 58 / linux 58 / macOS 58（macOS 首次入账，三平台同值）**、**小账清理波 2026-10-03 三线复测仍为 58 / 58 / 58（该族逐条实跑 58/58 全绿）**、**插件产物布局波 2026-10-03 复算仍为 58**（按 `ctest -N` 名集合导出复算：四线各 57 个名匹配 + ctest 自动拉入的 fixture `VaseConsoleCatalogStage` = 58，win 线 `ctest -R … -N` 实测确认；八线全量 `ctest` 逐条跑过族内全部用例并通过）、**VasePack 波 2026-10-04 三平台各实跑 58/58 全绿**（规则 6 因本波动了描述符宏 `PluginDescriptor.h` 而触发，D206）、**静态链入波 2026-10-10 四线各实跑 61/61 全绿、`-N` 亦 61**（旧值 58 → **+3**；该族因本波动了 `Loader` / 装配路径 / `MakeInstance` 的进程级状态读写而触发，D228；61 = 60 个名匹配 + 自动拉入的 fixture `VaseConsoleCatalogStage`，逐线导出核对；本波新用例 `StaticLink.EjectIsRefusedOnStaticallyLinkedPlugins` 名含 `Eject`、被拉入并实跑通过）——**此前各轮**与 M6 终审修复波 T6 / M6 收口 / M5 波末同数：
 M6 的新命令名 `plan` / `doctor`、T6 证人名与 macOS 腿新用例名（`ImageInspect.MachO*`）都不含选择子串；该枚相对 M5 收口 57 / 57 的增量是波末还账的
 `Adopt.ProbeSwapGuardHealsAbortResidue`（名含 `Adopt`；再往前较 M4 的
 56 / 56 那一枚是 T14 跨 Pod 证人 `Eject.SemanticDependencyPossibleAcrossPods`，
@@ -525,7 +549,7 @@ ctest → `ctest -N`，逐步打印退出码，末尾汇总并以失败步数作
 `Scripts/macos-verify.sh` 与 Linux 侧同模型（逐步骤打 RC 行、脚本退出码恒 0——**按日志的 RC 行判**，
 别拿它当 `win-verify.cmd` 的失败步数退出码）。
 
-构建产物落 `build-<平台>/<presetName>/`：**可执行在 `bin/`**（POSIX 侧框架库与静态库在 `lib/`），**每个插件独占 `<产物根>/<target 名>/`**（Windows `bin/`、Linux/macOS `lib/`），**发布期组合库（`VasePlugins`）平铺在产物根**（它既不是可执行/框架库、也不进插件子目录——是前述两类之外的一类）。依赖解析的依据：**Windows 靠「加载器与被依赖框架库同进程」**——`VaseHost.dll` 里跑的 `LoadLibraryExW` 带 `LOAD_WITH_ALTERED_SEARCH_PATH`，而插件需要的 `VasePod.dll` 早已被宿主静态导入、按已加载模块名命中（自证；取证注①）；**POSIX 靠链接期烘入的 `RUNPATH` / `LC_RPATH`**（指向框架库所在的 `lib/`；Linux 取证注③、macOS 取证注④ 实测同形）。改回平铺、改动 `vase_add_plugin_fixture` 的输出目录设置、或动 `LoaderWindows.cpp` 的 `LOAD_WITH_ALTERED_SEARCH_PATH`，必须按规矩 6 重跑三平台 `-R 'HotSwap|Eject|Adopt'` 族并各留证据。
+构建产物落 `build-<平台>/<presetName>/`：**可执行在 `bin/`**（POSIX 侧框架库与静态库在 `lib/`），**每个插件独占 `<产物根>/<target 名>/`**（Windows `bin/`、Linux/macOS `lib/`），**发布期组合库（`VasePlugins`）平铺在产物根**（它既不是可执行/框架库、也不进插件子目录——是前述两类之外的一类）。**静态组合库（`vase_pack_plugins(... STATIC)`）与各 `.Pack` 静态库例外地落 `pack-objects/` 中间目录**（`VASE_PACK_INTERMEDIATE_DIR`，D231）——它们是**链接输入**、不是交付物，与平铺在产物根的 `VasePlugins`（交付形态）分属两类。依赖解析的依据：**Windows 靠「加载器与被依赖框架库同进程」**——`VaseHost.dll` 里跑的 `LoadLibraryExW` 带 `LOAD_WITH_ALTERED_SEARCH_PATH`，而插件需要的 `VasePod.dll` 早已被宿主静态导入、按已加载模块名命中（自证；取证注①）；**POSIX 靠链接期烘入的 `RUNPATH` / `LC_RPATH`**（指向框架库所在的 `lib/`；Linux 取证注③、macOS 取证注④ 实测同形）。改回平铺、改动 `vase_add_plugin_fixture` 的输出目录设置、或动 `LoaderWindows.cpp` 的 `LOAD_WITH_ALTERED_SEARCH_PATH`，必须按规矩 6 重跑三平台 `-R 'HotSwap|Eject|Adopt'` 族并各留证据。
 
 #### Linux / WSL
 
@@ -787,15 +811,20 @@ error overload 等，全部直接 abort，没有可接住的东西。
 它承载两件手搭 `add_library(SHARED)` 会漏掉的事：**只链 VasePod**（D11：「插件不依赖 Host」
 是链接期事实而非约定）与**可见性收紧**（`CXX_VISIBILITY_PRESET hidden` + `VISIBILITY_INLINES_HIDDEN`）。
 手搭的插件 target 视为违规——那也正是「某个 target 忘了链 `VaseBuildOptions`」（规矩 1）的复发点。
-本函数**不辖发布期组合库 `VasePlugins`**——它不是插件 fixture，由 `vase_pack_plugins` 直接
-`add_library(${target} SHARED …)` 立（spec D201）。
+本函数**不辖发布期组合库**——它不是插件 fixture，由 `vase_pack_plugins` 直接
+`add_library(${target} <SHARED|STATIC> …)` 立（spec D201）：裸关键字 **`STATIC`** 把它立成**静态组合库**
+（缺省 `SHARED` 逐字不变，D222），`.Pack` 静态库与 STATIC 组合库统一落
+**`VASE_PACK_INTERMEDIATE_DIR`（`${CMAKE_BINARY_DIR}/pack-objects/`，D231）**。
 
 **编译期输入经调用点参数表达**（VasePack spec D210 / §3.2）：插件的源 / include / 编译定义
 一律在 `vase_add_plugin_fixture` 的调用点经参数给出，**调用之后不得再对同一 target 追加编译期输入**
 ——组合库的 pack 形目标拿不到那些后加的设置。**不辖**输出落位（`Versioned` 四兄弟的 `OUTPUT_NAME`
 与三个 stage 目录）与链接选项（`NoIdentityPlugin` 的 `target_link_options`）两个维度：那两处碰的是
 落位与链接期维度，对静态库形态的 pack 目标本无影响（静态库不链接、不产出交付物）。全仓今天的
-两处「调用之后又下命令」正是不受它辖的这两个维度；`HelloCommon` 收编后，本条纪律**零违反**。
+三处「调用之后又下命令」全部落在不受它辖的维度——两处是输出落位与链接选项（`Versioned` 四兄弟与
+`NoIdentityPlugin`），第三处是 `KeepAliveProbe` 对 `VASE_PLUGIN_CLASS` 的覆盖（它是 **`vase_pack_plugins`
+按之拼 `VasePluginDesc_<类名>` 的生成期命名**维度，类名 ≠ target 名时才需覆盖；plan 偏离登记条目 5 判
+**不违规**）。`HelloCommon` 收编后，本条纪律**零违反**。
 
 #### 6. `Tests/HotSwap` 按主干对待（它的判据力按平台不对称）
 
@@ -952,12 +981,25 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
 stdout 打全「退出码 + 正文 `error:` 条数 + 正文 `warning:` 条数」三判据与摘要计数，**退出码非 0 即门禁未过**，
 不必再手工 grep 日志。（**macOS 线的 RC 与正文 warning 不耦合**——2026-10-03 勘误，见「核这些门禁时…」那节。）
 基数见「核这些门禁时，退出码单独用是不够的」那节的实测表，脚本不复制阈值。
-实测输出与该表对上（**VasePack 波 2026-10-04 复跑值**）：**四线各 119 TU** / Windows 两线 **802687**、
+实测输出与该表对上（**静态链入波 2026-10-10 复跑值**）：**四线各 126 TU** / Windows 两线 **886708**、
+Linux **355867**、macOS **505664** / NOLINT 命中 Windows 两线 **5769**、Linux **5765**、macOS **5764**——
+**四线全量三判据全过、正文双 0**（**收口轮首跑即双 0；但本波第一轮 tidy 曾捕得正文 warning 各 11 条**
+——全落本波新代码，收口前逐条处置后归零）。TU 126 = 上表 119 **+7 = 五个新源**
+（`Tests/StaticLink/StaticLinkTests.cpp`、`Tests/StaticLink/fixtures/KeepAliveProbe/KeepAliveProbe.cpp`、
+`Tests/Integration/InProcessSourceTests.cpp`、`Tests/Integration/fixtures/StatefulPack{A,B}.cpp`）**+ 两个生成 TU**
+（`VasePluginsStatic.dispatch.cpp` / `VasePluginsStateful.dispatch.cpp`——D205 口径第二次兑现，两张分发表
+各带一枚就地写理由的 `readability-identifier-naming` NOLINT 区）；**单 TU 极值三平台一字未动**
+（Windows 998/45609、Linux 359/11337、macOS 278/7284——即整体平移而非新诊断）；本波新增代码的 NOLINT
+已按「有出路改代码、无出路就地说明」处置，Suppressed 上跳
+802687→886708 / 331259→355867 / 468442→505664 属 7 个新 TU 各带一份模板量的乘法形状；
+**本波 canonical NOLINT 位点净新增 8 处**（`git diff main..HEAD -U0 -- '*.h' '*.cpp' | grep '^+.*NOLINT'`
+10 行 = 8 位点，逐行 blame 复核全为分支提交），逐处就地写明无代码级出路的理由。
+历史口径——**VasePack 波 2026-10-04 复跑值**：**四线各 119 TU** / Windows 两线 **802687**、
 Linux **331259**、macOS **468442** / NOLINT 命中 Windows 两线 **5145**、Linux **5140**、macOS **5141**——
 **四线全量、首跑即三判据全过、正文双 0**。TU 119 = 上表 117 **+2 = `Tests/Integration/VasePackTests.cpp`
 + 生成的 `VasePlugins.dispatch.cpp`**（四线同幅；生成物进 tidy 面是本仓库首次，D205——它带一枚就地写理由的
 `readability-identifier-naming` NOLINT 区）；单 TU 极值 Windows 998/45609、Linux 359/11337 **一字未动**、
-macOS min 278 未动 / max 7278→7284（+6，**成因未归因**——见「核这些门禁时…」节的说明）；本波新增代码的 NOLINT
+macOS min 278 未动 / max 7278→7284（+6，**成因未归因**——见「核这些门禁时…」节的说明）；**该波**新增代码的 NOLINT
 已按「有出路改代码、无出路就地说明」处置，故零新增正文 warning、Suppressed 上跳
 776999→802687 / 319226→331259 / 449889→468442 属新 TU 的乘法形状）。
 历史口径——**插件产物布局波 2026-10-03 复跑值**：四线各 117 TU / Windows 两线 776999、Linux 319226、
@@ -965,7 +1007,8 @@ macOS 449889 / NOLINT 命中 Windows 两线 4895、Linux 4890、macOS 4891——
 该波首跑曾捕得正文各 3 条 `readability-trailing-comma`（`Tests/Integration/AssemblyFromSolveTests.cpp:69,72,75`），
 收口波内补尾逗号修复后复跑双 0。**另记一形（macOS RC 口径勘误）**：macOS 线首跑正文 3 条 warning
 而退出码仍为 0——「macOS 线正文有 warning 即 RC=1」那句**不成立**，见「核这些门禁时…」那节。
-**本波 format 门读数**：三线（Windows / Linux / macOS）同一条
+**本波 format 门读数**（静态链入波：三平台全 **RC=0**）。
+历史口径——**VasePack 波的 format 门读数**：三线（Windows / Linux / macOS）同一条
 `git ls-files -z --cached --others --exclude-standard '*.h' … | xargs -0 clang-format --dry-run --Werror`
 全 **RC=0**（Windows/Linux 经 clang-format 23.1.0、macOS 经 `clang-format-mp-23` 23.1.2；`--cached --others
 --exclude-standard` 三件俱在，未 `git add` 的新文件不被静默跳过）。
@@ -1063,6 +1106,18 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
   `open(2)` 本身是变参）、本仓库禁用的写法（`.at()` 被禁、`gsl::at` 不可用）——
   **不是「改起来麻烦」**。
 
+### 「符号在不在映像里」必须从干净全量链接读（静态链入波记的地雷）
+
+
+Windows 上 **MSVC 增量链接**会让 `bin/*.ilk` 保留「上一轮被提取、本轮已不再提取」成员的**幽灵导出**
+——把**已丢失**的成员读成**还在**。这是**假绿，比假红危险**（假红逼人重跑，假绿会被当结论）。
+**症状**：改过 `PLUGINS` 列表或链接行之后，**增量** build 里那个符号仍在映像里（`GetProcAddress` /
+`dumpbin /exports` / `llvm-readobj --coff-exports` / `nm` 都看得见）；删 `bin/*.ilk` 或整树重配后消失。
+**处置**：任何「某符号在不在映像里」的判据一律从**删树重配的全量链接**读——`Scripts/*-verify.*`
+天然如此，**别改成增量跑**。（静态链入波的 T7 据此记下过一条**错误的平台事实**——「`link.exe` 为
+dllexport 强制提取归档成员」，只验了带 `/INCREMENTAL` 的 debug 线、且所谓「干净形态」没删 `bin/`；
+四平台实测推翻，见 `wiki` §8.6 与该波 spec 的 D241。）
+
 ### 核这些门禁时，退出码单独用是不够的
 
 
@@ -1104,12 +1159,18 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
 
   | 线 | 文件数 | 摘要行 Suppressed 合计 | 单 TU 最小 / 最大 |
   |---|---|---|---|
-  | clang-cl（`win-x64-clang-debug`） | 119 | 802687 | 998 / 45609 |
-  | cl.exe（`win-x64-msvc-debug`） | 119 | 802687 | 998 / 45609 |
-  | Linux（`linux-x64-clang-debug`） | 119 | 331259 | 359 / 11337 |
-  | macOS（`macos-x64-clang-debug`） | 119 | 468442 | 278 / 7284 |
+  | clang-cl（`win-x64-clang-debug`） | 126 | 886708 | 998 / 45609 |
+  | cl.exe（`win-x64-msvc-debug`） | 126 | 886708 | 998 / 45609 |
+  | Linux（`linux-x64-clang-debug`） | 126 | 355867 | 359 / 11337 |
+  | macOS（`macos-x64-clang-debug`） | 126 | 505664 | 278 / 7284 |
 
-  **TU 数四线同为 119**（VasePack 波 2026-10-04 复跑，「119 files out of 119」四线一致：插件产物布局波的
+  **TU 数四线同为 126**（静态链入波 2026-10-10 复跑，「126 files out of 126」四线一致：VasePack 波的
+  119 → **+7 = 五个新源**（`Tests/StaticLink/StaticLinkTests.cpp`、`Tests/StaticLink/fixtures/KeepAliveProbe/KeepAliveProbe.cpp`、
+  `Tests/Integration/InProcessSourceTests.cpp`、`Tests/Integration/fixtures/StatefulPack{A,B}.cpp`）**+ 两个生成 TU**
+  （`VasePluginsStatic.dispatch.cpp` / `VasePluginsStateful.dispatch.cpp`）——本波新源、四线同幅、**TU 平台差维持 0**；
+  生成物住构建树但 `compile_commands.json` 含它，故**进 tidy 面**（D205 口径）。**单 TU 极值三平台一字未动**
+  （Windows 998/45609、Linux 359/11337、macOS 278/7284，与上一波逐数相同 ⇒ 整体平移而非新诊断）。
+  历史读数——VasePack 波 2026-10-04「119 files out of 119」四线一致：插件产物布局波的
   117 → **+2 = `Tests/Integration/VasePackTests.cpp` + 生成的 `VasePlugins.dispatch.cpp`**——本波新源、四线同幅、
   无平台专属新源，**TU 平台差维持 0**；生成物住构建树但 `compile_commands.json` 含它，故**进 tidy 面**，
   D205——这正是「不排除生成物」口径的首次兑现）。
@@ -1123,10 +1184,12 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
   `Tools/VaseCli/Plan.cpp` / `Doctor.cpp` 与 `Tests/Integration/VaseCli{Plan,Doctor}Tests.cpp` 四个新源——
   两侧同幅、无平台专属新源，M6 的平台分支都在函数体内、不成独立 TU）。每个源都是独立条目，
   `run-clang-tidy` 的按路径去重只合并同一文件多次入库（如 LoadProbe 双 target 那一例）；
-  **文件数比编译数据库条目数少 4**（VasePack 波 2026-10-04 实测 json：**123 条目 / 119 唯一路径**，四线相同）——
-  多出的 4 个重复条目 = 本波三个 `PACK` 插件（`HelloPlugin` / `DependentPlugin` / `FailingPlugin`，其源同时编进
-  `HelloPlugin.Pack` 等三个静态库，D199）**+** 既有的 `LoadProbe` 双 target（`LoadProbe` / `UnloadProbe`，
-  与 `fixtures/LoadProbe/LoadProbe.cpp` 同形，四条线都一样）。历史口径：T10 复测为 117 条目 / 116 唯一路径
+  **文件数比编译数据库条目数少 7**（静态链入波 2026-10-10 实测 json：**133 条目 / 126 唯一路径**，四线相同）——
+  多出的 7 个重复条目 = 六个带 `PACK` 的插件 fixture 各把源同时编进自己的 `.Pack` 静态库（VasePack 波的
+  `HelloPlugin` / `DependentPlugin` / `FailingPlugin`，D199；本波新加的 `KeepAliveProbe` / `StatefulPackA` /
+  `StatefulPackB`）**+** 既有的 `LoadProbe` 双 target（`LoadProbe` / `UnloadProbe`，
+  与 `fixtures/LoadProbe/LoadProbe.cpp` 同形，四条线都一样）。历史口径——VasePack 波 2026-10-04 实测 json
+  为 123 条目 / 119 唯一路径（少 4 = 三个 `PACK` 插件 + `LoadProbe` 双 target）；更早，T10 复测为 117 条目 / 116 唯一路径
   （少 1，仅 LoadProbe 那一例；与 M6 T6 的 116/115 同形）。
   历史口径：M5 收口两侧同为 111（M4 的 99 → +12 = `Source/Host/Inspect.cpp`、`Tools/VaseCli/` 五件
   （`main`/`Cli`/`Scan`/`Validate`/`ManifestMerge`）、`VaseCli{Scan,Validate}Tests` 与 `Inspect`/`LibraryFileName`
@@ -1135,8 +1198,12 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
   `NoBuildIdPlugin`」的平台差随之消失）；更早——波 2 时 87→93 / 88→94（新增六个条目）、M3 再 +2 至
   95 / 96、M3 终审修复波再 +1 至 96 / 97。
 
-  **VasePack 波 2026-10-04 复测（现值）**：四线 Suppressed 上跳（Windows 776999→**802687**、
-  Linux 319226→**331259**、macOS 449889→**468442**）——本波新 TU 各带一份 nlohmann/gtest 模板量的乘法形状
+  **静态链入波 2026-10-10 复测（现值）**：四线 Suppressed 上跳（Windows 802687→**886708**、
+  Linux 331259→**355867**、macOS 468442→**505664**）——7 个新 TU 各带一份 nlohmann/gtest 模板量的乘法形状
+  （尤其新测试文件的大包含面）。**单 TU 极值三平台一字未动**（Windows 998/45609、Linux 359/11337、macOS 278/7284
+  ——与上一波逐数相同，即整体平移而非新诊断）。
+  **VasePack 波 2026-10-04 复测（历史）**：四线 Suppressed 上跳（Windows 776999→**802687**、
+  Linux 319226→**331259**、macOS 449889→**468442**）——该波新 TU 各带一份 nlohmann/gtest 模板量的乘法形状
   （尤其新测试文件的大包含面）。**单 TU 极值**：Windows 998/45609、Linux 359/11337 **一字未动**（即整体平移
   而非新诊断），**macOS min 278 未动、max 7278→7284（+6）**——该极值 TU 是 `Samples/HelloPlugin/HelloPlugin.cpp`，
   但**成因未归因**：`HelloCommon` 改经 INTERFACE 目标后 include 路径字符串前后未变，原「路径形态变化」的推断存疑
@@ -1160,11 +1227,16 @@ T11 实测（修复前）Linux 线报 **9 条**正文 warning，Windows 线 **0 
   这条判据比合计数本身可靠：真出现新诊断时，变的是某个 TU 的极值，而不是所有 TU 一起平移。
 
   数字变了不一定是错，但**要看它变在哪一类**——摘要行里还会出现 `N NOLINT`
-  （**VasePack 波 2026-10-04 复测：Windows 两线 5145、Linux 5140、macOS 5141——三线各 +250**；canonical 位点本波
-  净新增 **3** 处——`Tests/Integration/VasePackTests.cpp` 两枚 `NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)`
-  （Loader 取符号的错误转换、无免转写法）与 `Cmake/VasePackDispatch.cpp.in` 一枚 `readability-identifier-naming` 区
-  （生成的 TU 通篇是 `extern "C"` 契约名、改不动，D205）——**首次给生成物就地写 NOLINT 理由**；命中数只核方向，
-  台账以位点清单为准。历史口径——插件产物布局波 2026-10-03 三线复测：Windows 两线 4895、Linux 4890、macOS 4891——
+  （**静态链入波 2026-10-10 复测：Windows 两线 5769、Linux 5765、macOS 5764**；canonical 位点本波净新增 **8** 处
+  ——`Include/Vase/Host/LoadPlan.h:45` 与 `Include/Vase/Host/Loader.h:55` 的 `readability-redundant-member-init`
+  （NSDMI 为指定初始化省略豁免所必需）、`Source/Host/Loader.cpp:117` / `Tests/Integration/InProcessSourceTests.cpp:42` /
+  `Tests/Unit/LoaderTests.cpp:494` 的 `cppcoreguidelines-pro-type-reinterpret-cast`（`void*` → 函数指针只有这一条路径）、
+  `Tests/StaticLink/StaticLinkTests.cpp` 的 `misc-include-cleaner` 区与其 `readability-identifier-naming` 两处
+  （ABI 契约字面名）——均就地写明无代码级出路的理由；命中上跳是既有位点乘 7 个新 TU 的乘法形状，
+  台账以位点清单为准。历史口径——**VasePack 波 2026-10-04 复测：Windows 两线 5145、Linux 5140、macOS 5141
+  ——三线各 +250**；canonical 位点该波净新增 3 处（`VasePackTests.cpp` 两枚 reinterpret-cast 与
+  `Cmake/VasePackDispatch.cpp.in` 一枚 `readability-identifier-naming` 区——**首次给生成物就地写 NOLINT 理由**）。
+  历史口径——插件产物布局波 2026-10-03 三线复测：Windows 两线 4895、Linux 4890、macOS 4891——
   与上一轮逐数相同，本波新增代码 NOLINT 零净增；小账清理波 2026-10-03 三线 4895 / 4890 / 4891 与 macOS 腿 T10
   逐数相同，其 win/linux 两数一字不动的机理一句话**：
   本波新增的两处抑制位点与 open 行的检查扩表全部落在 `__APPLE__` 支或 macOS 线独有的 include-cleaner

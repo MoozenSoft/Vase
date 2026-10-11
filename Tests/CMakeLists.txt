@@ -35,6 +35,7 @@ add_executable(VaseTests
     Integration/AssemblyFromSolveTests.cpp
     Integration/LoadTimeComparisonTests.cpp
     Integration/VasePackTests.cpp
+    Integration/InProcessSourceTests.cpp
     HotSwap/EjectTests.cpp
     HotSwap/AdoptTests.cpp
     HotSwap/AdoptManifestTests.cpp
@@ -56,6 +57,14 @@ add_subdirectory(HotSwap/fixtures)
 
 # 导入表执法 fixture（T13 §8.7）：一对真互链的插件 A→B。
 add_subdirectory(Abi/fixtures)
+
+# #7 的组合库（本波）：成员都带 ProcessStates——三员 Sample 没有，故 #1/#2 结构上覆盖不到
+# MakeInstance 的覆盖缺陷（spec §2.5）。用**动态**面：不受「一宿主至多一个静态组合库」限制。
+# 必须写在四个 fixture 子目录的 add_subdirectory 之后：vase_pack_plugins 对每个成员查
+# TARGET ${plugin}.Pack，子目录未加入即 FATAL_ERROR。
+vase_pack_plugins(VasePluginsStateful PLUGINS StatefulPackA StatefulPackB)
+target_compile_definitions(VaseTests PRIVATE
+    VASE_FIXTURE_VASEPLUGINSSTATEFUL="$<PATH:CMAKE_PATH,$<TARGET_FILE:VasePluginsStateful>>")
 
 target_link_libraries(VaseTests
     PRIVATE VaseBuildOptions
@@ -179,3 +188,6 @@ include(GoogleTest)
 # 会让构建无缘无故地失败。
 gtest_discover_tests(VaseTests
     DISCOVERY_MODE PRE_TEST)
+
+# 静态链入见证（本波）：独立可执行，理由见该目录的 CMakeLists（spec D223）。
+add_subdirectory(StaticLink)

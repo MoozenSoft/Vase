@@ -10,8 +10,14 @@
 # 同样的可见性收紧，外加 VASE_PLUGIN_PACK_OBJECT（pack 形不发两枚每库一份的入口）与
 # POSITION_INDEPENDENT_CODE（它要被链进 SHARED 库的 vase_pack_plugins 产物）。
 # 必须显式设 PIC：全仓今天零处 POSITION_INDEPENDENT_CODE，本目标是第一个被链进 SHARED 的静态库。
-# 归档落 pack-objects/：它是构建中间物，不进产物根（D212）。
+# 归档落 VASE_PACK_INTERMEDIATE_DIR：它是构建中间物，不进产物根（D212）。
 # VASE_PLUGIN_CLASS（D198）：分发表拼 VasePluginDesc_<类名> 时读它，缺省 = target 名。
+#
+# 统一的中间产物目录（本波 D231）：打包链路的**链接输入**都落这里——`.Pack` 归档与静态组合库。
+# 判据是「打包链路的中转」，不是「任何静态库」：`VaseCliCore` 有自己的消费者、不算；
+# 生成的 dispatch TU 是**源**（进 tidy 面，D205）、也不算。
+# 位置取产物根（bin/ / lib/）之外的兄弟目录——「会不会被发布」因此是结构事实，不靠约定。
+set(VASE_PACK_INTERMEDIATE_DIR "${CMAKE_BINARY_DIR}/pack-objects")
 function(vase_add_plugin_fixture name)
     cmake_parse_arguments(FIX "PACK" "MANIFEST" "SOURCES;LINK_LIBRARIES" ${ARGN})
     add_library(${name} SHARED ${FIX_SOURCES})
@@ -42,7 +48,7 @@ function(vase_add_plugin_fixture name)
             CXX_VISIBILITY_PRESET hidden
             VISIBILITY_INLINES_HIDDEN ON
             POSITION_INDEPENDENT_CODE ON
-            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/pack-objects")
+            ARCHIVE_OUTPUT_DIRECTORY "${VASE_PACK_INTERMEDIATE_DIR}")
     endif()
 endfunction()
 
@@ -57,8 +63,10 @@ endfunction()
 # ② 两个 target 共享同一 Id 者不得同列 PLUGINS——HelloPlugin 与 HelloPluginPrime 都是 Vase.Hello，
 # 枚举面会带重复 Id；上面的重复闸只挡 target 名、挡不住这形，**静默**。
 # ③ VasePlugin_Descriptors 返回顺序无契约（= PLUGINS 书写顺序，不对外承诺）。
+# 裸关键字 STATIC（本波 D222）：出静态组合库而非 SHARED——它是**链接输入**（宿主链接期链入），
+# 故落 VASE_PACK_INTERMEDIATE_DIR 而非产物根；SHARED 支的平铺落位（D201）逐字不变。
 function(vase_pack_plugins target)
-    cmake_parse_arguments(PACK "" "" "PLUGINS" ${ARGN})
+    cmake_parse_arguments(PACK "STATIC" "" "PLUGINS" ${ARGN})
 
     if(NOT PACK_PLUGINS)
         message(FATAL_ERROR
@@ -94,11 +102,21 @@ function(vase_pack_plugins target)
         "${CMAKE_CURRENT_BINARY_DIR}/${target}.dispatch.cpp"
         @ONLY)
 
-    add_library(${target} SHARED "${CMAKE_CURRENT_BINARY_DIR}/${target}.dispatch.cpp")
+    # 缺省 SHARED（发布形，D201）；STATIC 是链接输入（本波 D222/D231），落中间目录。
+    set(linkage SHARED)
+    if(PACK_STATIC)
+        set(linkage STATIC)
+    endif()
+    add_library(${target} ${linkage} "${CMAKE_CURRENT_BINARY_DIR}/${target}.dispatch.cpp")
     target_link_libraries(${target} PRIVATE VaseBuildOptions VasePod)
     set_target_properties(${target} PROPERTIES
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN ON)
+    if(PACK_STATIC)
+        set_target_properties(${target} PROPERTIES
+            POSITION_INDEPENDENT_CODE ON
+            ARCHIVE_OUTPUT_DIRECTORY "${VASE_PACK_INTERMEDIATE_DIR}")
+    endif()
     foreach(plugin IN LISTS PACK_PLUGINS)
         target_link_libraries(${target} PRIVATE ${plugin}.Pack)
     endforeach()

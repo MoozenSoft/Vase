@@ -7,6 +7,7 @@
 
 #include "Vase/Host/ConfigBlob.h"
 #include "Vase/Host/ManifestExpectation.h"
+#include "Vase/PluginDescriptor.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -39,6 +40,10 @@ struct LoadPlanEntry
 {
     std::string_view Id;
     std::filesystem::path BinaryPath; // 绝对或相对 CWD；Host 内部绝对化（T6 原文）
+    // 来源二选一：BinaryPath（磁盘装载）或 InProcessEntry（入口已在本进程内，静态链入的形态）。
+    // 同填 = 误用，CreatePod 拒（见 PluginHost 的「plan rejected」一族）。
+    // NOLINTNEXTLINE(readability-redundant-member-init) NSDMI 为省略豁免所必需，同 Expected。
+    PluginEntryPoint InProcessEntry = nullptr;
     LoadDecision Decision = LoadDecision::kLoad;
     SkipReason Reason{};            // 仅 kSkip 有意义
     ConfigBlob ResolvedConfig = {}; // 缺字段回退 kFields 默认（D23）；空 = 全默认。

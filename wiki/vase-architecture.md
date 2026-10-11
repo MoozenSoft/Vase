@@ -1171,6 +1171,7 @@ Eject 不引入新的回收机器——它只是让 7.1–7.5 那套机器在**�
 | `DestroyPod` | **否**（二进制保留驻留——拆局不卸货，货留在架子上等下一局或等 Eject） |
 | `EjectPlugin` | **出**（门槛：无实例存活 + 账上无反向边；证据见 8.2） |
 | 宿主退出 | **出**（全部卸下，逐插件三档证据） |
+| 静态链入（进程内来源） | **否——镜像即宿主**（入口由宿主链接期链入，不经装载、也不可卸载；见下方现状注） |
 
 **DLL 的进出由「需要重新编译 / 宿主增删插件」驱动，不再由局的生死驱动。** 但两条 v2 的安全前提原样继承，而它们正是 Eject 在 v3 仍然可证的理由：
 
@@ -1184,6 +1185,13 @@ Eject 不引入新的回收机器——它只是让 7.1–7.5 那套机器在**�
 ```
 
 这条统一是有意的：它让开发期的「每插件一个 DLL」和发布期的「合并成一个库」在 Vase 侧**没有任何差别**，也让 8.6 的打包工具成为一个纯粹的构建期问题。
+
+> **[静态链入现状注（2026-10-10, spec `docs/superpowers/specs/2026-10-09-vasepack-static-link-design.md` D216–D241）]** 上面那条唯一路径预设了「加载二进制」这一步存在；**静态链入**（iOS 的 `.a` 形态）里没有这一步——入口已在进程镜像里，宿主写下的 `&VasePlugin_GetPlugin` **本身即链接期硬引用**。于是「入口从哪来」有两条分叉，而路径本身仍是同一条：
+>
+> - **按名装载**（桌面三平台）：`LoadPlanEntry::BinaryPath` → `Loader::EnsureResident` 从磁盘装、取符号；
+> - **宿主持有入口指针**（静态链入）：`LoadPlanEntry::InProcessEntry`（类型 `PluginEntryPoint`，`Include/Vase/PluginDescriptor.h`）非空 → `Loader::EnsureInProcess` 登记进程内记录，`Symbol` 直接从入口取值、不走平台缝。
+>
+> 装配循环按此分流（两者同填 = 误用，`CreatePod` 拒）；描述符、工厂实例化一概原样。进程内条目上 `EjectPlugin` / `AdoptPlugin` 与三档证据链各有边界（D219/D220/D221），见 §9.1 现状注与 `plugin-lifecycle.md`。本波落的是**桌面可证的那一跳**（机制与 iOS 逐字相同，差别只在产物装载外壳）；真 iOS / Android 构建腿与移动产物形态归下一波（见 §13.2 插件形态行）。
 
 > **[M5波1 补注（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D118/风险 5）]** `VASE_PLUGIN` 的宏展开自此多出第四个符号 `VasePlugin_Descriptors`（纯追加、不动布局、不 bump `kHeaderVersion`；组合库由 VasePack 生成同名）。它是**只给工具的枚举面**——`VaseCli scan` 一次读出库内全部描述符；**装载跳仍唯一**，宿主侧一行不改，`PluginHost` 不使用这个入口。「宿主也可以走两条路」不是本节的意思：拦住宿主日后改走枚举面的**没有机制**，那是一条契束（9.3 同类），13.3 同步记账。
 
@@ -1321,6 +1329,8 @@ VasePlugin_GetPlugin(const char* id)
 **好处有三**：跨平台一致（GNU 的 `--whole-archive`、Apple 的 `-force_load`、MSVC 的段收集各不相同，引用链不需要这些）；使用者不必配置任何东西；不会因为漏加一个标志而在某个平台上静默失效。
 
 > **唯一仍需交代的例外**：iOS 的产物是静态库（`.a`），最终由**宿主**链进 App。宿主必须真的引用到包导出的符号（正常做法就是把入口交给 `PluginHost`，见 8.1），那条引用链才成立。**这一条要写进 VasePack 的产物说明**，否则又会被误当成「加个 `-force_load` 就好了」。
+>
+> **[静态链入现状注（2026-10-10, spec `docs/superpowers/specs/2026-10-09-vasepack-static-link-design.md` D216–D241）]** 上面那条例外**已由类型约束承载、不再是文档告诫**：入口类型 `PluginEntryPoint` 进 `LoadPlanEntry`（§8.1 现状注），宿主写下 `&VasePlugin_GetPlugin` **这个动作本身就是链接期硬引用**——不写引用就拿不到入口、编不出计划，于是「宿主必须真的引用到包导出的符号」由类型强制，VasePack 不必再靠产物说明提醒。**连带记本波 T10 的四平台实测平台事实（D241）**：① **Apple ld 会把弱未定义引用当提取压力**（与 ELF / COFF 分岔——两份目标文件的符号绑定逐字相同，分岔纯在链接器）⇒ **Mach-O 上「观测某成员在不在映像里」的手段不许携链接期引用**（那处引用本身即元凶，会污染被观测者）；② **`/alternatename` 与 COFF 弱引用双双不可用作归档提取判据**（前者不阻止提取，「比较两枚函数地址」还被编译器常量折叠、引用根本不发；后者在符号被别处调用时会被分发表解析成 null、进程启动即崩）；③ **`link.exe` 不为 dllexport 强制提取归档成员**（经干净全量链接复核）。**保活机制本身不受影响**——拉取**已列入**成员的是分发表 TU 的**硬引用**（`extern "C"` 声明 + 真调用），不是弱引用；Mach-O 更「贪」（弱引用也拉）只会让保留更保守、不破坏保活方向。本波落的是**桌面可证的那一跳**（`vase_pack_plugins(... STATIC)` 产静态组合库、宿主链接期链入），真 iOS / Android 构建腿与移动产物形态归下一波（见 §13.2 插件形态行）。
 
 > **[VasePack 现状注（2026-10-04, spec `docs/superpowers/specs/2026-10-04-vasepack-desktop-design.md` D196–D215）]** 本节上方的工具形态**改口**：VasePack 落地为 **CMake 函数**，**没有 `Tools/VasePack/` 目录、没有可执行文件**（D196）——规矩 1（`VaseBuildOptions` 是编译选项唯一出口）与规矩 5（`vase_add_plugin_fixture` 是插件形态唯一出口）都是硬边界，本仓库只有一个构建系统、集成点天然是 CMake。机制载体是 `Cmake/VasePluginHelpers.cmake` 的两个函数：`vase_add_plugin_fixture(... PACK)` 额外建 pack 形**静态库** `${name}.Pack`（D199），`vase_pack_plugins(<name> PLUGINS …)` 生成分发表并链成 SHARED 库 `VasePlugins`。**三点与本节提案原文不同**：① **分发表不写 Id 字面量**（D200——路由靠遍历描述符比对 `Meta->Id`，生成物全部机械可导，没有「清单改了生成物没跟上」的漂移面；上方那张写 `strcmp` 的示例是提案形，落地形不含任何 Id 字面量）；② **pack 形走静态库、保活因此承重**（D199——凡对象库形态都会把对象全量塞进组合库，本节下半「保活问题」根本不出现；静态库「按需提取」才复现原始场景且可证伪）；③ **`VASE_PLUGIN` 宏新增编译期开关 `VASE_PLUGIN_PACK_OBJECT`**——不开即逐字退回今天的展开物，`kHeaderVersion` / 描述符布局 / 开发形导出集合三不动。**范围**：桌面三平台先行（Windows / Linux / macOS），移动产物（iOS `.a` / Android `.so`，即上面那条「唯一仍需交代的例外」）**留桩**，见 11.3。**定位**：组合库的唯一消费者是验证证人，仓库里没有产品——本波交付的是机制，不是某个产品的发布形（13.4 已裁定对外分发不做）。
 
@@ -1374,6 +1384,10 @@ constexpr vase::ProcessStateDesc kProcessStates[] = {
 **v3 追加一条硬契约：跨插件共享的任何值必须走服务边（受账本保护），不得经由进程级状态中转。** 否则会出现图上看不见的「语义依赖」——U 没声明依赖 T，手里却攥着从 T 的缓存派生的裸值（纹理句柄之类）；Eject(T) 重置缓存后 U 拿着陈旧值继续跑，账本与导入表都看不见这条边。v2 靠「卸货必在四下无人时」天然免疫，v3 的免疫不再免费，只能靠这条契约 + `EjectReport` 的提示面兜底。
 
 > **[M4 落地（2026-09-27，D110）]** 提示面的实形是 `EjectReport::SemanticDependencyPossible`：置位条件 = **`ProcessStatesReset` 非空 ∧ 进程内任一 Pod 仍有活插件实例**（只数活实例——Failed 记录与空壳攥不住派生值）。它**不是检出**：经进程级状态中转的共享值账本与导入表都看不见，这个字段只把「重置发生了、而且还有别人」如实写进报告，不宣称「查过了、没有语义依赖」。`Status == kRejectedConsumers` 时恒 `false`（那一路没有重置发生）；**kept-resident 分支可以合法为 `true`**——Reset 闸问的是「这份 binary 还有没有活实例」，这一位问的是「进程内还有没有别的活实例」，不是同一个问题。
+
+> **[静态链入现状注（2026-10-10, spec D219/D229）]** 进程级状态的**唯一**重置触发点是 `EjectPlugin`（M3/D91；`DestroyPod` 不重置）。**进程内来源（静态链入，§8.1 现状注）上 `EjectPlugin` 在任何拆除动作之前一律拒**（`linked-in binary cannot be ejected`）⇒ **静态链入插件的 `ProcessStates` 在进程生命周期内永远等不到重置**——本节承诺的「可被登记、**可重置**」后半句在此来源上落空。**接受并记名**：Reset 的语义是「**这份 binary** 在任何 Pod 无活实例时重置」，而进程内来源的 binary 就是宿主自己——它的「实例」更接近进程本身；另两条路（给 `DestroyPod` 加 Reset 会改一条已定的 §8.1 语义；新开 `ResetProcessStates(id)` 公开 API 是为一件在目标平台 iOS 上不存在的问题买单——iOS 进程每启动一次都是新的）均被否。缺口入 §13.3（同 D229）。
+>
+> **[同波勘误（D236/D237，2026-10-10）]** 「一库 N 插件」（组合库）上，进程级状态一律按**二进制记录**存——记录里是该库**全部插件**的状态（按插件 Id 去重累积），`EjectPlugin` 逐条 Reset，粒度是**二进制级**（与 D91 的判据、Eject 全局闸同粒度）。本波修正了一处既有缺陷：旧实现把「当前这个插件」的表写进共享记录，一库 N 插件时后写覆盖先写、Eject 只重置最后一个（全仓唯一一处把「一 binary ⇔ 一插件」当真），而三员 Sample 都无 `ProcessStates`、伪装成绿，直至本波「一库 N 插件」证人补上才暴露。
 
 ### 9.2 诊断基线
 
@@ -1672,7 +1686,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | M2 求解 | + 依赖账本执法与解析记录（3b） |
 | M3 多插件 | + 叶判定的图反查与拒绝报告（3a，全量形 = 三插件局中对叶 50 轮）；+ Eject 自动重置登记的进程级状态并写入报告（3d）。**判据 19 的完整属主追踪器经核查否决（D97，spec §4）**——不新增可达检出情形，M3 行自此只有这两笔 |
 | M4 热替换 | **已落（Win / Linux，2026-09-27）**：换件谱扩到**描述符维含回退方向**（五步阶梯，每步只差一维；D105/D113）、**Windows 侧档三负例**（换件序列两平台统一为「改名离开+落新字节」；D108）、**语义依赖知情位**（`EjectReport::SemanticDependencyPossible`，如实上报不可知；D110/D115）。**macOS 腿顺延 M5**（与 M0–M3 平台口径一致） |
-| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外）。**VaseCli `scan` / `validate` 已落（第一波，2026-09-28，spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117–D140）**；平台腿与 `plan` / `doctor` 归后续波次（`plan` / `doctor` **已于 M6 落地，2026-09-30**，见 11.1 的 M6 现状注；**macOS 平台腿已落（x64，2026-10-02）**——spec `docs/superpowers/specs/2026-10-01-vase-macos-x64-platform-leg-design.md` D156–D179：档二 `_dyld_image_count` 映射清单、档三 `LC_UUID`（链接器必写、无对位承重 flag，由 `-Wl,-no_uuid` 负例反向把守）、`LibraryFileName` 的 `.dylib` 分支还清 D138；**arm64 已由需求方 2026-10-01 裁定永久移出（D157）**；本行原先的 neverUnload「由 M5 实测判定」由该波取证**部分**回答——纯 C++/libc++ 插件形态实测不触发、清单其余项未测，结论带形态限定记在技能 `portability.md` §6 与 D171。VasePack 仍归后续；**CI / CD 已由需求方 2026-10-03 裁定不做**，见 §13.4） |
+| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外）。**VaseCli `scan` / `validate` 已落（第一波，2026-09-28，spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117–D140）**；平台腿与 `plan` / `doctor` 归后续波次（`plan` / `doctor` **已于 M6 落地，2026-09-30**，见 11.1 的 M6 现状注；**macOS 平台腿已落（x64，2026-10-02）**——spec `docs/superpowers/specs/2026-10-01-vase-macos-x64-platform-leg-design.md` D156–D179：档二 `_dyld_image_count` 映射清单、档三 `LC_UUID`（链接器必写、无对位承重 flag，由 `-Wl,-no_uuid` 负例反向把守）、`LibraryFileName` 的 `.dylib` 分支还清 D138；**arm64 已由需求方 2026-10-01 裁定永久移出（D157）**；本行原先的 neverUnload「由 M5 实测判定」由该波取证**部分**回答——纯 C++/libc++ 插件形态实测不触发、清单其余项未测，结论带形态限定记在技能 `portability.md` §6 与 D171。VasePack 仍归后续；**CI / CD 已由需求方 2026-10-03 裁定不做**，见 §13.4）。**后续现状指针（补于 VasePack 两波之后）**：四条 VaseCli 命令（`scan` / `validate` / `plan` / `doctor`）与 macOS x64 腿均已落地（见 11.1 各现状注）；组合库机制**已落**——桌面发布形（SHARED）2026-10-04（VasePack 波，spec D196–D215，见 8.6 现状注），静态链入（进程内来源）那半边 2026-10-10（静态链入波，spec D216–D241，见 8.1 / 8.6 现状注）；**移动产物形态与真移动构建腿仍归后续**（见 §13.2 插件形态行） |
 
 **连带文书义务**：v3 落地（M1 更名）时同步更新 `CLAUDE.md`（目录名、构建命令、ctest 基数预期）；M0/M1 设计文档不改史，挂一条指向本文的勘误标注（涉及其 2.4 判据表与 3.3(4) 的 Linux 判据去向）。
 
@@ -1699,7 +1713,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 |---|---|
 | 构建系统 | CMake + vcpkg；编译矩阵由平台工具链文件承载（8.5） |
 | 目标平台 | Win x64 / Linux x64 / macOS **x64**（**开发 + 发布**；macOS 原口径 arm64，需求方 2026-10-01 裁定改 x64、arm64 永久移出——macOS 腿 spec D157，x64 腿 2026-10-02 已落）；Android arm64 / iOS arm64（**仅发布**）。工具链见 8.5 |
-| 插件形态 | 开发期每插件一个动态库；发布期由 VasePack 组合成一个库（8.5 / 8.6）。**发布期那一半已于 2026-10-04 落地**（VasePack 波 spec D196–D215：`Tools/VasePack` 工具形态改口为 **CMake 函数**、桌面三平台先行、移动产物留桩——见 8.6 现状注） |
+| 插件形态 | 开发期每插件一个动态库；发布期由 VasePack 组合成一个库（8.5 / 8.6）。**发布期那一半已于 2026-10-04 落地**（VasePack 波 spec D196–D215：`Tools/VasePack` 工具形态改口为 **CMake 函数**、桌面三平台先行、移动产物留桩——见 8.6 现状注）。**静态链入（进程内来源）那半边已于 2026-10-10 落地**（静态链入波 spec D216–D241：`LoadPlanEntry::InProcessEntry` + `Loader::EnsureInProcess` + `vase_pack_plugins(... STATIC)`，桌面可证的一跳、与 iOS 机制逐字相同——见 8.1 / 8.6 现状注）。**余项：甲**（真 iOS / Android 构建腿——toolchain / triplet / preset / `LibraryFileName` 的 `.a` 支）、**乙**（移动产物形态——命名与发布落位）、**丁**（组合库的 N:1 清单 / 装配链），三者归下一波（spec §6.1） |
 | 组合库入口 | VasePack 生成 `VasePlugin_GetPlugin(id)` 分发表，靠**硬引用**保活（8.6） |
 | JSON 库 | `nlohmann/json`，**且只出现在 `PluginCatalog` 层**（4.1） |
 | 配置 `type` 取值 | `bool` / `int32` / `int64` / `float` / `double` / `string` / `enum`；**不支持嵌套对象与数组**（4.2） |
@@ -1748,6 +1762,8 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 > **[裁定（2026-10-03）]** **这笔债销账。** 需求方裁定不对外分发 Vase 供第三方插件作者构建（§13.4，全口径）——树的边界上不再有插件作者面，那 29 处 STL 成员**没有受害者**；上面「缺口是实打实的」那句的前置（分发面）**今天并不存在**，它是条件式而非现状（同一处的 `install()` 缺失至今未变）。两条还债路径**不撤**，作为将来若重启分发时的现成方案留着。**`/wd4251` 本身照旧**——它是「树内前提成立」这个已知事实的断言、把重复告警压掉的写法，与这笔债无关（撤掉它不是多几条警告：`/WX` 下 `error C2220` 直接中止构建，实测只在两条 cl.exe 线成立——clang-cl 根本不实现 C4251，另六条线无对位检查）。
 
 > **[M5波1 补两条（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D118/R1-Q1/风险 5/风险 6）]** **(a) 枚举入口缺失是一处刻意接受的不对称**：`VasePlugin_Descriptors`（8.1 补注）是纯追加的新导出、**不 bump `kHeaderVersion`**——同一个 `HeaderVersion` 下，老二进制**照常加载**（`VasePlugin_GetPlugin` 还在）而工具面**扫不了**。这是「第三类不兼容」（前两类是装不上与判据不符）；失败面已做成响亮——`scan` 点名原因（`binary has no VasePlugin_Descriptors entry (predates the M5 enumeration face)`），**不许**静默返回「零个插件」（R1-Q1）。记在这里是因为不对称本身是真的：看见哪一面由「工具版本 vs 插件构建先后」决定，而对这处不对称**没有任何闸**。**(b) 枚举面是契约不是机制**：`VasePlugin_Descriptors` 只给工具，宿主不得改走它——**没有任何机制阻止**日后宿主去用枚举面，这是 9.3 同类契束，如实记录，不假装有闸。
+
+**进程内来源（静态链入）上的进程级状态永无重置路径**（2026-10-10，spec D219/D229，静态链入波）。进程级状态的唯一重置触发点是 `EjectPlugin`，而进程内条目上的 `EjectPlugin` 在任何拆除动作之前一律拒（`linked-in binary cannot be ejected`）⇒ 静态链入插件的 `ProcessStates` 在进程生命周期内不被重置。**接受并记名**：Reset 是**二进制级**语义，而进程内来源的 binary 就是宿主自己；另两条路（给 `DestroyPod` 加 Reset / 新开 `ResetProcessStates(id)` 公开 API）分别改一条已定的 §8.1 语义、为目标平台（iOS 进程每次启动即新）上不存在的问题买单。这是与「档二 / 档三在进程内条目上不适用」（D221，如实上报不假装查过）同一族的**接受**，不是遗漏——机制与理由见 §9.1 现状注。
 
 ### 13.4 明确不做
 

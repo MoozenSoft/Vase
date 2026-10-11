@@ -1,6 +1,7 @@
 #include "Vase/Detail/ImageInspect.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Loader.h"
+#include "Vase/PluginDescriptor.h"
 
 #include <array>
 #include <cstddef>
@@ -477,6 +478,48 @@ TEST(Loader, UnloadEvidencePerPlatform)
     EXPECT_TRUE(ev.MappingRemoved);              // 档二 · POSIX（Linux/macOS）：已装载镜像清单条目消失（主判之一）
     EXPECT_FALSE(ev.ReopenWritableIsMeaningful); // POSIX（Linux/macOS）上无判据力的那个字段照实为假
 #endif
+}
+
+using GetPluginFn = const vase::PluginDescriptor* (*)(const char*);
+
+TEST(Loader, InProcessEntryResolvesWithoutPlatformLoad)
+{
+    vase::detail::Loader loader;
+    // 先用平台装载拿到一枚真入口，再把它当「已在进程内的入口」登记——
+    // 本用例测的是**登记与解析**这条路，入口怎么来的与它无关（静态链入的端到端见 Tests/StaticLink）。
+    vase::Result<vase::detail::BinaryRecord*> loaded = loader.EnsureResident(FixturePath(VASE_FIXTURE_LOADPROBE));
+    ASSERT_TRUE(loaded.IsOk()) << loaded.GetError().Message();
+    const vase::Result<void*> raw = vase::detail::Loader::Symbol(*loaded.Value(), "VasePlugin_GetPlugin");
+    ASSERT_TRUE(raw.IsOk()) << raw.GetError().Message();
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) void* → 函数指针只有这条路（同 PluginHost.cpp:70）
+    const auto entry = reinterpret_cast<GetPluginFn>(raw.Value());
+
+    vase::Result<vase::detail::BinaryRecord*> inProcess = loader.EnsureInProcess(entry);
+    ASSERT_TRUE(inProcess.IsOk());
+    EXPECT_TRUE(inProcess.Value()->InProcess);
+    EXPECT_EQ(loader.ResidentBinaryCount(), 2U); // 平台记录 + 进程内记录，两条
+
+    // 同入口再登记一次 = 复用同一记录（去重键是入口指针，不是路径）
+    vase::Result<vase::detail::BinaryRecord*> again = loader.EnsureInProcess(entry);
+    ASSERT_TRUE(again.IsOk());
+    EXPECT_EQ(again.Value(), inProcess.Value());
+    EXPECT_EQ(loader.ResidentBinaryCount(), 2U);
+
+    // Symbol 直接由入口给出，不需要平台查找
+    const vase::Result<void*> resolved = vase::detail::Loader::Symbol(*inProcess.Value(), "VasePlugin_GetPlugin");
+    ASSERT_TRUE(resolved.IsOk()) << resolved.GetError().Message();
+    EXPECT_EQ(resolved.Value(), raw.Value());
+    // 进程内记录只有这一个符号（枚举面 VasePlugin_Descriptors 不在本来源内，见 spec §6.2 的已知边界）
+    EXPECT_FALSE(vase::detail::Loader::Symbol(*inProcess.Value(), "VasePlugin_Descriptors").IsOk());
+
+    // FindResident 按路径查——空路径**不得**命中进程内记录（spec §6.2 地雷 1，D239 主防）
+    EXPECT_EQ(loader.FindResident(""), nullptr);
+
+    // Unload 不卸进程内记录：表不动（spec §3.1 档二不适用）
+    static_cast<void>(loader.Unload(*inProcess.Value()));
+    EXPECT_EQ(loader.ResidentBinaryCount(), 2U);
+
+    static_cast<void>(loader.Unload(*loaded.Value()));
 }
 
 } // namespace

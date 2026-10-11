@@ -98,3 +98,17 @@ vase_add_plugin_fixture(TwoProvidersPlugin
 vase_add_plugin_fixture(SharedFailProviderPlugin
     SOURCES SharedFailProviderPlugin/SharedFailProviderPlugin.cpp
     LINK_LIBRARIES VasePod)
+
+# 进程级状态 · 一库两插件（VasePack 静态链入波证人 #7，spec §2.5/D236）：两者都带
+# ProcessStates 且**都**能走到 MakeInstance（无 Requires、各给一份不重名的状态），
+# PACK 后收入 VasePluginsStateful 组合库，让「后写覆盖先写」缺陷可证伪。
+# 复用 EdgeConsumer / SharedFailProvider 不行：它们是消费者 / 失败提供者，预检失败在
+# MakeInstance 之前，状态永不登记，证人会因错的原因红。
+vase_add_plugin_fixture(StatefulPackA
+    SOURCES StatefulPackA/StatefulPackA.cpp
+    LINK_LIBRARIES VasePod
+    PACK)
+vase_add_plugin_fixture(StatefulPackB
+    SOURCES StatefulPackB/StatefulPackB.cpp
+    LINK_LIBRARIES VasePod
+    PACK)

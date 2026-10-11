@@ -3,6 +3,7 @@
 #include "ImageInspectPlatform.h"
 #include "Vase/Detail/ImageInspect.h"
 #include "Vase/Detail/Result.h"
+#include "Vase/PluginDescriptor.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -55,9 +56,28 @@ Result<BinaryRecord*> Loader::EnsureResident(const std::filesystem::path& path)
     return Result<BinaryRecord*>::Ok(Binaries.back().get());
 }
 
+Result<BinaryRecord*> Loader::EnsureInProcess(PluginEntryPoint entry)
+{
+    const auto existing = std::ranges::find_if(Binaries, [entry](const std::unique_ptr<BinaryRecord>& record)
+                                               { return record->InProcess && record->Entry == entry; });
+    if (existing != Binaries.end())
+    {
+        return Result<BinaryRecord*>::Ok(existing->get()); // 同入口复用同一记录（「一文件一记录」的同形）
+    }
+    // Path 是 BinaryRecord 里唯一没有 NSDMI 的成员，指定初始化必须显式给出它（进程内来源为空）。
+    Binaries.push_back(std::make_unique<BinaryRecord>(BinaryRecord{.Path = {}, .InProcess = true, .Entry = entry}));
+    return Result<BinaryRecord*>::Ok(Binaries.back().get());
+}
+
 UnloadEvidence Loader::Unload(const BinaryRecord& record)
 {
     UnloadEvidence evidence;
+    if (record.InProcess)
+    {
+        // 进程内来源：镜像即宿主，无货可卸（Eject 已在早闸拒绝、~PluginHost 亦跳过）。
+        // 全 false 是如实的读法——「没卸成」，不是「卸失败」；记录留在表里不动。
+        return evidence;
+    }
     const auto it = std::ranges::find_if(Binaries, [&record](const std::unique_ptr<BinaryRecord>& entry)
                                          { return entry->Raw == record.Raw && entry->Path == record.Path; });
     if (it == Binaries.end())
@@ -87,6 +107,18 @@ UnloadEvidence Loader::Unload(const BinaryRecord& record)
 
 Result<void*> Loader::Symbol(const BinaryRecord& record, std::string_view name)
 {
+    if (record.InProcess)
+    {
+        // 入口由宿主直接持有，不走平台查找。进程内来源**只有这一个符号**——枚举面
+        // （VasePlugin_Descriptors）不在本来源内，见 spec §6.2 的已知边界。
+        if (name == "VasePlugin_GetPlugin")
+        {
+            // 函数指针 → void* 只有这条路（同 PluginHost.cpp:70 的反向）
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            return Result<void*>::Ok(reinterpret_cast<void*>(record.Entry));
+        }
+        return Result<void*>::Err(Error{"symbol not found: " + std::string(name)});
+    }
     const std::string zeroTerminated(name);
     void* address = PlatformSymbol(record.Raw, zeroTerminated.c_str()); // 平台文件各一行实现
     if (address == nullptr)
@@ -127,7 +159,7 @@ const BinaryRecord* Loader::FindResident(const std::filesystem::path& path) cons
 {
     // 逐字比较：表里存的是绝对化后的路径（见头文件的契约注释），相对路径查不到。
     const auto it = std::ranges::find_if(Binaries, [&path](const std::unique_ptr<BinaryRecord>& entry)
-                                         { return entry->Path == path; });
+                                         { return !entry->InProcess && entry->Path == path; });
     return it == Binaries.end() ? nullptr : it->get();
 }
 

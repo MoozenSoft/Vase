@@ -39,6 +39,8 @@ static_assert(offsetof(PluginDescriptor, HeaderVersion) == 0, "...");
 
 描述符布局变更的现例 = M2b 波 2 的 `FieldInfo` choices 槽追加（`kHeaderVersion` 2→3），唯一理由就是布局、不带行为夹带。
 
+**宿主面结构加字段同理，但不 bump `kHeaderVersion`。** 判据是「谁跨了这个边界」：描述符面（插件与宿主**共享**的结构）动则 bump；宿主面结构（`VaseHost` 自己暴露的公开形）动则是 ABI 变更、却不动 `kHeaderVersion`。现例 = 静态链入波（2026-10-10，D227）给 `Include/Vase/Host/LoadPlan.h` 的 `LoadPlanEntry` 增 `InProcessEntry`（类型 `PluginEntryPoint`，同波 D216）——`kHeaderVersion` 与描述符布局都不动；先例是 M2b 波 2 给同一 struct 加的 `Expected`（D67）。
+
 ---
 
 ## 2. 描述符纪律：POD

@@ -115,8 +115,13 @@ Scripts\win-verify.cmd
 Linux 侧落 `build-linux/`，macOS 侧落 `build-macos/`；**可执行在 `bin/`**（POSIX 侧框架库与
 静态库在 `lib/`），**每个插件独占 `<产物根>/<插件名>/`**——Windows 是 `bin/<插件名>/`、
 Linux/macOS 是 `lib/<插件名>/`，宿主可执行与框架库仍在产物根平铺，**发布期组合库（`VasePlugins`）
-也平铺在产物根**——它既不是可执行/框架库、也不进插件子目录。产物落位与依赖解析依据见
-`CLAUDE.md` 的「构建与测试」与「工具链 flag 是承重的」两节；别改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`。
+也平铺在产物根**——它既不是可执行/框架库、也不进插件子目录。**链接输入另住一个中间目录
+`<构建树>/pack-objects/`**（`${CMAKE_BINARY_DIR}/pack-objects`，产物根之外的兄弟目录、与 `CMakeFiles/`
+同级）——收在这里的是打包链路的中转：每插件的 `.Pack` 归档与 **STATIC 组合库**（宿主链接期链入的
+形态，如 `VasePluginsStatic`）。它与平铺在产物根的 `VasePlugins` 是**两类**：**`VasePlugins`
+（SHARED）是交付形态、`pack-objects/` 里的静态组合库是链接输入**——落位不同有判据、不是意外。
+产物落位与依赖解析依据见 `CLAUDE.md` 的「构建与测试」与「工具链 flag 是承重的」两节；
+别改 `CMAKE_RUNTIME_OUTPUT_DIRECTORY`。
 
 > `ctest` 在一个测试都没发现时**同样返回 0**。所以「测试全绿」不能只看退出码，
 > 要另跑一次 `ctest --preset <p> -N`，把 `Total Tests` 与 `CLAUDE.md`「构建与测试」

@@ -76,6 +76,11 @@ struct PluginDescriptor
     void (*Destroy)(Plugin*) = nullptr;
 };
 
+// §8.1 那条唯一一跳的签名。VASE_PLUGIN 生成的 VasePlugin_GetPlugin 逐字是这个类型。
+// 宿主面（LoadPlan / Loader）用它表达「入口已在本进程内」——那是静态链入（iOS .a）的形态。
+// 定义住在这里：它命名的就是上面那个契约的入口，别处再写一份即是同类型的第二份声明。
+using PluginEntryPoint = const PluginDescriptor* (*)(const char*);
+
 // 上面那条「HeaderVersion 是第一个字段」由布局断言承重：PluginHost 的加载路径就按这个
 // 偏移先读它（§3.1/§8.3），改动字段顺序会在这里编译期失败，而不是运行期读到垃圾。
 static_assert(offsetof(PluginDescriptor, HeaderVersion) == 0,

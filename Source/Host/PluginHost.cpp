@@ -53,9 +53,6 @@ bool& HostAlive()
     return alive;
 }
 
-// §8.1 的唯一一跳：插件的唯一导出入口。签名与 VASE_PLUGIN 生成的 VasePlugin_GetPlugin 一致。
-using PluginEntryPoint = const vase::PluginDescriptor* (*)(const char*);
-
 // §8.1 唯一一跳的**除装配外**全过程：入口符号 → 描述符 → HeaderVersion 闸。CreatePod 的
 // 宽松装载与 Adopt 的拒绝共用它，三个失败点的原文因此只有一份（CreatePod 另按 §5.2 落记录）。
 vase::Result<const vase::PluginDescriptor*> InspectBinary(const vase::detail::BinaryRecord& record,
@@ -71,7 +68,7 @@ vase::Result<const vase::PluginDescriptor*> InspectBinary(const vase::detail::Bi
     // memcpy 与 std::bit_cast 都被 bugprone-bitwise-pointer-cast 拒（两者均实测）。
     // 与 LoaderWindows.cpp 的 GetProcAddress 那处同类、同理由。
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    const auto getPlugin = reinterpret_cast<PluginEntryPoint>(symbol.Value());
+    const auto getPlugin = reinterpret_cast<vase::PluginEntryPoint>(symbol.Value());
     const std::string id(pluginId); // 入口收 const char*：string_view 不保证以 '\0' 结尾
     const vase::PluginDescriptor* desc = getPlugin(id.c_str());
     if (desc == nullptr)
@@ -226,6 +223,10 @@ PluginHost::~PluginHost()
     const std::vector<detail::BinaryRecord> resident = Loader.AllResident();
     for (const detail::BinaryRecord& record : std::views::reverse(resident))
     {
+        if (record.InProcess)
+        {
+            continue; // 进程内来源无货可卸（本波 D219）：不跳就会打「still resident」的假警报
+        }
         const detail::UnloadEvidence evidence = Loader.Unload(record);
         // 档二证据只记不判：进程正在退出，日志即可——端到端断言推迟到 CI/M5
         // （gtest 测不了自家析构）。POSIX（Linux/macOS）看 MappingRemoved，Windows 看 ReopenWritable。
@@ -296,6 +297,17 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
                                                           " (entry order " + std::to_string(first) + " and " +
                                                           std::to_string(second) + ")"));
             }
+        }
+    }
+
+    // ①'' 结构性校验·来源唯一（本波 D217）：两个来源同填 = 宿主给错了，是可恢复的输入错。
+    for (const LoadPlanEntry& entry : plan.Ordered)
+    {
+        if (entry.InProcessEntry != nullptr && !entry.BinaryPath.empty())
+        {
+            return Result<PodHandle>::Err(Refusal(
+                entry.Id, Phase::kLoad,
+                "plan rejected: both binary path and in-process entry set for plugin " + std::string(entry.Id)));
         }
     }
 
@@ -399,7 +411,10 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
             continue;
         }
 
-        const Result<detail::BinaryRecord*> resident = Loader.EnsureResident(entry.BinaryPath);
+        // 取记录的分流（本波 §2.4）：进程内来源走 EnsureInProcess，其余逐字不变。
+        const Result<detail::BinaryRecord*> resident = entry.InProcessEntry != nullptr
+                                                           ? Loader.EnsureInProcess(entry.InProcessEntry)
+                                                           : Loader.EnsureResident(entry.BinaryPath);
         if (!resident.IsOk())
         {
             recordFailure(entry.Id, Phase::kLoad, resident.GetError().Message());
@@ -591,10 +606,10 @@ Result<std::unique_ptr<Pod::LiveInstance>> PluginHost::MakeInstance(Pod& pod, de
     live->Desc = desc;
     live->Binary = &record; // T10：本实例的驻留镜像（全局闸与 Eject 都要它）
 
-    // M3/D92：进程级状态表随装配点登记一次——CreatePod 与 Adopt 两条路径共用 MakeInstance，
-    // 故单点覆盖；config 失败早退也在它之后，失败插件的进程级状态照样登记（D99 要 Eject 时重置它）。
-    record.ProcessStates = desc->Meta->ProcessStates.Begin();
-    record.ProcessStateCount = desc->Meta->ProcessStates.Size();
+    // M3/D92 + 本波 D237：进程级状态表按插件 Id **累积**登记——一二进制 N 插件时不能覆盖。
+    // 仍住装配点：CreatePod 与 Adopt 共用本函数，config 失败早退也在它之后，
+    // 失败插件的状态照样登记（D99 要 Eject 时重置它）。
+    record.RegisterProcessStates(desc->Meta->Id, desc->Meta->ProcessStates.Begin(), desc->Meta->ProcessStates.Size());
 
     const ConfigInfo& info = desc->Meta->Config;
     void* store = nullptr;
@@ -758,9 +773,6 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
     Pod& pod = *slot->Inner; // friend：Instances / Ledger / FailedBinaries 都是 Pod 的私有成员
     const std::string id(pluginId);
 
-    EjectReport report;
-    report.PluginId = id;
-
     // ① 反查：本局有没有该 Id 的**活实例**（Failed 条目 Instance == nullptr，不算活）
     Pod::LiveInstance* live = nullptr;
     for (const std::unique_ptr<Pod::LiveInstance>& candidate : pod.Instances)
@@ -772,7 +784,46 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
         }
     }
 
+    // 取被卸者的记录：三支各有各的来源——活实例、Failed 表、空壳残条目（M3/D94），它们共享
+    // 同一记录指针。进程内早闸（D219）只问这一枚，故先于任何拆除动作与 report 写入取出。
+    const auto failedEntry = pod.FailedBinaries.find(id);
+    const bool failedRecord = live == nullptr && failedEntry != pod.FailedBinaries.end();
+    const bool tornShell =
+        live == nullptr && !failedRecord &&
+        std::ranges::any_of(pod.Instances, [pluginId](const std::unique_ptr<Pod::LiveInstance>& entry)
+                            { return entry->Instance == nullptr && entry->OwnerLabel == pluginId; });
     const detail::BinaryRecord* binary = nullptr;
+    if (live != nullptr)
+    {
+        binary = live->Binary;
+    }
+    else if (failedRecord)
+    {
+        binary = failedEntry->second;
+    }
+    else if (tornShell)
+    {
+        for (const std::unique_ptr<Pod::LiveInstance>& entry : pod.Instances)
+        {
+            if (entry->Instance == nullptr && entry->OwnerLabel == pluginId)
+            {
+                binary = entry->Binary;
+                break;
+            }
+        }
+    }
+
+    // 进程内来源的 Eject 一律拒（本波 D219）：档二（卸货）在进程内来源上结构性不可达——镜像
+    // 即宿主，无货可卸，放行就是 §8.7 说的「Eject 假成功」；判据取**记录**而非 Id。三支（活实例 /
+    // 级联空壳 / Failed 记录）共用这一枚记录指针，故闸只有这一处。
+    if (binary != nullptr && binary->InProcess)
+    {
+        return Result<EjectReport>::Err(Refusal(id, Phase::kEject, "linked-in binary cannot be ejected"));
+    }
+
+    EjectReport report;
+    report.PluginId = id;
+
     if (live != nullptr)
     {
         // 规则③：哪怕一条声明未用的边也拒绝，且**没有强制模式**。账本是进程级的，但服务表
@@ -799,7 +850,6 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
         // → Scope 逆序回收 → 销毁实例。档① 保证只碰被卸者自己的 Scope，不需要跨实例
         // 排序（§7.6-1）；出边存活义务由串行保证——Dispose 整体完成前不会有下一个生命
         // 周期动作，故回收动作里合法调用 U 的服务（§7.6-2）。
-        binary = live->Binary;
         // RemovedEdges 必须在 RemoveByInstance **之前**取：账内指针随边死，入边此时必空（上面已拒）。
         for (const detail::LedgerEdge* edge : pod.Ledger->EdgesFrom(live->Instance))
         {
@@ -817,37 +867,19 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
                       [live](const std::unique_ptr<Pod::LiveInstance>& entry) { return entry.get() == live; });
         report.LedgerHadNoIncomingEdges = true; // ① 已当场证得 EdgesTo 为空
     }
-    else
+    else if (failedRecord || tornShell)
     {
         // ①' §5.6 四条补角的「Failed 可被 Eject」+ M3/D94 的「空壳亦可」——两者同是**无实例的账目
         // 残留**（论证见 spec §2.3）。两类的残条目都要摘：否则 Adopt 的 already-in-pod 会判在死条目上；
         // TeardownInstancesAndRoot 本就 continue 掉 Instance == nullptr，摘除安全。
-        const auto failed = pod.FailedBinaries.find(id);
-        const bool shell =
-            std::ranges::any_of(pod.Instances, [pluginId](const std::unique_ptr<Pod::LiveInstance>& entry)
-                                { return entry->Instance == nullptr && entry->OwnerLabel == pluginId; });
-        if (failed != pod.FailedBinaries.end())
+        if (failedRecord)
         {
-            binary = failed->second;
-            pod.FailedBinaries.erase(failed);
+            pod.FailedBinaries.erase(id);
             report.HotSwapNote = "failed-record ejected";
-        }
-        else if (shell)
-        {
-            // 空壳的镜像由**残条目**的 Binary 指出（与 Failed 表分开的两条持有路径）。
-            for (const std::unique_ptr<Pod::LiveInstance>& entry : pod.Instances)
-            {
-                if (entry->Instance == nullptr && entry->OwnerLabel == pluginId)
-                {
-                    binary = entry->Binary;
-                    break;
-                }
-            }
-            report.HotSwapNote = "torn shell ejected";
         }
         else
         {
-            return Result<EjectReport>::Err(Refusal(id, Phase::kEject, "plugin not in pod: " + id));
+            report.HotSwapNote = "torn shell ejected"; // 镜像由残条目的 Binary 指出（上面已取）
         }
         std::erase_if(pod.Instances, [pluginId](const std::unique_ptr<Pod::LiveInstance>& entry)
                       { return entry->OwnerLabel == pluginId; });
@@ -856,6 +888,10 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
         report.Status = EjectStatus::kEjected;  // 无实例必无边——RemovedEdges 天然为空
         report.LedgerHadNoIncomingEdges = true; // 无实例必无入边
         report.ScopeEmptied = true;             // 该插件此刻没有任何存活 Scope
+    }
+    else
+    {
+        return Result<EjectReport>::Err(Refusal(id, Phase::kEject, "plugin not in pod: " + id));
     }
 
     // ③ 全局闸：镜像「一文件一记录」（Loader 按绝对路径去重），只有**所有 Pod 都不再引用**
@@ -911,11 +947,14 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle handle, std::string_view p
     // 也是无人用）。三条分支一律跑与幂等契约（§9.1）的论证见 spec §3.4/D91。
     if (binary != nullptr && crossPodInstances == 0)
     {
-        for (std::size_t index = 0; index < binary->ProcessStateCount; ++index)
+        for (const detail::ProcessStateTable& table : binary->ProcessStateTables)
         {
-            const ProcessStateDesc& state = *std::next(binary->ProcessStates, static_cast<std::ptrdiff_t>(index));
-            state.Reset();
-            report.ProcessStatesReset.emplace_back(state.Name); // 报告是返回值，必须拥有（借用教训同格）
+            for (std::size_t index = 0; index < table.Count; ++index)
+            {
+                const ProcessStateDesc& state = *std::next(table.Begin, static_cast<std::ptrdiff_t>(index));
+                state.Reset();
+                report.ProcessStatesReset.emplace_back(state.Name); // 报告是返回值，必须拥有（借用教训同格）
+            }
         }
     }
 
@@ -985,6 +1024,13 @@ Result<AdoptReport> PluginHost::AdoptImpl(PodHandle handle, const std::string& i
     if (expected->Id != id)
     {
         return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, "adopt request/expectation id mismatch"));
+    }
+
+    // 路径面表达不了进程内来源（spec §3.3）：空路径 = 宿主给错了。这是第二层防护，
+    // 主防在 Loader::FindResident 的「排除进程内记录」（D239）。
+    if (absPath.empty())
+    {
+        return Result<AdoptReport>::Err(Refusal(id, Phase::kAdopt, "adopt refused: file path required"));
     }
 
     // ⓪ 身份唯一：本局已有该 Id 的活实例或 Failed 记录 → 拒。失败**残留条目**也带

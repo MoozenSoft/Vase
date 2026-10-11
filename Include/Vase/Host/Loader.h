@@ -12,7 +12,9 @@
 #include "Vase/Detail/Export.h"
 #include "Vase/Detail/ImageInspect.h"
 #include "Vase/Detail/Result.h"
+#include "Vase/PluginDescriptor.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -28,15 +30,37 @@ struct ProcessStateDesc; // M3/D92：BinaryRecord 只存指针，不需要完整
 namespace vase::detail
 {
 
+// 一个二进制里**每插件一份**的进程级状态表（指向镜像只读数据段，**不拥有**）。
+struct ProcessStateTable
+{
+    std::string_view PluginId; // 去重键：同一插件在多局里反复装配只记一份
+    const ProcessStateDesc* Begin = nullptr;
+    std::size_t Count = 0;
+};
+
 struct BinaryRecord
 {
-    std::filesystem::path Path; // 绝对化后的路径（表内去重键）
-    void* Raw = nullptr;        // 平台句柄（HMODULE / dlopen 返回值）
-    // M3/D92：描述符里的进程级状态表（指向镜像只读数据段，**不拥有**）。记在**记录**上而不是
-    // 实例上：进程级状态跟着二进制走（§9.1），而记录的生命周期正是镜像驻留期；空壳与 Failed
-    // 两条 Eject 分支没有实例、只有记录，Reset 要靠它。
-    const ProcessStateDesc* ProcessStates = nullptr;
-    std::size_t ProcessStateCount = 0;
+    std::filesystem::path Path; // 绝对化后的路径（表内去重键）；进程内来源为空
+    void* Raw = nullptr;        // 平台句柄（HMODULE / dlopen 返回值）；进程内来源无意义
+    // 进程内来源（本波，D218）：镜像即宿主本身，入口由宿主链接期链入。与既有「resident」
+    // （已被本 Loader 装载、尚未卸载）**不同义**——那个词维持原义不动。
+    bool InProcess = false;
+    PluginEntryPoint Entry = nullptr; // 仅 InProcess 有意义；去重键
+    // 进程级状态表按插件 Id 去重累积、Eject 逐条 Reset（粒度二进制级，与 D91/Eject 全局闸同）；记在
+    // **记录**上而非实例上——状态跟二进制走（§9.1），空壳/Failed 分支只有记录。见 spec §2.5 / D236/D237。
+    // NOLINTNEXTLINE(readability-redundant-member-init) NSDMI `{}` 为刻意（指定初始化省略豁免的前提）
+    std::vector<ProcessStateTable> ProcessStateTables{};
+
+    // 幂等：同 Id 只记一次（同一插件跨 Pod 反复装配不该累积）。
+    void RegisterProcessStates(std::string_view pluginId, const ProcessStateDesc* begin, std::size_t count)
+    {
+        const auto found = std::ranges::find_if(ProcessStateTables, [pluginId](const ProcessStateTable& table)
+                                                { return table.PluginId == pluginId; });
+        if (found == ProcessStateTables.end())
+        {
+            ProcessStateTables.push_back(ProcessStateTable{.PluginId = pluginId, .Begin = begin, .Count = count});
+        }
+    }
 };
 
 struct UnloadEvidence
@@ -60,6 +84,10 @@ public:
     Loader& operator=(Loader&&) = delete;
 
     Result<BinaryRecord*> EnsureResident(const std::filesystem::path& path);
+    // 进程内来源的登记入口（本波，D218）。去重键 = entry 指针（一份组合库一个入口）。
+    // **永不失败**：不读盘、不解析，没有可失败的平台动作；返回 Result 只为与 EnsureResident
+    // 并列、让装配循环的分流保持同形。别为它编失败路径。
+    Result<BinaryRecord*> EnsureInProcess(PluginEntryPoint entry);
     UnloadEvidence Unload(const BinaryRecord& record);
 
     // —— 以下五项**与实例状态无关**，故声明为 static ——
@@ -87,6 +115,7 @@ public:
     // EnsureResident 往表里存的是**绝对化后**的路径（§8.1「一文件一记录」的去重键），
     // 所以拿相对路径来查会查不到刚存的那条——调用方（T7/T12）请自己先 Absolute()。
     // 今天不是缺陷：计划里的调用方本就传 absolute(path)；写在这里免得日后重新发现一遍。
+    // 进程内记录**不参与**本查询：它的 Path 为空，而「按路径查」的语义本就不该命中它。
     [[nodiscard]] const BinaryRecord* FindResident(const std::filesystem::path& path) const;
     [[nodiscard]] std::vector<BinaryRecord> AllResident() const;
 
@@ -97,11 +126,9 @@ private:
     static bool PlatformReopenWritable(const std::filesystem::path& path);
     static bool PlatformMappingRemoved(const std::filesystem::path& path);
 
-    // **每实例**一张表（不是进程级）：只存路径、句柄与指向镜像只读段的进程级状态表指针
-    // （借用，不拥有；M3/D92），不存任何实例级对象——**这一点由 BinaryRecord 的类型承载**
-    // （path + void* 句柄 + const 状态表指针 + 计数，装不下实例级对象），不是靠插入点断言
-    // （§1.2）。「同一绝对路径只调一次平台加载」说的是**本实例**——两个 Loader 实例各持
-    // 一个句柄，互不知情。
+    // **每实例**一张表（不是进程级）：只存路径、句柄、进程内来源标记与一列借用的进程级状态表
+    // （M3/D92），不存实例级对象——**由 BinaryRecord 的类型承载**，不是靠插入点断言（§1.2）。
+    // 「同一绝对路径只调一次平台加载」说的是**本实例**：两个 Loader 各持一个句柄，互不知情。
     std::vector<std::unique_ptr<BinaryRecord>> Binaries;
 };
 

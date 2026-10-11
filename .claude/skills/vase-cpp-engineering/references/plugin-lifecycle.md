@@ -150,6 +150,8 @@ EjectPlugin(pod, T)                        AdoptPlugin(pod, X)
 
 **落地形态（M2a/D21 起两侧同形）**：执法拒绝走 Ok + `Status` + 逐条点名——Eject 是 `Consumers`，Adopt 是 `Missing` / `Collisions`（D43 双向执法，T10 补上 Adopt 半）；成功侧各带解析记录（`RemovedEdges` / `Outgoing`）。`Err` 只剩误用与环境/身份类。字段与枚举以 `Include/Vase/Host/Evidence.h` 磁盘定义为准。
 
+> **[进程内来源（静态链入）的边界（2026-10-10, spec D219/D220，静态链入波）]** `EjectPlugin` 对**进程内条目**（入口由宿主链接期链入、镜像即宿主，见 `wiki/vase-architecture.md` §8.1 现状注）在**任何拆除动作之前**返回 `Err`，契约子串 `linked-in binary cannot be ejected`（**字面值以 `CLAUDE.md` 的契约子串清单为准**）——§8.2 档二在进程内条目上结构性不可达，放行就是「Eject 假成功」。`AdoptPlugin` 则**结构上不可表达**进程内来源（`AdoptRequest` 不含进程内入口字段——它的源只能经 `BinaryPath` 表达，D220）——宿主若传自身镜像路径，走普通路径、以「symbol not found」响亮失败，是**接受的边界不是缺口**。连带：进程内来源上的**进程级状态永无重置路径**（唯一触发点是 Eject，而它被拒；D229，入 wiki §13.3）。`DestroyPod` 不受影响——拆局本就不卸货。
+
 ### 四条规则
 
 | # | 规则 | 理由 |
@@ -217,6 +219,6 @@ v2 的卸货发生在四下无人的静默期；**v3 的 Eject 发生在别的�
 
 - **级联热替换 / 强制 Eject（档 ②）**：v3 只放行叶节点。**叶热替换已是核心承诺，级联热替换仍然不做。**
 - **epoch / 全量 HMR / 依赖方原地重绑定（档 ③）**：账本从源头拒绝制造上下线。
-- **进程级状态登记与 Reset**：M3 已落地——`ProcessStateDesc{Name, Reset}` 进 `PluginMeta` 尾槽（随描述符版本 bump），`EjectPlugin` 按「这份 binary 在任何 Pod 无活实例」口径自动重置并逐条写入 `EjectReport::ProcessStatesReset`（D91/D99）；配置侧（`VASE_CONFIG`）更早已落。**现状以 `CLAUDE.md`「项目状态」一节为准、基数以其「构建与测试」一节为准，此处不复制。**
+- **进程级状态登记与 Reset**：M3 已落地——`ProcessStateDesc{Name, Reset}` 进 `PluginMeta` 尾槽（随描述符版本 bump），`EjectPlugin` 按「这份 binary 在任何 Pod 无活实例」口径自动重置并逐条写入 `EjectReport::ProcessStatesReset`（D91/D99）；配置侧（`VASE_CONFIG`）更早已落。**「一库 N 插件」的粒度是记录级（二进制级）**（2026-10-10 静态链入波 D236/D237）：进程级状态按**二进制记录**存——记录里是该库**全部插件**的状态（按插件 Id 去重累积），`EjectPlugin` 逐条 Reset，与 D91 的判据、Eject 全局闸同粒度。本波修正了一处既有缺陷：旧实现把「当前这个插件」的表写进共享记录，一库 N 插件时后写覆盖先写、Eject 只重置最后装配的那个（全仓唯一一处把「一 binary ⇔ 一插件」当真，而三员 Sample 都无 `ProcessStates`、伪装成绿）。**现状以 `CLAUDE.md`「项目状态」一节为准、基数以其「构建与测试」一节为准，此处不复制。**
 - **清单 / Preset / `PluginCatalog` 求解链**：M2b 波 1/2 已落地，不再是本节的「未落地」——M1 的代偿（`PluginHost::KnownBinaries` 路径账）已随波 2 退役：Adopt 单轨，调用方经 `AdoptRequest` 喂期望形与兄弟集，Catalog 的 `AdoptInto` 单点重读清单后交 Host 加载期比对。
 - **移动端**：Android / iOS 上的任何热插拔都不做，档 ① 也不给例外（Apple 平台禁下载代码 dlopen）。
