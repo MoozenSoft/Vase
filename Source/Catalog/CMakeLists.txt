@@ -3,6 +3,8 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_library(VaseCatalog SHARED
     PluginCatalog.cpp
     ManifestJson.cpp
+    PackageJson.cpp
+    Detail/ManifestFields.cpp
     PresetJson.cpp
     Solve.cpp)
 

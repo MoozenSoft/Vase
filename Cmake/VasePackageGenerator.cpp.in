@@ -1,0 +1,23 @@
+// 由 vase_stage_pack 生成（T11，spec §3.1）：符号映射取包目标属性，路径走 argv，避免字面量转义问题。
+//
+// 生成物落构建树，且会进 tidy 面（compile_commands.json 含它），所以它必须自己零正文 warning。
+#include "Detail/PackageStage.h"
+#include "Vase/Host/PackagePlan.h"
+#include "Vase/PluginDescriptor.h"
+@VASE_STAGE_EXTRA_INCLUDES@
+
+#include <array>
+
+@VASE_STAGE_DECLS@
+namespace
+{
+
+// 元素由 StageMemberSpec 构造，平铺成员表避免嵌套初始化格式冲突。
+constexpr std::array kStageMembers{@VASE_STAGE_MEMBERS@};
+
+} // namespace
+
+int main(int argc, const char* const* argv)
+{
+    return tools::cli::package_detail::RunPackageStageGenerator(argc, argv, @VASE_STAGE_KIND@, @VASE_STAGE_ENTRIES@, kStageMembers);
+}

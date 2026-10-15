@@ -3,6 +3,7 @@
 #include "Vase/Catalog/CatalogAdopt.h"
 #include "Vase/Catalog/LibraryFileName.h"
 #include "Vase/Catalog/ManifestView.h"
+#include "Vase/Catalog/PackageManifest.h"
 #include "Vase/Config/FieldInfo.h"
 #include "Vase/Config/Value.h"
 #include "Vase/Detail/Fail.h"
@@ -10,6 +11,7 @@
 #include "Vase/Host/ConfigBlob.h"
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/ManifestExpectation.h"
+#include "Vase/Host/PackagePlan.h"
 #include "Vase/Host/PluginHost.h"
 #include "Vase/Pod/Pod.h"
 
@@ -110,6 +112,42 @@ std::uint64_t EncodeBits(const Value& value)
     return value.Bits;
 }
 
+// 一级子目录里的两类清单名（spec §3）：只在此处出现。
+constexpr std::string_view kSingleManifestName = "plugin.json";
+constexpr std::string_view kPackageManifestName = "pack.json";
+
+// 单插件来源的保留命名空间（T4）：包 sourceId 限 ASCII 标识符、不含 @，两界不冲突。
+constexpr std::string_view kSingleSourcePrefix = "@single/";
+
+// 清单存在性：区分「不存在」（warn + 跳过，D50）与「stat 失败」（权限/IO，响亮 Err）。MSVC STL 的
+// status 连 ENOENT 也写 ec——not_found 必须先判，否则「无清单」被误读成 stat 失败（Linux 恰好不写）。
+Result<bool> IsRegularFile(const std::filesystem::path& file)
+{
+    std::error_code statEc;
+    const std::filesystem::file_status st = std::filesystem::status(file, statEc);
+    if (st.type() == std::filesystem::file_type::not_found || !statEc)
+    {
+        return Result<bool>::Ok(st.type() == std::filesystem::file_type::regular);
+    }
+    return Result<bool>::Err(
+        Error("catalog refresh: cannot stat manifest \"" + file.string() + "\": " + statEc.message()));
+}
+
+// 全局 Id 唯一（spec §3）：单插件与包成员共用这条拒绝路径，重复即整体 Err。
+Result<void> AppendEntry(std::vector<ManifestEntry>& entries, ManifestEntry entry)
+{
+    for (const ManifestEntry& held : entries)
+    {
+        if (held.Id == entry.Id)
+        {
+            return Result<void>::Err(Error("catalog refresh: duplicate plugin id \"" + entry.Id + "\" in \"" +
+                                           held.Subdirectory + "\" and \"" + entry.Subdirectory + "\""));
+        }
+    }
+    entries.push_back(std::move(entry));
+    return Result<void>::Ok();
+}
+
 } // namespace
 
 PluginCatalog::PluginCatalog() = default;
@@ -134,6 +172,17 @@ const ManifestEntry* PluginCatalog::Find(std::string_view id) const
         return &*it;
     }
     return nullptr;
+}
+
+const CatalogSource* PluginCatalog::SourceFor(std::string_view pluginId) const
+{
+    const ManifestEntry* entry = Find(pluginId);
+    if (entry == nullptr)
+    {
+        return nullptr;
+    }
+    const auto it = std::ranges::find(SnapshotSources, entry->SourceId, &CatalogSource::Id);
+    return it == SnapshotSources.end() ? nullptr : &*it;
 }
 
 Result<void> PluginCatalog::Refresh(const std::filesystem::path& pluginDirectory)
@@ -168,48 +217,104 @@ Result<void> PluginCatalog::Refresh(const std::filesystem::path& pluginDirectory
                       { return a.filename().string() < b.filename().string(); });
 
     std::vector<ManifestEntry> nextEntries;
+    std::vector<CatalogSource> nextSources;
     std::vector<CatalogWarning> nextWarnings;
     for (const std::filesystem::path& dir : subdirectories)
     {
         const std::string name = dir.filename().string();
-        const std::filesystem::path manifest = dir / "plugin.json";
-        // status 显式取型而非 is_regular_file 布尔：区分「清单不存在」（warn+跳过，D50）与
-        // 「stat 失败」（权限/IO 等，响亮 Err）。MSVC STL 的 status 连 ENOENT 也写 ec——
-        // not_found 必须先判，否则「无清单」被误读成 stat 失败（Linux 恰好不写，两边不对称）。
-        // stat 失败无便携构造手段，此分支不立用例、止于本注释。
-        std::error_code statEc;
-        const std::filesystem::file_status st = std::filesystem::status(manifest, statEc);
-        if (st.type() != std::filesystem::file_type::not_found && statEc)
+        const std::filesystem::path singleManifest = dir / std::filesystem::path(kSingleManifestName);
+        const std::filesystem::path packageManifest = dir / std::filesystem::path(kPackageManifestName);
+        const Result<bool> hasSingle = IsRegularFile(singleManifest);
+        if (!hasSingle.IsOk())
         {
-            return Result<void>::Err(
-                Error("catalog refresh: cannot stat manifest \"" + manifest.string() + "\": " + statEc.message()));
+            return Result<void>::Err(hasSingle.GetError());
         }
-        if (st.type() != std::filesystem::file_type::regular)
+        const Result<bool> hasPackage = IsRegularFile(packageManifest);
+        if (!hasPackage.IsOk())
         {
-            nextWarnings.push_back(CatalogWarning{.Subdirectory = name, .Message = "no plugin.json — skipped"});
+            return Result<void>::Err(hasPackage.GetError());
+        }
+        if (hasSingle.Value() && hasPackage.Value())
+        {
+            // 不隐式设优先级：一个目录一类文档（spec §3）。
+            return Result<void>::Err(Error("catalog refresh: \"" + name + "\" holds both plugin.json and pack.json"));
+        }
+        if (!hasSingle.Value() && !hasPackage.Value())
+        {
+            nextWarnings.push_back(
+                CatalogWarning{.Subdirectory = name, .Message = "no plugin.json or pack.json — skipped"});
             continue;
         }
-        Result<ManifestEntry> parsed = ParseManifestFile(manifest, name);
+
+        CatalogSource source;
+        if (hasSingle.Value())
+        {
+            Result<ManifestEntry> parsed = ParseManifestFile(singleManifest, name);
+            if (!parsed.IsOk())
+            {
+                // D50：坏清单整体响；失败不换快照/Warnings/来源表（D58/D64a）。
+                return Result<void>::Err(parsed.GetError());
+            }
+            ManifestEntry entry = std::move(parsed.Value());
+            source.Id = std::string(kSingleSourcePrefix) + name;
+            source.ManifestPath = singleManifest;
+            source.BinaryPath = dir / std::filesystem::path(catalog_detail::LibraryFileName(entry.Binary));
+            source.MemberIds.push_back(entry.Id);
+            entry.SourceId = source.Id;
+            const Result<void> appended = AppendEntry(nextEntries, std::move(entry));
+            if (!appended.IsOk())
+            {
+                return Result<void>::Err(appended.GetError());
+            }
+            nextSources.push_back(std::move(source));
+            continue;
+        }
+
+        Result<PackageManifest> parsed = ParsePackageManifestFile(packageManifest);
         if (!parsed.IsOk())
         {
-            return Result<void>::Err(parsed.GetError()); // D50：坏清单整体响；失败不换快照/Warnings（D58/D64a）
+            return Result<void>::Err(parsed.GetError());
         }
-        ManifestEntry entry = std::move(parsed.Value());
-        for (const ManifestEntry& held : nextEntries)
+        PackageManifest package = std::move(parsed.Value());
+        for (const CatalogSource& held : nextSources)
         {
-            if (held.Id == entry.Id)
+            if (held.Id == package.SourceId)
             {
-                return Result<void>::Err(Error("catalog refresh: duplicate plugin id \"" + entry.Id + "\" in \"" +
-                                               held.Subdirectory + "\" and \"" + entry.Subdirectory + "\""));
+                return Result<void>::Err(Error("catalog refresh: duplicate source id \"" + package.SourceId +
+                                               "\" in \"" + held.ManifestPath.parent_path().filename().string() +
+                                               "\" and \"" + name + "\""));
             }
         }
-        nextEntries.push_back(std::move(entry));
+        source.Id = package.SourceId;
+        source.IsPackage = true;
+        source.Kind = package.Kind;
+        source.ManifestPath = packageManifest;
+        if (package.Kind == PackageSourceKind::kDynamic)
+        {
+            // 库文件与 pack.json 同处包目录；目录名不参与来源标识（spec §2.1/§3）。
+            source.BinaryPath = dir / std::filesystem::path(catalog_detail::LibraryFileName(package.Binary));
+        }
+        source.MemberIds.reserve(package.Plugins.size());
+        for (ManifestEntry& member : package.Plugins)
+        {
+            // 包成员的 Subdirectory 是目录展示值、Binary 留空（spec §2.2）：加载只读本来源表。
+            source.MemberIds.push_back(member.Id);
+            member.SourceId = source.Id;
+            const Result<void> appended = AppendEntry(nextEntries, std::move(member));
+            if (!appended.IsOk())
+            {
+                return Result<void>::Err(appended.GetError());
+            }
+        }
+        std::ranges::sort(source.MemberIds);
+        nextSources.push_back(std::move(source));
     }
 
     std::ranges::sort(nextEntries, [](const ManifestEntry& a, const ManifestEntry& b) { return a.Id < b.Id; });
 
     SnapshotDirectory = std::move(abs);
     SnapshotEntries = std::move(nextEntries);
+    SnapshotSources = std::move(nextSources);
     SnapshotWarnings = std::move(nextWarnings);
     HasScanned = true;
     return Result<void>::Ok();
@@ -289,29 +394,59 @@ Result<AdoptReport> AdoptInto(const PluginCatalog& catalog, PluginHost& host, Po
     {
         return Result<AdoptReport>::Err(Error("adopt: id not in catalog snapshot"));
     }
-    const std::filesystem::path manifest = catalog.Directory() / located->Subdirectory / "plugin.json";
-    Result<ManifestEntry> parsed = ParseManifestFile(manifest, located->Subdirectory);
-    if (!parsed.IsOk())
+    const CatalogSource* source = catalog.SourceFor(id);
+    if (source == nullptr)
     {
-        return Result<AdoptReport>::Err(parsed.GetError()); // 就地重读失败响亮（CatalogAdopt.h 注）
+        return Result<AdoptReport>::Err(Error("adopt: source missing for plugin " + std::string(id)));
     }
-    const ManifestExpectation expected = BuildExpectation(parsed.Value()); // 借用止于下方同步调用
+    if (source->Kind == PackageSourceKind::kInProcess)
+    {
+        return Result<AdoptReport>::Err(Error("adopt: in-process source cannot be adopted from disk: " + source->Id));
+    }
+
+    ManifestExpectation expected;
+    if (source->IsPackage)
+    {
+        Result<PackageManifest> parsed = ParsePackageManifestFile(source->ManifestPath);
+        if (!parsed.IsOk())
+        {
+            return Result<AdoptReport>::Err(parsed.GetError());
+        }
+        const auto member = std::ranges::find(parsed.Value().Plugins, id, &ManifestEntry::Id);
+        if (member == parsed.Value().Plugins.end())
+        {
+            return Result<AdoptReport>::Err(Error("adopt: package manifest \"" + source->ManifestPath.string() +
+                                                  "\" no longer contains plugin " + std::string(id)));
+        }
+        expected = BuildExpectation(*member);
+    }
+    else
+    {
+        Result<ManifestEntry> parsed = ParseManifestFile(source->ManifestPath, located->Subdirectory);
+        if (!parsed.IsOk())
+        {
+            return Result<AdoptReport>::Err(parsed.GetError()); // 就地重读失败响亮（CatalogAdopt.h 注）
+        }
+        expected = BuildExpectation(parsed.Value());
+    }
 
     std::vector<std::string> siblings;
-    for (const std::string& otherId : catalog.Ids())
+    for (const CatalogSource& other : catalog.Sources())
     {
-        if (otherId != id)
+        if (other.Kind != PackageSourceKind::kDynamic || other.BinaryPath == source->BinaryPath)
         {
-            if (const ManifestEntry* other = catalog.Find(otherId); other != nullptr)
-            {
-                siblings.push_back(catalog_detail::LibraryFileName(other->Binary));
-            }
+            continue;
+        }
+        const std::string name = other.BinaryPath.filename().string();
+        if (std::ranges::find(siblings, name) == siblings.end())
+        {
+            siblings.push_back(name);
         }
     }
 
     AdoptRequest request;
     request.Id = std::string(id);
-    request.BinaryPath = catalog.Directory() / located->Subdirectory / catalog_detail::LibraryFileName(located->Binary);
+    request.BinaryPath = source->BinaryPath;
     request.Expected = &expected;
     request.SiblingBinaries = std::move(siblings);
     return host.AdoptPlugin(handle, request);

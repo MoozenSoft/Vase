@@ -1,0 +1,13 @@
+# execute_process 保留 .cmd 的参数引号；-- 后的子命令 -P 不得被外层 CMake 再解释。
+if(CMAKE_ARGC LESS 6)
+    message(FATAL_ERROR "MSVC build test launcher needs an environment script and a command")
+endif()
+set(command)
+math(EXPR lastArgument "${CMAKE_ARGC} - 1")
+foreach(argumentIndex RANGE 4 ${lastArgument})
+    list(APPEND command "${CMAKE_ARGV${argumentIndex}}")
+endforeach()
+execute_process(COMMAND ${command} RESULT_VARIABLE commandRc)
+if(NOT commandRc EQUAL 0)
+    message(FATAL_ERROR "MSVC build test failed: ${commandRc}")
+endif()

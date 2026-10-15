@@ -97,7 +97,7 @@ cl.exe 那条线同构，但**必须经 `Scripts\msvc-env.cmd` 包一层**（原
 ```bash
 Scripts/msvc-env.cmd cmake --preset win-x64-msvc-debug
 Scripts/msvc-env.cmd cmake --build --preset win-x64-msvc-debug
-ctest --preset win-x64-msvc-debug           # ctest 不调编译器，不必包
+ctest --preset win-x64-msvc-debug           # 构建型测试会自行建立 cl.exe 环境
 ```
 
 `Scripts\win-verify.cmd` 是上面两条线的脚本形态（四棵 preset 树各自 `rmdir /s /q` +
@@ -115,7 +115,7 @@ Scripts\win-verify.cmd
 **最近一次全量验收的读数（八线是否全绿、各线 `ctest -N` 基数、构建是否零警告）只住 `CLAUDE.md`
 的「构建与测试」一节**——README 不复制它。Windows 侧构建树落 `build-win/<presetName>/`，
 Linux 侧落 `build-linux/`，macOS 侧落 `build-macos/`；**可执行在 `bin/`**（POSIX 侧框架库与
-静态库在 `lib/`），**每个插件独占 `<产物根>/<插件名>/`**——Windows 是 `bin/<插件名>/`、
+静态库在 `lib/`），通常**每个插件独占 `<产物根>/<插件名>/`**——Windows 是 `bin/<插件名>/`、
 Linux/macOS 是 `lib/<插件名>/`，宿主可执行与框架库仍在产物根平铺，**发布期组合库（`VasePlugins`）
 也平铺在产物根**——它既不是可执行/框架库、也不进插件子目录。**链接输入另住一个中间目录
 `<构建树>/pack-objects/`**（`${CMAKE_BINARY_DIR}/pack-objects`，产物根之外的兄弟目录、与 `CMakeFiles/`
@@ -194,7 +194,7 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
   `clang-tidy`，脚本解析 `clang-tidy-mp-23` 并以 `-clang-tidy-binary` 显式递入，缺位时 rc=2
   响亮拒绝）。日志落在脚本旁边（`*.log`，被 gitignore），stdout 打全三条
   判据（`run-clang-tidy` 退出码 + 正文 `error:` 条数 + 正文 `warning:` 条数）与摘要计数，
-  **退出码非 0 就是门禁未过**，不必再手工 grep 日志（macOS 线的 RC 与正文 warning 耦合，
+  **退出码非 0 就是门禁未过**，不必再手工 grep 日志（四线的 RC 与正文 warning 不耦合，
   判据仍要三条一起读）；基数仍以 `CLAUDE.md` 的表为准，脚本不复制阈值：
 
   ```bash
@@ -315,6 +315,52 @@ Vase/
 ```
 
 构建树 `build-win/` 与 `build-linux/` 不在版本控制内。
+
+## 发布包的生成与装配
+
+发布根按一级子目录发现：每个包目录放固定的 `pack.json`，动态包同时放组合库及所需运行依赖，
+静态包目录只需清单。单插件继续用 `plugin.json`；同一子目录同时存在两种清单会被拒绝。
+构建根里平铺的组合库和 `pack-objects/` 链接输入不会自动成为发布包。
+
+仓库内调用者可在插件目标已声明后建立显式发布目标，例如：
+
+```cmake
+vase_pack_plugins(ProductPack PLUGINS HelloPlugin DependentPlugin STATIC)
+vase_stage_pack(ProductRelease
+    PACK_TARGET ProductPack
+    SOURCE_ID Product
+    OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release/Product")
+```
+
+`cmake --build --preset <preset> --target ProductRelease` 才生成并发布该包；普通 build 不执行 staging。
+移除 `STATIC` 可生成动态组合库，发布目标会读取实际库中的描述符。成员 Id、依赖与配置来自描述符，
+成员源码清单仅提供 `enabledByDefault`；已声明的源清单缺失或 Id 不符时生成失败。
+staging 先准备完整目录再替换，失败保留原目录，成功清除旧库与旧依赖；包目录由该目标独占管理。
+
+仓库已有的装配验证目标可直接构建和运行：
+
+```bash
+cmake --build --preset win-x64-clang-debug --target VasePackageReleaseStage
+ctest --preset win-x64-clang-debug -R '^(PackageAssembly|StaticPackageAssembly)\.'
+build-win/win-x64-clang-debug/bin/VaseCli plan "build-win/win-x64-clang-debug/Tests/Package/release samples"
+```
+
+MSVC 线显式构建目标仍经 `Scripts/msvc-env.cmd`，构建型 CTest 会自行建立该环境。
+本例 Provider 的源策略默认禁用，服务装配测试通过 LoadRequest 显式启用并覆盖 Value=7。
+测试专用动态 fixture 的清单住在 `Tests/Package/fixture plugins/`，发布 staging 独立于开发产物根。
+
+宿主先 `Refresh` 发布根；`Analyze` 只产生数据，`Solve` 产生可执行计划。静态包宿主链接相应 CMake
+目标、包含其生成的 `<target>.entries.h`，按清单 `sourceId` 传入查询与枚举两个入口的绑定。
+同一宿主可绑定多个 STATIC 包，入口名称由生成器负责；无需自己列库内成员 Id。
+每次 `CreatePod` 都在 Stage0 和实例创建前检查参与包的全部成员，包含被禁用成员；不一致整局 Err，
+已加载的动态镜像留架，由 Host 关闭收走。全禁用包可以缺库或绑定，独立 validate 仍检查整个目录。
+
+`VaseCli scan --package <动态库文件> --source-id <标识>` 在库旁生成 `pack.json`；已有包按 Id 保留启用
+策略，损坏清单默认报错且保留原件，显式 `--regenerate` 才重建并重置策略。`plan <发布根> [preset]`
+对两种包都零装载分析；普通 `validate` / `doctor` 缺静态宿主入口时明确报告未完成并返回检查失败，
+已链接调用者可显式传入口完成检查。命令能力详见 [架构文档](wiki/vase-architecture.md#111-vasecli)。
+
+本机制的动态装配与多包静态链入在桌面验证；iOS/Android 的真实构建与交付形态仍待移动波次。
 
 ## 运行示例：`VaseEmbedding`
 

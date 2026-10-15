@@ -366,6 +366,29 @@ set_tests_properties(VaseConsoleSolveShowcase VaseConsoleSolveShowcaseReason
     VaseConsoleSolveShowcaseSkipReason
     PROPERTIES FIXTURES_REQUIRED VaseConsoleCatalog)
 
+# 全禁用包仍展示来源；静态跳过条目无需宿主绑定，动态跳过条目保留库文件路径。
+file(GENERATE OUTPUT "${VASE_CONSOLE_REPLAY_DIR}/skipped_packages/Static/pack.json"
+     CONTENT "{\"schemaVersion\":1,\"sourceId\":\"StaticP\",\"source\":{\"kind\":\"inProcess\"},\"plugins\":[{\"id\":\"Probe.Static\",\"enabledByDefault\":false}]}")
+file(GENERATE OUTPUT "${VASE_CONSOLE_REPLAY_DIR}/skipped_packages/Dynamic/pack.json"
+     CONTENT "{\"schemaVersion\":1,\"sourceId\":\"DynamicP\",\"source\":{\"kind\":\"dynamic\",\"binary\":\"AbsentPack\"},\"plugins\":[{\"id\":\"Probe.Dynamic\",\"enabledByDefault\":false}]}")
+file(GENERATE OUTPUT "${VASE_CONSOLE_REPLAY_DIR}/skipped_packages.txt"
+     CONTENT "catalog refresh ${VASE_CONSOLE_REPLAY_DIR}/skipped_packages
+catalog solve
+exit
+")
+add_test(NAME VaseConsoleSkippedPackageSources
+         COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/skipped_packages.txt")
+set_tests_properties(VaseConsoleSkippedPackageSources PROPERTIES
+    FAIL_REGULAR_EXPRESSION "host binding")
+add_test(NAME VaseConsoleSkippedStaticPackageSourceReason
+         COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/skipped_packages.txt")
+set_tests_properties(VaseConsoleSkippedStaticPackageSourceReason PROPERTIES
+    PASS_REGULAR_EXPRESSION "Probe[.]Static skip disabled [(]source StaticP, inProcess[)]")
+add_test(NAME VaseConsoleSkippedDynamicPackageSourceReason
+         COMMAND VaseConsole --script "${VASE_CONSOLE_REPLAY_DIR}/skipped_packages.txt")
+set_tests_properties(VaseConsoleSkippedDynamicPackageSourceReason PROPERTIES
+    PASS_REGULAR_EXPRESSION "Probe[.]Dynamic skip disabled [(]source DynamicP, dynamic, binary.*AbsentPack")
+
 # —— 命令面收官：emit / plugins 与「取不到服务是有效观察」（T12 起吃 catalog 主链：
 # 脚本里有条 adopt，raw 局走不动了；不写盘，起点态 base/prime 皆自洽）。
 file(GENERATE OUTPUT "${VASE_CONSOLE_REPLAY_DIR}/behaviour.txt"

@@ -24,8 +24,10 @@ add_library(VaseHost SHARED
     Loader.cpp
     PluginHost.cpp
     ConfigBlob.cpp
+    Detail/PackagePreflight.cpp
     Detail/ManifestCompare.cpp
     Inspect.cpp
+    PackageInspect.cpp
     ${VASE_HOST_PLATFORM_SOURCES})
 
 target_include_directories(VaseHost

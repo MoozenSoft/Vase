@@ -14,9 +14,8 @@
 namespace vase
 {
 
-// id 不在快照 → Err（D81 归因，先于任何 Host 调用）。快照内 → 就地重读
-// <Directory()>/<Subdirectory>/plugin.json（不吃快照条目，§5.6①），读失败响亮透传。
-// 定位吃快照（Binary/Subdirectory），重读只供期望——清单 binary 键事后篡改不改装载目标（D73/D81 分工）。
+// id 不在快照或来源为 inProcess → Err，先于 Host 调用；动态来源就地重读其 plugin.json 或 pack.json。
+// 装载目标取快照来源，重读只供成员期望；读失败或包已不含该 Id 时响亮拒绝。
 VASE_CATALOG_API Result<AdoptReport> AdoptInto(const PluginCatalog& catalog, PluginHost& host, PodHandle handle,
                                                std::string_view id);
 

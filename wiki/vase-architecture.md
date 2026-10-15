@@ -647,6 +647,36 @@ Pod
 
 ---
 
+### 3.5 发布包：`pack.json` 与来源发现（现状）
+
+N:1 清单与装配链已落地，依据 `docs/superpowers/specs/2026-10-11-vasepack-n-to-one-design.md`。
+单插件继续使用 `plugin.json`；组合库使用独立格式的 `pack.json`，首版 schemaVersion 为整数1，
+包根只接受 schemaVersion、sourceId、source、plugins。以下仅示意来源结构，省略了成员必需字段，
+不能直接作为完整清单使用；实际发布文档由生成器读取全部描述符生成：
+
+```json
+{
+  "schemaVersion": 1,
+  "sourceId": "VasePlugins",
+  "source": { "kind": "dynamic", "binary": "VasePlugins" },
+  "plugins": [ { "id": "Vase.Hello" }, { "id": "Vase.Dependent" } ]
+}
+```
+
+进程内包使用 `"source": { "kind": "inProcess" }`，拒绝 binary 字段；sourceId 是宿主绑定的逻辑
+来源名，不是归档路径。动态 binary 是本平台合法 stem，不能含路径；实际文件与 pack.json 同目录。
+成员沿用单插件的元信息、启用、服务、配置与进程级状态字段，但不带 schemaVersion、binary 或来源字段。
+
+`Refresh` 只扫描传入根的一级子目录，按名字排序；每个目录可有 plugin.json 或 pack.json，同时
+存在则拒绝。根上的清单、平铺库与 pack-objects 链接输入不参与发现，包目录名可不同于 sourceId。
+快照内插件Id与包sourceId分别查重；全禁用包也不能掩盖重复Id。快照、来源表和Warnings事务替换，
+失败保留旧三者。Catalog 全程只读文档，不装载镜像或执行入口。
+
+构建输出与发布目录分离。`vase_stage_pack` 从包目标取得成员与静态/动态形态，显式构建才生成和
+发布；描述符决定元信息，成员源码清单只提供 enabledByDefault 策略。已有 staging 文档不是构建
+输入。单个包先准备完整目录再替换，失败保留原内容，成功清除过期库/依赖；包目录完全归该目标管理。
+STATIC 归档留在链接输入目录，发布目录只有清单，不把归档送进动态加载器。接口和命令见 README。
+
 ## 4. Preset（插件集）
 
 **Preset** 描述「哪些插件参与、各自配置如何」。它有名字、落盘、可切换。
@@ -799,6 +829,30 @@ Result<EjectReport> PluginHost::EjectPlugin(PodHandle, const PluginId&);
 **`LoadPlan` 里只有静态跳过**（4.4）。运行时跳过是装配期才知道的，它出现在 `PodReport` 里，不在计划里——计划是求解的产物，而求解不执行代码。
 
 **`PodHandle` 是不透明句柄**（索引 + 代际），不是裸指针。取用期通过 `PluginHost::Resolve(PodHandle) -> Pod*` 拿到引用，失效时返回 `nullptr`——「句柄失效」在这套设计里不是错误，是预期内的正常情况。**宿主不要缓存 `Pod*`**：裸指针会诱导缓存，而缓存 Pod 引用正好踩 1.3 的不变式；代际句柄在 Pod 销毁后再用会被检出来。
+
+#### 包计划的分析、绑定与每局预检（现状）
+
+`PluginCatalog::Analyze(request)` 返回自持的数据结果，包括插件顺序、参与决策、跳过原因、来源、
+合并配置与逐插件期望；不含入口地址。`Solve(request, bindings)` 复用同一分析件，再生成可执行
+LoadPlan。原 `Solve(request)` 用空绑定委派，单插件动态路径保留。
+
+每条静态绑定按 sourceId 提供查询和枚举两个入口。缺入口、重复/未知来源、给动态来源绑定，或不同
+来源共用同一查询入口都拒绝；至少一个成员参与的静态包缺绑定时，错误点名来源与插件。Solve 不调用
+这些入口。计划复制入口指针，整包成员期望自持；条目Id继续借用Catalog快照，Refresh后的旧计划不能复用。
+
+Host 每次 CreatePod 都在 Pod、Stage0、插件/配置实例、OnLoad/OnStart 之前，对所有参与包检查
+完整成员集合、查询/枚举一致性、HeaderVersion与逐字段期望；禁用或跳过的兄弟也属于完整成员。
+预检与随后按Id装配使用同一镜像，不能缓存上一局“已通过”。不一致整局Err，不交付部分Pod；全跳过
+包不加载、无需静态绑定且不执行入口，独立validate仍检查完整目录。
+
+动态预检可能执行镜像静态构造/DllMain；预检Err只保证未新增Pod、实例、Effect或依赖边。
+已加载镜像留架，不自动卸载或Reset，最终Host关闭收走；失败局没有可供Eject的Pod句柄。
+插件自身回调失败仍沿用宽容/Strict与级联拆除语义。手写LoadPlan保留低层逐条装配行为，不能宣称经过
+整包预检；Catalog生成的包计划缺关联/期望等结构时会被当作误用拒绝。
+
+动态包的 AdoptInto 按快照来源定位并就地重读pack.json，从中重新取得目标成员期望；库路径仍来自
+快照。静态来源在交Host前拒绝。动态兄弟库名单按来源收集并排除同一库中的其他成员，原叶节点Eject
+执法不变；多个局共享镜像时，换件须先满足所有持有者的卸载条件。
 
 ### 5.2 Plugin 状态机
 
@@ -1193,7 +1247,10 @@ Eject 不引入新的回收机器——它只是让 7.1–7.5 那套机器在**�
 >
 > 装配循环按此分流（两者同填 = 误用，`CreatePod` 拒）；描述符、工厂实例化一概原样。进程内条目上 `EjectPlugin` / `AdoptPlugin` 与三档证据链各有边界（D219/D220/D221），见 §9.1 现状注与 `plugin-lifecycle.md`。本波落的是**桌面可证的那一跳**（机制与 iOS 逐字相同，差别只在产物装载外壳）；真 iOS / Android 构建腿与移动产物形态归下一波（见 §13.2 插件形态行）。
 
-> **[M5波1 补注（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D118/风险 5）]** `VASE_PLUGIN` 的宏展开自此多出第四个符号 `VasePlugin_Descriptors`（纯追加、不动布局、不 bump `kHeaderVersion`；组合库由 VasePack 生成同名）。它是**只给工具的枚举面**——`VaseCli scan` 一次读出库内全部描述符；**装载跳仍唯一**，宿主侧一行不改，`PluginHost` 不使用这个入口。「宿主也可以走两条路」不是本节的意思：拦住宿主日后改走枚举面的**没有机制**，那是一条契束（9.3 同类），13.3 同步记账。
+> **[M5波1 补注（2026-09-28，D118/风险5；N:1波更新使用范围）]** `VASE_PLUGIN` 新增的枚举入口
+> `VasePlugin_Descriptors` 当时只供工具使用。本次包计划的Host预检也通过枚举取得完整成员并与查询
+> 入口交叉核对；随后实例装配仍按Id调用查询入口，不以枚举替代装配。两种来源与每局预检见§5.1，
+> STATIC专属双入口见§8.6；描述符布局与HeaderVersion保持不变。
 
 ### 8.2 卸载验证：三档证据链（v3）
 
@@ -1333,6 +1390,12 @@ VasePlugin_GetPlugin(const char* id)
 > **[静态链入现状注（2026-10-10, spec `docs/superpowers/specs/2026-10-09-vasepack-static-link-design.md` D216–D241）]** 上面那条例外**已由类型约束承载、不再是文档告诫**：入口类型 `PluginEntryPoint` 进 `LoadPlanEntry`（§8.1 现状注），宿主写下 `&VasePlugin_GetPlugin` **这个动作本身就是链接期硬引用**——不写引用就拿不到入口、编不出计划，于是「宿主必须真的引用到包导出的符号」由类型强制，VasePack 不必再靠产物说明提醒。**连带记本波 T10 的四平台实测平台事实（D241）**：① **Apple ld 会把弱未定义引用当提取压力**（与 ELF / COFF 分岔——两份目标文件的符号绑定逐字相同，分岔纯在链接器）⇒ **Mach-O 上「观测某成员在不在映像里」的手段不许携链接期引用**（那处引用本身即元凶，会污染被观测者）；② **`/alternatename` 与 COFF 弱引用双双不可用作归档提取判据**（前者不阻止提取，「比较两枚函数地址」还被编译器常量折叠、引用根本不发；后者在符号被别处调用时会被分发表解析成 null、进程启动即崩）；③ **`link.exe` 不为 dllexport 强制提取归档成员**（经干净全量链接复核）。**保活机制本身不受影响**——拉取**已列入**成员的是分发表 TU 的**硬引用**（`extern "C"` 声明 + 真调用），不是弱引用；Mach-O 更「贪」（弱引用也拉）只会让保留更保守、不破坏保活方向。本波落的是**桌面可证的那一跳**（`vase_pack_plugins(... STATIC)` 产静态组合库、宿主链接期链入），真 iOS / Android 构建腿与移动产物形态归下一波（见 §13.2 插件形态行）。
 
 > **[VasePack 现状注（2026-10-04, spec `docs/superpowers/specs/2026-10-04-vasepack-desktop-design.md` D196–D215）]** 本节上方的工具形态**改口**：VasePack 落地为 **CMake 函数**，**没有 `Tools/VasePack/` 目录、没有可执行文件**（D196）——规矩 1（`VaseBuildOptions` 是编译选项唯一出口）与规矩 5（`vase_add_plugin_fixture` 是插件形态唯一出口）都是硬边界，本仓库只有一个构建系统、集成点天然是 CMake。机制载体是 `Cmake/VasePluginHelpers.cmake` 的两个函数：`vase_add_plugin_fixture(... PACK)` 额外建 pack 形**静态库** `${name}.Pack`（D199），`vase_pack_plugins(<name> PLUGINS …)` 生成分发表并链成 SHARED 库 `VasePlugins`。**三点与本节提案原文不同**：① **分发表不写 Id 字面量**（D200——路由靠遍历描述符比对 `Meta->Id`，生成物全部机械可导，没有「清单改了生成物没跟上」的漂移面；上方那张写 `strcmp` 的示例是提案形，落地形不含任何 Id 字面量）；② **pack 形走静态库、保活因此承重**（D199——凡对象库形态都会把对象全量塞进组合库，本节下半「保活问题」根本不出现；静态库「按需提取」才复现原始场景且可证伪）；③ **`VASE_PLUGIN` 宏新增编译期开关 `VASE_PLUGIN_PACK_OBJECT`**——不开即逐字退回今天的展开物，`kHeaderVersion` / 描述符布局 / 开发形导出集合三不动。**范围**：桌面三平台先行（Windows / Linux / macOS），移动产物（iOS `.a` / Android `.so`，即上面那条「唯一仍需交代的例外」）**留桩**，见 11.3。**定位**：组合库的唯一消费者是验证证人，仓库里没有产品——本波交付的是机制，不是某个产品的发布形（13.4 已裁定对外分发不做）。
+
+> **[N:1 包现状补注]** SHARED 继续导出固定的查询/枚举入口；STATIC 的分发表改为每个target专属
+> 双入口，并生成 `<target>.entries.h`，调用者从头中的 kEntryPoints 取得地址，不自己拼符号名。
+> 同一宿主可以链接无重叠Id的多个STATIC包，各自按sourceId绑定；两枚入口的硬引用把分发表和成员
+> 保活。§8.1旧M5注中的“枚举只给工具”是当时边界，本波Host整包预检也显式使用枚举，实例创建仍
+> 经查询入口。描述符布局、Plugin虚表与HeaderVersion未因这次宿主面扩展改变。
 
 ### 8.7 符号可见性与链接纪律（v3）
 
@@ -1551,6 +1614,19 @@ VaseCli doctor                  环境诊断，检查四项：
 
 > **[插件产物布局波 结案注（2026-10-03, spec `docs/superpowers/specs/2026-10-03-vase-plugin-artifact-layout-design.md` §5, D186）]** 上文「`scan` 在构建后自动运行（CMake 后置步骤）」自此**结案**——它**以「拷贝」形态兑现**：`vase_add_plugin_fixture`（规矩 5 的唯一出口）接受可选 `MANIFEST <path>`，POST_BUILD 把该清单 `copy_if_different` 成 `$<TARGET_FILE_DIR>/plugin.json`。这不是「划入 §13.4 明确不做」，是**换了形态的兑现**：清单**一律来自手写源**、构建期只拷贝、从不重生成，于是 M5 记的接线前置（划清「哪些目录允许自动重生成」）有了确定答案——**一个都没有**。`scan` 仍只是人的工具、**不接**后置步骤（其破坏性回写 D122/D134 保持原样、不新增护栏）。载体是 `Samples/{HelloPlugin,DependentPlugin,FailingPlugin}/plugin.json` 三份（§10 那三份随插件住的清单）。M5 记名欠账自此余 **VasePack** 一件。
 
+#### 包来源的命令能力（现状）
+
+| 命令 | 动态包 | 静态包 |
+|---|---|---|
+| scan | 目录模式更新已有pack.json；显式 `scan --package <库文件> --source-id <标识>` 引导生成，其他库不参与成员发现 | 普通CLI不扫描归档；已链接调用者通过共用生成件与显式双入口生成 |
+| validate | 每个源库枚举一次，完整Id集合与逐成员CompareDescriptor共用Host规则，再检查依赖与服务前缀 | 普通CLI检查文档/依赖/前缀，但描述符检查无法执行，报告未完成并返回检查失败；已链接调用者可传入口完成 |
+| plan | 使用Analyze，零装载输出决策与动态来源路径 | 同样零装载，输出inProcess来源与执行时需绑定；分析成功不代表已有可执行计划 |
+| doctor | 按源库去重身份、锁与装载检查，装载仍放在锁探针之后 | 磁盘身份/文件锁不适用，缺宿主入口的装载/版本检查明确未完成；根与包目录写探针仍执行 |
+
+四命令仍共用退出码0/1/2：完整通过、检查失败或必需验证无法完成、用法/环境错误。“不适用”不能
+代替“无法验证”。scan按Id保留现有可读文档的启用策略，新成员默认启用；损坏pack.json默认报错
+且保留字节，显式--regenerate才允许重建并重置策略。该CLI更新输入权威与§3.5构建生成的源码策略不同。
+
 ### 11.2 宿主重编译单个插件的流程（v3：全程局不死）
 
 这是 Vase 存在的主要用例。v2 的流程要先拆整局；v3 的叶插件重编译**只动目标插件，其余实例全程存活**：
@@ -1596,6 +1672,12 @@ VasePack pack <插件列表> --output VasePlugins
 > **[VasePack 现状注（2026-10-04, spec `docs/superpowers/specs/2026-10-04-vasepack-desktop-design.md` D196/D201）]** 本节上方的命令行形态（`VasePack pack <插件列表> --output VasePlugins`）**作废**——VasePack 落地为 **CMake 函数**而非独立工具，**没有 `Tools/VasePack/` 目录、没有可执行文件**；理由见 8.6 的现状注。上表**本波只兑现桌面三行**——Windows `VasePlugins.dll` / Linux `libVasePlugins.so` / macOS `libVasePlugins.dylib`，输出名 `VasePlugins`、**平铺在产物根**（D201——它不是插件 fixture、不设 `RUNTIME/LIBRARY_OUTPUT_DIRECTORY`，故不进插件子目录）；**Android / iOS 两行留桩**（移动产物本波不做）。下方「它属于构建期……」「它只依赖清单……」两段仍是提案：落地的分发表**不读清单、不写 Id 字面量**（D200），故「与 `VaseCli` 共享 `PluginCatalog` 的清单解析」描述的**不是**现存机制——组合库的 N:1 清单问题（`plugin.json` 是 1:1 形态）明记不做，`VaseCli` 面对组合库的行为本波不验、不保证。
 
 ---
+
+> **[N:1 发布链现状]** 上方“组合库N:1清单/装配明记不做”为2026-10-04历史范围，本波已由
+> pack.json、来源感知Catalog、生成头双入口和Host每局全成员预检兑现（§3.5/§5.1/§8.6）。
+> `vase_stage_pack` 提供调用者可复用的显式清单生成与目录发布目标，成员来源是实际描述符与源码策略，
+> 不读旧staging文档。普通VaseCli的静态能力边界见§11.1；真iOS/Android构建与交付形态仍留到移动波次，
+> 桌面动态/静态证人不替代移动验证。仓库当前仍是机制与验证证人，没有产品或对外分发工具。
 
 ## 12. 验证策略
 
@@ -1713,7 +1795,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 |---|---|
 | 构建系统 | CMake + vcpkg；编译矩阵由平台工具链文件承载（8.5） |
 | 目标平台 | Win x64 / Linux x64 / macOS **x64**（**开发 + 发布**；macOS 原口径 arm64，需求方 2026-10-01 裁定改 x64、arm64 永久移出——macOS 腿 spec D157，x64 腿 2026-10-02 已落）；Android arm64 / iOS arm64（**仅发布**）。工具链见 8.5 |
-| 插件形态 | 开发期每插件一个动态库；发布期由 VasePack 组合成一个库（8.5 / 8.6）。**发布期那一半已于 2026-10-04 落地**（VasePack 波 spec D196–D215：`Tools/VasePack` 工具形态改口为 **CMake 函数**、桌面三平台先行、移动产物留桩——见 8.6 现状注）。**静态链入（进程内来源）那半边已于 2026-10-10 落地**（静态链入波 spec D216–D241：`LoadPlanEntry::InProcessEntry` + `Loader::EnsureInProcess` + `vase_pack_plugins(... STATIC)`，桌面可证的一跳、与 iOS 机制逐字相同——见 8.1 / 8.6 现状注）。**余项：甲**（真 iOS / Android 构建腿——toolchain / triplet / preset / `LibraryFileName` 的 `.a` 支）、**乙**（移动产物形态——命名与发布落位）、**丁**（组合库的 N:1 清单 / 装配链），三者归下一波（spec §6.1） |
+| 插件形态 | 开发期每插件一个动态库；发布期组合库由CMake函数生成。2026-10-04桌面SHARED机制、2026-10-10进程内STATIC链入均已落，历史范围见§8.1/§8.6；本次N:1波进一步兑现包清单、目录发现、来源绑定、每局预检和显式生成/staging（§3.5/§5.1/§11.1）。**丁（N:1清单/装配链）已实现；余甲、乙**：真实iOS/Android工具链、triplet、preset，以及移动产物命名与交付落位。桌面验证不表述为移动端已验证。 |
 | 组合库入口 | VasePack 生成 `VasePlugin_GetPlugin(id)` 分发表，靠**硬引用**保活（8.6） |
 | JSON 库 | `nlohmann/json`，**且只出现在 `PluginCatalog` 层**（4.1） |
 | 配置 `type` 取值 | `bool` / `int32` / `int64` / `float` / `double` / `string` / `enum`；**不支持嵌套对象与数组**（4.2） |
@@ -1764,6 +1846,9 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 > **[M5波1 补两条（2026-09-28, spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D118/R1-Q1/风险 5/风险 6）]** **(a) 枚举入口缺失是一处刻意接受的不对称**：`VasePlugin_Descriptors`（8.1 补注）是纯追加的新导出、**不 bump `kHeaderVersion`**——同一个 `HeaderVersion` 下，老二进制**照常加载**（`VasePlugin_GetPlugin` 还在）而工具面**扫不了**。这是「第三类不兼容」（前两类是装不上与判据不符）；失败面已做成响亮——`scan` 点名原因（`binary has no VasePlugin_Descriptors entry (predates the M5 enumeration face)`），**不许**静默返回「零个插件」（R1-Q1）。记在这里是因为不对称本身是真的：看见哪一面由「工具版本 vs 插件构建先后」决定，而对这处不对称**没有任何闸**。**(b) 枚举面是契约不是机制**：`VasePlugin_Descriptors` 只给工具，宿主不得改走它——**没有任何机制阻止**日后宿主去用枚举面，这是 9.3 同类契束，如实记录，不假装有闸。
 
 **进程内来源（静态链入）上的进程级状态永无重置路径**（2026-10-10，spec D219/D229，静态链入波）。进程级状态的唯一重置触发点是 `EjectPlugin`，而进程内条目上的 `EjectPlugin` 在任何拆除动作之前一律拒（`linked-in binary cannot be ejected`）⇒ 静态链入插件的 `ProcessStates` 在进程生命周期内不被重置。**接受并记名**：Reset 是**二进制级**语义，而进程内来源的 binary 就是宿主自己；另两条路（给 `DestroyPod` 加 Reset / 新开 `ResetProcessStates(id)` 公开 API）分别改一条已定的 §8.1 语义、为目标平台（iOS 进程每次启动即新）上不存在的问题买单。这是与「档二 / 档三在进程内条目上不适用」（D221，如实上报不假装查过）同一族的**接受**，不是遗漏——机制与理由见 §9.1 现状注。
+
+> **[N:1波范围更新]** 旧M5风险(b)的“枚举只给工具、宿主不得使用”不再适用于包来源。
+> Host为每局全成员预检显式枚举并交叉核对查询入口，装配仍经查询；当前边界见§5.1与§8.6。
 
 ### 13.4 明确不做
 

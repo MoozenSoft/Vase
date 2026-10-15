@@ -1,0 +1,10 @@
+{
+    "schemaVersion": 1,
+    "id": "Vase.PackageProvider",
+    "displayName": "包提供方",
+    "version": "1.0.0",
+    "enabledByDefault": false,
+    "binary": "PackageProviderPlugin",
+    "provides": [ { "service": "Vase.PackageProvider.Counter", "version": 1 } ],
+    "config": [ { "key": "Value", "type": "int32", "default": 3 } ]
+}

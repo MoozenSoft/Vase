@@ -4,6 +4,8 @@
 add_library(VaseCliCore STATIC
     Cli.cpp
     Scan.cpp
+    PackageBuild.cpp
+    PackageStage.cpp
     Validate.cpp
     ManifestMerge.cpp
     Plan.cpp
@@ -36,6 +38,20 @@ add_test(NAME VaseCliUnknownSubcommandIsUsageError COMMAND VaseCli frobnicate)
 set_tests_properties(VaseCliUnknownSubcommandIsUsageError PROPERTIES WILL_FAIL TRUE)
 add_test(NAME VaseCliUnknownSubcommandReason COMMAND VaseCli frobnicate)
 set_tests_properties(VaseCliUnknownSubcommandReason PROPERTIES PASS_REGULAR_EXPRESSION "unknown command")
+
+# 显式包模式（T7，spec §5.2）：argv 分发与用法档（重名 / 缺值 / 多余 flag）由这两条端到端守，
+# 判据形状同上——WILL_FAIL 钉非零，兄弟用例只钉文本（两者不可合并）。
+add_test(NAME VaseCliScanPackageMissingValueIsUsageError COMMAND VaseCli scan --package)
+set_tests_properties(VaseCliScanPackageMissingValueIsUsageError PROPERTIES WILL_FAIL TRUE)
+add_test(NAME VaseCliScanPackageMissingValueReason COMMAND VaseCli scan --package)
+set_tests_properties(VaseCliScanPackageMissingValueReason PROPERTIES
+    PASS_REGULAR_EXPRESSION "usage: VaseCli scan --package")
+
+add_test(NAME VaseCliScanPackageExtraArgumentIsUsageError COMMAND VaseCli scan --package a --source-id b --regenerate c)
+set_tests_properties(VaseCliScanPackageExtraArgumentIsUsageError PROPERTIES WILL_FAIL TRUE)
+add_test(NAME VaseCliScanPackageExtraArgumentReason COMMAND VaseCli scan --package a --source-id b --regenerate c)
+set_tests_properties(VaseCliScanPackageExtraArgumentReason PROPERTIES
+    PASS_REGULAR_EXPRESSION "usage: VaseCli scan --package")
 
 add_test(NAME VaseCliPlanNoArgsIsUsageError COMMAND VaseCli plan)
 set_tests_properties(VaseCliPlanNoArgsIsUsageError PROPERTIES WILL_FAIL TRUE)

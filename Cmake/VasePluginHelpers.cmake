@@ -20,6 +20,11 @@
 set(VASE_PACK_INTERMEDIATE_DIR "${CMAKE_BINARY_DIR}/pack-objects")
 function(vase_add_plugin_fixture name)
     cmake_parse_arguments(FIX "PACK" "MANIFEST" "SOURCES;LINK_LIBRARIES" ${ARGN})
+    set(sourceManifest "")
+    if(FIX_MANIFEST)
+        get_filename_component(sourceManifest "${FIX_MANIFEST}" ABSOLUTE
+            BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
     add_library(${name} SHARED ${FIX_SOURCES})
     target_link_libraries(${name}
         PRIVATE VaseBuildOptions ${FIX_LINK_LIBRARIES})
@@ -27,6 +32,7 @@ function(vase_add_plugin_fixture name)
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN ON
         VASE_PLUGIN_CLASS "${name}"
+        VASE_PLUGIN_MANIFEST "${sourceManifest}"
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${name}")
 
@@ -35,7 +41,7 @@ function(vase_add_plugin_fixture name)
         # 只改源清单而不重链目标时不会重跑——不保证副本随源清单单独改动自动同步。
         add_custom_command(TARGET ${name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${FIX_MANIFEST}" "$<TARGET_FILE_DIR:${name}>/plugin.json"
+                    "${sourceManifest}" "$<TARGET_FILE_DIR:${name}>/plugin.json"
             COMMENT "staging plugin.json for ${name}")
     endif()
 
@@ -83,6 +89,7 @@ function(vase_pack_plugins target)
 
     set(VASE_PACK_DECLS "")
     set(VASE_PACK_ENTRIES "")
+    set(VASE_PACK_ENTRY_ITEMS "")
     foreach(plugin IN LISTS PACK_PLUGINS)
         if(NOT TARGET ${plugin}.Pack)
             message(FATAL_ERROR
@@ -95,27 +102,63 @@ function(vase_pack_plugins target)
         string(APPEND VASE_PACK_DECLS
             "extern \"C\" const ::vase::PluginDescriptor* VasePluginDesc_${pluginClass}();\n")
         string(APPEND VASE_PACK_ENTRIES "    VasePluginDesc_${pluginClass}(),\n")
+        list(APPEND VASE_PACK_ENTRY_ITEMS "VasePluginDesc_${pluginClass}()")
     endforeach()
 
+    # 单成员包写成单行：readability-trailing-comma 对单元素的**多行**初始化表两种形各报一条
+    # （带尾逗号报 should not have、不带报 should have），而生成的 TU 在 tidy 面内（D205）。
+    list(LENGTH PACK_PLUGINS packMemberCount)
+    if(packMemberCount EQUAL 1)
+        list(GET VASE_PACK_ENTRY_ITEMS 0 onlyEntry)
+        set(VASE_PACK_ENTRIES "${onlyEntry}")
+    else()
+        set(VASE_PACK_ENTRIES "\n${VASE_PACK_ENTRIES}")
+    endif()
+
+    set(VASE_PACK_LOOKUP "VasePlugin_GetPlugin")
+    set(VASE_PACK_ENUMERATE "VasePlugin_Descriptors")
+    set(linkage SHARED)
+    if(PACK_STATIC)
+        set(linkage STATIC)
+        string(MAKE_C_IDENTIFIER "${target}" entryKey)
+        string(TOLOWER "${entryKey}" entryKey)
+        get_property(entryKeys GLOBAL PROPERTY VASE_PACK_ENTRY_KEYS)
+        if(entryKey IN_LIST entryKeys)
+            get_property(entryOwner GLOBAL PROPERTY "VASE_PACK_ENTRY_OWNER_${entryKey}")
+            message(FATAL_ERROR
+                "vase_pack_plugins(${target}): STATIC 入口编码 ${entryKey} 与 ${entryOwner} 冲突")
+        endif()
+        set_property(GLOBAL APPEND PROPERTY VASE_PACK_ENTRY_KEYS "${entryKey}")
+        set_property(GLOBAL PROPERTY "VASE_PACK_ENTRY_OWNER_${entryKey}" "${target}")
+        set(VASE_PACK_LOOKUP "VasePack_${entryKey}_GetPlugin")
+        set(VASE_PACK_ENUMERATE "VasePack_${entryKey}_Descriptors")
+        set(VASE_PACK_ENTRY_NAMESPACE "vase::pack::${entryKey}")
+        set(entriesHeader "${CMAKE_CURRENT_BINARY_DIR}/${target}.entries.h")
+        configure_file(
+            "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/VasePackEntries.h.in"
+            "${entriesHeader}" @ONLY)
+    endif()
+
     configure_file(
-        "${CMAKE_SOURCE_DIR}/Cmake/VasePackDispatch.cpp.in"
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/VasePackDispatch.cpp.in"
         "${CMAKE_CURRENT_BINARY_DIR}/${target}.dispatch.cpp"
         @ONLY)
 
     # 缺省 SHARED（发布形，D201）；STATIC 是链接输入（本波 D222/D231），落中间目录。
-    set(linkage SHARED)
-    if(PACK_STATIC)
-        set(linkage STATIC)
-    endif()
     add_library(${target} ${linkage} "${CMAKE_CURRENT_BINARY_DIR}/${target}.dispatch.cpp")
     target_link_libraries(${target} PRIVATE VaseBuildOptions VasePod)
     set_target_properties(${target} PROPERTIES
         CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON)
+        VISIBILITY_INLINES_HIDDEN ON
+        VASE_PACK_MEMBERS "${PACK_PLUGINS}"
+        VASE_PACK_KIND "${linkage}")
     if(PACK_STATIC)
         set_target_properties(${target} PROPERTIES
             POSITION_INDEPENDENT_CODE ON
-            ARCHIVE_OUTPUT_DIRECTORY "${VASE_PACK_INTERMEDIATE_DIR}")
+            ARCHIVE_OUTPUT_DIRECTORY "${VASE_PACK_INTERMEDIATE_DIR}"
+            VASE_PACK_HEADER "${entriesHeader}"
+            VASE_PACK_ENTRY_NAMESPACE "${VASE_PACK_ENTRY_NAMESPACE}")
+        target_include_directories(${target} INTERFACE "${CMAKE_CURRENT_BINARY_DIR}")
     endif()
     foreach(plugin IN LISTS PACK_PLUGINS)
         target_link_libraries(${target} PRIVATE ${plugin}.Pack)

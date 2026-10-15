@@ -33,6 +33,7 @@ std::vector<std::string> Arguments(int argc, const char* const* argv)
 void PrintUsage(std::ostream& err)
 {
     err << "usage: VaseCli scan <插件目录>\n"
+           "       VaseCli scan --package <动态库文件> --source-id <标识> [--regenerate]\n"
            "       VaseCli validate <插件目录> [--host-provides <name>@<version>]...\n"
            "       VaseCli plan <插件目录> [presetFile] [--host-provides <name>@<version>]...\n"
            "       VaseCli doctor <插件目录>\n";
@@ -100,12 +101,13 @@ int Run(int argc, char** argv, std::ostream& out, std::ostream& err)
     const std::string_view command = args.front();
     if (command == "scan")
     {
-        if (args.size() != 2U)
+        // 目录模式逐字不变（第二个实参是目录名，不以 '-' 起首）；带 flag 的形态与其余参数错误一律交
+        // 显式包模式的固定形解析（spec §5.2 命令矩阵）——参数错即用法档，没有第三种形态。
+        if (args.size() == 2U && !std::next(args.begin(), 1)->starts_with('-'))
         {
-            PrintUsage(err);
-            return kExitUsage;
+            return RunScan(*std::next(args.begin(), 1), out, err);
         }
-        return RunScan(*std::next(args.begin(), 1), out, err);
+        return RunPackageScan(args, out, err);
     }
     if (command == "validate")
     {

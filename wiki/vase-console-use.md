@@ -10,7 +10,7 @@
 >   `docs/superpowers/specs/2026-09-25-vase-m2b-wave2-loading-verification-design.md` 的 §5.1（D85）。
 > - 构建命令、测试基数、各线前提：以 [`CLAUDE.md`](../CLAUDE.md)「构建与测试」为准，本文不复制。
 > - 机制本身（Loader、依赖账本、三档证据、加载期比对）以磁盘上的头文件与实现为准，本文只讲「怎么用、输出怎么读」。
-> - **不要与架构 §11.1 的 `Tools/VaseCli` 混为一谈**——那是尚不存在的清单扫描 / 校验工具，
+> - **不要与架构 §11.1 的 `Tools/VaseCli` 混为一谈**——它已提供 scan / validate / plan / doctor，
 >   与本验证台是两回事（CLAUDE.md「项目状态」一条有同样的提醒）。
 
 ## 目录
@@ -56,8 +56,8 @@ Vase 只负责发现插件、装配、运行、干净关停；`VaseConsole` 把�
 
 ## 2. 拿到二进制与启动
 
-按 [`CLAUDE.md`](../CLAUDE.md)「构建与测试」任选 preset 构建即可，`VaseConsole` 是六条线都建的
-target。**可执行在构建树的 `bin/`**，每个插件独占 `bin/<插件名>/`（Linux/macOS 是 `lib/<插件名>/`），
+按 [`CLAUDE.md`](../CLAUDE.md)「构建与测试」任选 preset 构建即可，`VaseConsole` 是各桌面 preset 都建的
+target。**可执行在构建树的 `bin/`**，开发插件独占 `bin/<插件名>/`（Linux/macOS 是 `lib/<插件名>/`），
 宿主可执行与框架库仍在产物根平铺（依赖解析依据见 `CLAUDE.md`「工具链 flag 是承重的」段）。
 
 ```
@@ -130,7 +130,7 @@ file show Vase.Hello
 | 命令 | 参数 | 作用 |
 |---|---|---|
 | `catalog refresh <pluginDir>` | 1 | 刷**会话级预览目录**（事务性 D58：成功才换预览），逐行列出 Id 与 warning |
-| `catalog solve [presetFile]` | 0–1 | 求解预览目录，逐行打计划（`load` / `skip <原因>`）与 Notes（§4.4 卖点展示面；不建局） |
+| `catalog solve [presetFile]` | 0–1 | 用Analyze预览决策、来源与Notes，零装载且不要求静态绑定；不产生可执行计划或建局 |
 | `pod new <pluginDir> [presetFile]` | 1–2 | **主链建局**并设为活动局：这一局**自持一份 catalog**、当场 Refresh→Solve→CreatePod（D85），条目自动带期望（D84），加载期比对默认生效；逐局以 `Strict=true` 装配 |
 | `pod new-raw <planFile>` | 1 | **旁路建局**：M1 的 plan 文件格式整体续命（第 5 节），`Expected=nullptr`、无比对 |
 | `pod use <index>` | 1 | 把已存活的局选为活动局（index 来自 `pod list`） |
@@ -157,6 +157,26 @@ file show Vase.Hello
 `file stage/install` 与两条清单命令的无局分支**不打字只判码**，`file show` / `file install`
 则报 `… is not in the active pod's plan`，`file install-manifest` 报
 `… is not in the catalog snapshot`。
+
+### 包目录与静态来源
+
+`catalog refresh` 与 `pod new` 使用同一Catalog发现规则：只扫根下一级子目录，动态包放pack.json
+与组合库，静态包可以只放pack.json；与单插件plugin.json共存于不同子目录。同一子目录同时有两份
+清单、全快照重复插件Id或重复包sourceId都拒绝。根上的清单与平铺库不参与发现，构建输出需先经
+显式stage目标形成发布目录；接口和示例见 [README](../README.md#发布包的生成与装配)。
+
+`catalog solve` 已使用纯数据Analyze，两种来源都能预览，load/skip行尾带来源信息。`pod new` 仍
+调用无静态绑定的Solve：参与的inProcess包会报缺绑定，全部跳过的静态包可正常略过。VaseConsole
+自身没有链接/绑定产品静态包；真实双STATIC装配由嵌入宿主使用生成头的两入口与sourceId绑定完成。
+
+动态包建局每次都先检查参与包的全部成员，包含禁用兄弟；漂移在Stage0/实例创建前导致整局Err。
+预检失败可能已加载镜像，镜像留架而没有Pod句柄，退出Host时收走；框架不自动回滚镜像或Reset。
+`pod new` 的Strict只控制插件自身回调失败，不能把包输入不一致变成带失败记录的半成品局。
+
+`adopt` 已支持动态包来源，会按快照位置重读pack.json中的目标成员。`file install` 登记的是库路径，
+同包不同Id可能指向同一文件，换库须满足全部持有者的卸载条件。`file install-manifest` 当前仍写
+plugin.json，包清单应由部署流程替换实际pack.json；不能用该命令更新包文档或新增同目录双清单。
+现有§7的双install回放使用单插件清单，不能直接套到包清单上。
 
 ## 5. plan 文件格式（`pod new-raw` 旁路）
 
@@ -213,7 +233,8 @@ rc=0
 - `counters diff` 的基线是**建局时刻**：一局建了又拆干净，五个计数应回到 0——
   任何非零都是一处没还干净的账（残留在 `residual:` 行逐个点名）；
 - `hotswap log (0)` 空着，因为这一局没有进出；有进出时每条记 `eject:<id>` / `adopt:<id>`；
-- 主链建局带**静态跳过**时会在 `  plugin:` 行后补 `  skip: <id> (<原因>)` 行（`pod new` 只打静态段；
+- 主链建局带**静态跳过**时会在 `  plugin:` 行后补 `  skip: <id> (<原因>)` 行（这里“静态”指求解期决策；
+  `pod new` 只打静态段；
   完整计划与 Notes 的展示面在 `catalog solve`）。
 
 多局并存时 `pod new` / `pod new-raw` / `pod use` 切换活动局，`eject`、`adopt`、`get` 等命令

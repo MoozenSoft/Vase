@@ -10,9 +10,7 @@
 #include <cstdint>
 #include <string_view>
 
-// NOLINTBEGIN(readability-identifier-naming) 本文件通篇是 ABI 契约名（`VasePlugin_GetPlugin` /
-// `VasePlugin_Descriptors` / 生成的 `VasePluginDesc_<类名>`）——extern "C" 的约定名，改不动、无代码级
-// 出路（插件 TU 里同名出自宏展开、被 tidy 跳过；生成的源不是宏，故在此说明）。
+// NOLINTBEGIN(readability-identifier-naming) 生成的 extern "C" 名是入口契约，无代码级改名出路。
 @VASE_PACK_DECLS@
 
 namespace
@@ -22,7 +20,7 @@ const std::array kVasePluginTable{@VASE_PACK_ENTRIES@};
 
 } // namespace
 
-extern "C" VASE_EXPORT const ::vase::PluginDescriptor* VasePlugin_GetPlugin(const char* id)
+extern "C" VASE_EXPORT const ::vase::PluginDescriptor* @VASE_PACK_LOOKUP@(const char* id)
 {
     if (id == nullptr)
     {
@@ -39,7 +37,7 @@ extern "C" VASE_EXPORT const ::vase::PluginDescriptor* VasePlugin_GetPlugin(cons
     return nullptr;
 }
 
-extern "C" VASE_EXPORT const ::vase::PluginDescriptor* const* VasePlugin_Descriptors(::std::uint32_t* outCount)
+extern "C" VASE_EXPORT const ::vase::PluginDescriptor* const* @VASE_PACK_ENUMERATE@(::std::uint32_t* outCount)
 {
     *outCount = static_cast<::std::uint32_t>(kVasePluginTable.size());
     return kVasePluginTable.data();

@@ -1,6 +1,7 @@
 #pragma once
 
-// plan（M6/D141/D145）：Refresh → LoadPreset(可选) → Solve → 打印。零装载的全工具唯一预览腿。
+// plan（M6/D141/D145，T8 改用 Analyze）：Refresh → LoadPreset(可选) → Analyze → 打印。
+// 零装载的全工具唯一预览腿；进程内来源只报「执行时需宿主绑定」，不宣称已取得可执行计划。
 
 #include "Vase/PluginDescriptor.h" // ServiceRef
 

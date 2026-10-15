@@ -81,6 +81,14 @@ struct PluginDescriptor
 // 定义住在这里：它命名的就是上面那个契约的入口，别处再写一份即是同类型的第二份声明。
 using PluginEntryPoint = const PluginDescriptor* (*)(const char*);
 
+using PluginEnumerationEntryPoint = const PluginDescriptor* const* (*)(std::uint32_t*);
+
+struct PackageEntryPoints
+{
+    PluginEntryPoint Lookup = nullptr;
+    PluginEnumerationEntryPoint Enumerate = nullptr;
+};
+
 // 上面那条「HeaderVersion 是第一个字段」由布局断言承重：PluginHost 的加载路径就按这个
 // 偏移先读它（§3.1/§8.3），改动字段顺序会在这里编译期失败，而不是运行期读到垃圾。
 static_assert(offsetof(PluginDescriptor, HeaderVersion) == 0,

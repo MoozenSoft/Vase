@@ -28,14 +28,6 @@ Result<void> CheckHeaderVersion(const PluginDescriptor& desc)
 
 } // namespace vase::detail
 
-namespace
-{
-
-// 枚举入口的签名（§8.1 家族同形）：与 VASE_PLUGIN 生成的 VasePlugin_Descriptors 一致。
-using EnumerationEntryPoint = const vase::PluginDescriptor* const* (*)(std::uint32_t*);
-
-} // namespace
-
 namespace vase
 {
 
@@ -51,7 +43,16 @@ Result<std::vector<const PluginDescriptor*>> InspectDescriptors(const detail::Bi
 
     // void* → 函数指针只有 reinterpret_cast 一条路（与 InspectBinary 同一处、同理由）。
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    const auto enumerate = reinterpret_cast<EnumerationEntryPoint>(symbol.Value());
+    const auto enumerate = reinterpret_cast<PluginEnumerationEntryPoint>(symbol.Value());
+    return InspectDescriptors(enumerate);
+}
+
+Result<std::vector<const PluginDescriptor*>> InspectDescriptors(PluginEnumerationEntryPoint enumerate)
+{
+    if (enumerate == nullptr)
+    {
+        return Result<std::vector<const PluginDescriptor*>>::Err(Error{"VasePlugin_Descriptors entry is null"});
+    }
     std::uint32_t count = 0;
     const PluginDescriptor* const* all = enumerate(&count);
     if (all == nullptr || count == 0U)

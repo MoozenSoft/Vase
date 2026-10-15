@@ -1,0 +1,19 @@
+#pragma once
+
+#include "Vase/PluginDescriptor.h"
+
+// 声明不挂 VASE_EXPORT：导出是定义侧属性——生成 TU 里的定义处才挂宏，STATIC 消费者亦然。
+// NOLINTBEGIN(readability-identifier-naming) C 入口名由生成器确定，必须与对应分发表逐字一致。
+extern "C" const ::vase::PluginDescriptor* @VASE_PACK_LOOKUP@(const char* id);
+extern "C" const ::vase::PluginDescriptor* const* @VASE_PACK_ENUMERATE@(::std::uint32_t* outCount);
+// NOLINTEND(readability-identifier-naming)
+
+namespace @VASE_PACK_ENTRY_NAMESPACE@
+{
+
+inline constexpr PackageEntryPoints kEntryPoints{
+    .Lookup = &@VASE_PACK_LOOKUP@,
+    .Enumerate = &@VASE_PACK_ENUMERATE@,
+};
+
+} // namespace @VASE_PACK_ENTRY_NAMESPACE@

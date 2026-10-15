@@ -9,6 +9,17 @@ add_subdirectory(fixtures/KeepAliveProbe)
 # 只是多给一个 STATIC。产物落 VASE_PACK_INTERMEDIATE_DIR（D231）。
 vase_pack_plugins(VasePluginsStatic PLUGINS HelloPlugin DependentPlugin FailingPlugin STATIC)
 
+vase_stage_pack(VaseReleaseStaticSamples
+    PACK_TARGET VasePluginsStatic
+    SOURCE_ID StaticSamples
+    OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Tests/Package/release samples/samples")
+add_custom_target(VasePackageReleaseStage DEPENDS
+    VaseReleaseDynamic VaseReleaseProvider VaseReleaseConsumer VaseReleaseStaticSamples)
+add_test(NAME PackageReleaseStage
+    COMMAND ${vaseTestBuildCommand} --build "${CMAKE_BINARY_DIR}" --target VasePackageReleaseStage)
+set_tests_properties(PackageReleaseStage PROPERTIES
+    FIXTURES_SETUP PackageReleaseStage RESOURCE_LOCK PackageReleaseOutputs)
+
 add_executable(VaseStaticLinkTests
     StaticLinkTests.cpp)
 
@@ -20,13 +31,26 @@ target_link_libraries(VaseStaticLinkTests
             GTest::gtest_main)
 
 # 保活探针的探测机制按平台分岔，代码在 StaticLinkTests.cpp（spec §5.2）：
-# ELF / Mach-O 走 __attribute__((weak))，Windows 两线走「读产物符号表」——COFF 无可靠弱引用
-# 且 /alternatename 实测不阻止归档提取，故**不接链接器指令、不链替身源**（与 brief 的初版不同）。
+# ELF 走弱符号，Mach-O 走 dlsym，Windows 走产物导出表；各支的负例与对照用同一机制。
 
-# 入口声明见 StaticLinkTests.cpp 顶部的 extern "C" 声明：静态链入时 VasePlugin_GetPlugin
-# 就是本可执行里的一个普通符号（由分发表 TU 定义，Cmake/VasePackDispatch.cpp.in），
-# 没有 dllexport/import 那一套可谈。
+# STATIC 包通过生成的声明头取址，专属入口只拉取本包成员。
 
 include(GoogleTest)
 gtest_discover_tests(VaseStaticLinkTests
     DISCOVERY_MODE PRE_TEST)
+
+add_executable(VaseMultiPackageLinkTests MultiPackageLinkTests.cpp PackageAssemblyTests.cpp)
+target_link_libraries(VaseMultiPackageLinkTests
+    PRIVATE VaseBuildOptions VaseHost VaseCatalog VaseCliCore PackageServices
+            VasePackageProvider VasePackageConsumer VasePluginsStatic GTest::gtest_main)
+target_include_directories(VaseMultiPackageLinkTests PRIVATE ../TestingSupport)
+target_compile_definitions(VaseMultiPackageLinkTests PRIVATE
+    VASE_PACKAGE_STATIC_STAGE="$<PATH:CMAKE_PATH,${CMAKE_BINARY_DIR}/Tests/Package/release static>"
+    VASE_PACKAGE_STATIC_SAMPLE_STAGE="$<PATH:CMAKE_PATH,${CMAKE_BINARY_DIR}/Tests/Package/release samples/samples>")
+gtest_discover_tests(VaseMultiPackageLinkTests
+    DISCOVERY_MODE PRE_TEST
+    TEST_FILTER "-StaticPackageAssembly.*")
+gtest_discover_tests(VaseMultiPackageLinkTests
+    DISCOVERY_MODE PRE_TEST
+    TEST_FILTER "StaticPackageAssembly.*"
+    PROPERTIES FIXTURES_REQUIRED PackageReleaseStage)

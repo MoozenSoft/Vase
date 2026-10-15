@@ -7,12 +7,14 @@
 
 #include "Vase/Host/ConfigBlob.h"
 #include "Vase/Host/ManifestExpectation.h"
+#include "Vase/Host/PackagePlan.h"
 #include "Vase/PluginDescriptor.h"
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -51,11 +53,18 @@ struct LoadPlanEntry
     // NOLINTNEXTLINE(readability-redundant-member-init) NSDMI 为省略豁免所必需，同 ManifestExpectation.h。
     std::optional<ManifestExpectation> Expected = {}; // D67/D68：有值 = InspectBinary 闸后逐字段比对；
     // 空 = M2a 行为原样（手写计划的既有测试材料零改动）。拥有值形，plan 拷贝/移动自包含。
+    // T5：所属包来源键（自持）。包成员 = 包 sourceId；单插件来源与原始手写计划 = 空
+    // （「单插件来源不伪装成包」）。计划拷贝/移动因此自包含。
+    // NOLINTNEXTLINE(readability-redundant-member-init) NSDMI 为指定初始化省略豁免所必需，同 Expected。
+    std::string PackageSourceId = {};
 };
 
 struct LoadPlan
 {
     std::vector<LoadPlanEntry> Ordered;
+    // T5：参与包（本局有 kLoad 成员）的整包信息，含被跳过的成员；全跳过包不出现
+    // （免加载/绑定）。空 = 无包参与或原始逐条目计划。
+    std::vector<PackagePlanSource> PackageSources;
 };
 
 struct PodOptions

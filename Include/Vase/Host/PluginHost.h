@@ -89,6 +89,10 @@ public:
     // 测试缝（T9，只读）：账本边数。生产消费者是 T10 的 Eject 反查（§5.6 规则③）。
     [[nodiscard]] std::size_t ForTestLedgerEdgeCount() const { return Ledger.EdgeCount(); }
 
+    // 测试缝（T6，只读）：Loader 驻留记录数——验证预检失败后镜像仍留架、全跳过包不碰 Loader。
+    // 交出的只是条数，不是句柄/地址（spec §4.3 的观察面）。
+    [[nodiscard]] std::size_t ForTestResidentBinaryCount() const { return Loader.ResidentBinaryCount(); }
+
 private:
     struct PodSlot
     {

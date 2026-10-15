@@ -1,13 +1,15 @@
 #include "Vase/Catalog/PluginCatalog.h"
 
-#include "Vase/Catalog/LibraryFileName.h"
+#include "Vase/Catalog/Analysis.h"
 #include "Vase/Catalog/LoadRequest.h"
 #include "Vase/Catalog/ManifestView.h"
+#include "Vase/Catalog/PackageManifest.h"
 #include "Vase/Config/Value.h"
 #include "Vase/Detail/Fail.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/ConfigBlob.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/PackagePlan.h"
 #include "Vase/PluginDescriptor.h"
 
 #include "Detail/ChoiceCoerce.h"
@@ -22,6 +24,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -279,11 +282,11 @@ enum class ExactState : std::uint8_t
 
 } // namespace
 
-Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
+Result<AnalysisOutcome> PluginCatalog::Analyze(const LoadRequest& request) const
 {
     if (!HasScanned)
     {
-        return Result<SolveOutcome>::Err(SolveError("no snapshot — call Refresh first (D63)"));
+        return Result<AnalysisOutcome>::Err(SolveError("no snapshot — call Refresh first (D63)"));
     }
 
     for (auto outer = request.Overrides.begin(); outer != request.Overrides.end(); ++outer)
@@ -292,7 +295,7 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
         {
             if (inner->Id == outer->Id)
             {
-                return Result<SolveOutcome>::Err(
+                return Result<AnalysisOutcome>::Err(
                     SolveError("duplicate override entry for id \"" + outer->Id + "\" (D64)"));
             }
         }
@@ -311,7 +314,7 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
         layers.push_back(&overrideEntry);
     }
 
-    SolveOutcome outcome;
+    AnalysisOutcome outcome;
 
     // 验证与归因（D66：跑快照全量，与本局参与与否无关）。
     for (const PluginOverride* layer : layers)
@@ -349,17 +352,18 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
             {
                 if (field->Kind == ValueKind::kEnum)
                 {
-                    return Result<SolveOutcome>::Err(SolveError("override for \"" + entry->Id + "\" key \"" + kv.Key +
-                                                                "\": " + EnumMismatchText(raw, *field) + " (D80)"));
+                    return Result<AnalysisOutcome>::Err(SolveError("override for \"" + entry->Id + "\" key \"" +
+                                                                   kv.Key + "\": " + EnumMismatchText(raw, *field) +
+                                                                   " (D80)"));
                 }
-                return Result<SolveOutcome>::Err(SolveError("override for \"" + entry->Id + "\" key \"" + kv.Key +
-                                                            "\": type mismatch, manifest declares " +
-                                                            std::string(KindName(field->Kind))));
+                return Result<AnalysisOutcome>::Err(SolveError("override for \"" + entry->Id + "\" key \"" + kv.Key +
+                                                               "\": type mismatch, manifest declares " +
+                                                               std::string(KindName(field->Kind))));
             }
             if (OutOfRange(*field, *coerced))
             {
-                return Result<SolveOutcome>::Err(SolveError("override for \"" + entry->Id + "\" key \"" + kv.Key +
-                                                            "\": value out of manifest range"));
+                return Result<AnalysisOutcome>::Err(SolveError("override for \"" + entry->Id + "\" key \"" + kv.Key +
+                                                               "\": value out of manifest range"));
             }
         }
     }
@@ -542,14 +546,14 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
             const ServiceKey key{provided.Service, provided.Version};
             if (hostProvides(key.first, key.second))
             {
-                return Result<SolveOutcome>::Err(SolveError("service \"" + key.first + "\"@" +
-                                                            std::to_string(key.second) + "\" provided by plugin \"" +
-                                                            entry.Id + "\" collides with HostProvided (D60)"));
+                return Result<AnalysisOutcome>::Err(SolveError("service \"" + key.first + "\"@" +
+                                                               std::to_string(key.second) + "\" provided by plugin \"" +
+                                                               entry.Id + "\" collides with HostProvided (D60)"));
             }
             const auto [it, inserted] = claimedBy.emplace(key, index);
             if (!inserted)
             {
-                return Result<SolveOutcome>::Err(SolveError(
+                return Result<AnalysisOutcome>::Err(SolveError(
                     "service \"" + key.first + "\"@" + std::to_string(key.second) + "\" provided by both \"" +
                     At(SnapshotEntries, it->second).Id + "\" and \"" + entry.Id + "\""));
             }
@@ -637,17 +641,29 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
                 listed += "\"" + At(SnapshotEntries, index).Id + "\" ";
             }
         }
-        return Result<SolveOutcome>::Err(
+        return Result<AnalysisOutcome>::Err(
             SolveError("dependency cycle or blocked plugins: " + listed + "(hard & pure-optional edges bite, D52)"));
     }
 
-    // ⑥⑦⑧ 条目装配：kLoad 段 = 拓扑序；kSkip 段尾随、按快照 Id 序。
-    const auto buildLoadEntry = [&](std::size_t index)
+    // ⑥⑦⑧ 分析结果装配：kLoad 段 = 拓扑序；kSkip 段尾随、按快照 Id 序。
+    // 与来源表的关系是只读的：查表取得来源事实，不重扫目录、不重解析清单（T4 的唯一维护处约束）。
+    const auto sourceOf = [this](std::string_view sourceId) -> const CatalogSource*
+    {
+        const auto it = std::ranges::find(SnapshotSources, sourceId, &CatalogSource::Id);
+        return it == SnapshotSources.end() ? nullptr : &*it;
+    };
+    const auto buildAnalyzed = [&](std::size_t index, bool load) -> AnalyzedPlugin
     {
         const ManifestEntry& entry = At(SnapshotEntries, index);
-        LoadPlanEntry planEntry;
-        planEntry.Id = entry.Id; // 借快照（D61）
-        planEntry.BinaryPath = SnapshotDirectory / entry.Subdirectory / catalog_detail::LibraryFileName(entry.Binary);
+        const CatalogSource* source = sourceOf(entry.SourceId);
+        if (source == nullptr)
+        {
+            detail::ProgrammerError("Analyze: snapshot entry without a source");
+        }
+        AnalyzedPlugin analyzed;
+        analyzed.Id = entry.Id; // 自持：分析结果可安全 move，也能活过快照
+        analyzed.SourceId = source->Id;
+        analyzed.Kind = source->Kind;
         ConfigBlob merged;
         for (const ManifestConfigField& field : entry.Config)
         {
@@ -686,14 +702,20 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
                 }
             }
         }
-        planEntry.ResolvedConfig = std::move(merged);
-        planEntry.Expected = BuildExpectation(entry); // D84：深拷、无借用窗；CreatePod/Adopt 从此有期望可验
-        return planEntry;
+        if (load)
+        {
+            analyzed.ResolvedConfig = std::move(merged); // 仅 kLoad 填（与旧计划条目同权）
+        }
+        analyzed.Expected = BuildExpectation(entry); // D84：深拷、无借用窗；CreatePod/Adopt 从此有期望可验
+        analyzed.Decision = load ? LoadDecision::kLoad : LoadDecision::kSkip;
+        analyzed.Reason = load ? SkipReason{} : At(reasons, index);
+        return analyzed;
     };
 
+    outcome.Ordered.reserve(SnapshotEntries.size());
     for (const std::size_t index : loadOrder)
     {
-        outcome.Plan.Ordered.push_back(buildLoadEntry(index));
+        outcome.Ordered.push_back(buildAnalyzed(index, true));
     }
     for (std::size_t index = 0; index < SnapshotEntries.size(); ++index)
     {
@@ -701,14 +723,185 @@ Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
         {
             continue;
         }
-        const ManifestEntry& entry = At(SnapshotEntries, index);
-        LoadPlanEntry skip;
-        skip.Id = entry.Id;
-        skip.BinaryPath = SnapshotDirectory / entry.Subdirectory / catalog_detail::LibraryFileName(entry.Binary);
-        skip.Decision = LoadDecision::kSkip;
-        skip.Reason = At(reasons, index);        // kDisabled / kMissingDependency / kVersionMismatch
-        skip.Expected = BuildExpectation(entry); // kSkip 亦填（D84）——条目与清单同权，读侧不分类
-        outcome.Plan.Ordered.push_back(std::move(skip));
+        // kSkip 亦带 Expected（D84）——条目与清单同权，读侧不分类。
+        outcome.Ordered.push_back(buildAnalyzed(index, false));
+    }
+    return Result<AnalysisOutcome>::Ok(std::move(outcome));
+}
+
+Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request) const
+{
+    return Solve(request, std::span<const InProcessBinding>{});
+}
+
+Result<SolveOutcome> PluginCatalog::Solve(const LoadRequest& request, std::span<const InProcessBinding> bindings) const
+{
+    Result<AnalysisOutcome> analyzed = Analyze(request);
+    if (!analyzed.IsOk())
+    {
+        return Result<SolveOutcome>::Err(analyzed.GetError());
+    }
+    const AnalysisOutcome& analysis = analyzed.Value();
+
+    // 绑定校验（spec §4.2）：重复 sourceId、缺任一入口、未知或动态来源、两来源同查询入口逐条拒绝。
+    // 绑定是调用方的声明而非可忽略的提示——任何一处不合规都整局 Err。
+    const auto sourceOf = [this](std::string_view sourceId) -> const CatalogSource*
+    {
+        const auto it = std::ranges::find(SnapshotSources, sourceId, &CatalogSource::Id);
+        return it == SnapshotSources.end() ? nullptr : &*it;
+    };
+    std::vector<std::pair<std::string_view, PluginEntryPoint>> seen;
+    seen.reserve(bindings.size());
+    for (const InProcessBinding& binding : bindings)
+    {
+        for (const auto& [heldSource, heldLookup] : seen)
+        {
+            if (heldSource == binding.SourceId)
+            {
+                return Result<SolveOutcome>::Err(
+                    SolveError("duplicate in-process binding for source \"" + std::string(binding.SourceId) + "\""));
+            }
+            if (heldLookup != nullptr && heldLookup == binding.Entries.Lookup)
+            {
+                return Result<SolveOutcome>::Err(
+                    SolveError("in-process binding for \"" + std::string(binding.SourceId) +
+                               "\" reuses the lookup entry of \"" + std::string(heldSource) + "\""));
+            }
+        }
+        if (binding.Entries.Lookup == nullptr || binding.Entries.Enumerate == nullptr)
+        {
+            return Result<SolveOutcome>::Err(SolveError("in-process binding for \"" + std::string(binding.SourceId) +
+                                                        "\" needs both lookup and enumeration entries"));
+        }
+        const CatalogSource* source = sourceOf(binding.SourceId);
+        if (source == nullptr)
+        {
+            return Result<SolveOutcome>::Err(
+                SolveError("in-process binding names unknown source \"" + std::string(binding.SourceId) + "\""));
+        }
+        if (!source->IsPackage || source->Kind != PackageSourceKind::kInProcess)
+        {
+            return Result<SolveOutcome>::Err(
+                SolveError("source \"" + std::string(binding.SourceId) + "\" is not an in-process package source"));
+        }
+        seen.emplace_back(binding.SourceId, binding.Entries.Lookup);
+    }
+
+    const auto bindingFor = [bindings](std::string_view sourceId) -> const InProcessBinding*
+    {
+        for (const InProcessBinding& binding : bindings)
+        {
+            if (binding.SourceId == sourceId)
+            {
+                return &binding;
+            }
+        }
+        return nullptr;
+    };
+
+    std::map<std::string_view, LoadDecision> decisions;
+    for (const AnalyzedPlugin& plugin : analysis.Ordered)
+    {
+        decisions.emplace(plugin.Id, plugin.Decision);
+    }
+
+    SolveOutcome outcome;
+    outcome.Notes = analysis.Notes;
+    outcome.Plan.Ordered.reserve(analysis.Ordered.size());
+    for (const AnalyzedPlugin& plugin : analysis.Ordered)
+    {
+        const ManifestEntry* held = Find(plugin.Id); // Id 的唯一借用窗 = 快照（D61）——不借临时分析结果
+        if (held == nullptr)
+        {
+            detail::ProgrammerError("Solve: analyzed plugin without a snapshot entry");
+        }
+        const CatalogSource* source = sourceOf(held->SourceId);
+        if (source == nullptr)
+        {
+            detail::ProgrammerError("Solve: snapshot entry without a source");
+        }
+        LoadPlanEntry entry;
+        entry.Id = held->Id;
+        entry.Decision = plugin.Decision;
+        entry.Reason = plugin.Reason;
+        entry.ResolvedConfig = plugin.ResolvedConfig;
+        entry.Expected = plugin.Expected;
+        if (source->IsPackage)
+        {
+            entry.PackageSourceId = source->Id; // 只有包条目带关联键；单插件来源不伪装成包
+        }
+        if (source->Kind == PackageSourceKind::kInProcess)
+        {
+            // 静态条目不给磁盘路径（spec §4.2）；只有 kLoad 条目要求绑定，跳过条目不触发装载。
+            if (plugin.Decision == LoadDecision::kLoad)
+            {
+                const InProcessBinding* binding = bindingFor(held->SourceId);
+                if (binding == nullptr)
+                {
+                    return Result<SolveOutcome>::Err(SolveError("in-process source \"" + source->Id +
+                                                                "\" has no entry binding for plugin \"" + plugin.Id +
+                                                                "\""));
+                }
+                entry.InProcessEntry = binding->Entries.Lookup; // 只复制函数指针，不执行入口
+            }
+        }
+        else
+        {
+            entry.BinaryPath = source->BinaryPath;
+        }
+        outcome.Plan.Ordered.push_back(std::move(entry));
+    }
+
+    // 整包信息按来源表序产出（不是 Id 序）；Members = 该来源**全部**成员期望，含被跳过的成员
+    // （spec §4.2 末段）——「清单只列一员、实际多员」的比对面就在这里。全跳过包不进计划。
+    for (const CatalogSource& source : SnapshotSources)
+    {
+        if (!source.IsPackage)
+        {
+            continue;
+        }
+        bool participates = false;
+        for (const std::string& member : source.MemberIds)
+        {
+            const auto it = decisions.find(member);
+            if (it != decisions.end() && it->second == LoadDecision::kLoad)
+            {
+                participates = true;
+                break;
+            }
+        }
+        if (!participates)
+        {
+            continue; // 全跳过包免加载/绑定（global constraint）
+        }
+        PackagePlanSource planSource;
+        planSource.SourceId = source.Id;
+        planSource.Kind = source.Kind;
+        if (source.Kind == PackageSourceKind::kInProcess)
+        {
+            const InProcessBinding* binding = bindingFor(source.Id);
+            if (binding == nullptr)
+            {
+                // kLoad 条目在上面的循环里已逐个要过绑定；走到这里说明来源表与条目集不自洽。
+                detail::ProgrammerError("Solve: participating in-process package without a binding");
+            }
+            planSource.Entries = binding->Entries;
+        }
+        else
+        {
+            planSource.BinaryPath = source.BinaryPath;
+        }
+        planSource.Members.reserve(source.MemberIds.size());
+        for (const std::string& member : source.MemberIds)
+        {
+            const ManifestEntry* held = Find(member);
+            if (held == nullptr)
+            {
+                detail::ProgrammerError("Solve: package member without a snapshot entry");
+            }
+            planSource.Members.push_back(BuildExpectation(*held));
+        }
+        outcome.Plan.PackageSources.push_back(std::move(planSource));
     }
     return Result<SolveOutcome>::Ok(std::move(outcome));
 }

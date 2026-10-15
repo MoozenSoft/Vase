@@ -1,12 +1,15 @@
 #include "Plan.h"
 
+#include "../SourceText.h"
 #include "Cli.h"
+#include "Vase/Catalog/Analysis.h"
 #include "Vase/Catalog/LoadRequest.h"
 #include "Vase/Catalog/ManifestView.h"
 #include "Vase/Catalog/PluginCatalog.h"
 #include "Vase/Catalog/Preset.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/LoadPlan.h"
+#include "Vase/Host/PackagePlan.h"
 #include "Vase/PluginDescriptor.h"
 
 #include <cstddef>
@@ -101,14 +104,16 @@ int PlanDirectory(const PlanOptions& options, std::ostream& out, std::ostream& e
     }
 
     request.HostProvided = std::span<const vase::ServiceRef>(options.HostProvided);
-    const vase::Result<vase::SolveOutcome> solved = catalog.Solve(request);
-    if (!solved.IsOk())
+    // T8/spec §5.2 plan 行：改用 Analyze——零装载、不查绑定，故动态文件缺失或静态来源无绑定时
+    // 照样出分析结果；分析成功不宣称已取得可执行计划（见下 verdict）。
+    const vase::Result<vase::AnalysisOutcome> analyzed = catalog.Analyze(request);
+    if (!analyzed.IsOk())
     {
-        out << "plan: FAIL: " << solved.GetError().Message() << '\n'; // D127 原文透传同律
+        out << "plan: FAIL: " << analyzed.GetError().Message() << '\n'; // D127 原文透传同律
         return kExitCheckFailed;
     }
 
-    const std::vector<vase::LoadPlanEntry>& ordered = solved.Value().Plan.Ordered;
+    const std::vector<vase::AnalyzedPlugin>& ordered = analyzed.Value().Ordered;
     out << "plan: " << ordered.size() << " entries";
     if (options.PresetFile.has_value())
     {
@@ -117,12 +122,14 @@ int PlanDirectory(const PlanOptions& options, std::ostream& out, std::ostream& e
     out << '\n';
 
     std::size_t hardSkips = 0;
+    bool needsRuntimeBinding = false;
     std::size_t index = 1;
-    for (const vase::LoadPlanEntry& entry : ordered)
+    for (const vase::AnalyzedPlugin& entry : ordered)
     {
         if (entry.Decision == vase::LoadDecision::kLoad)
         {
-            out << "  " << index << ". " << entry.Id << " load\n";
+            out << "  " << index << ". " << entry.Id << " load (" << tools::SourceText(catalog, entry) << ")\n";
+            needsRuntimeBinding = needsRuntimeBinding || entry.Kind == vase::PackageSourceKind::kInProcess;
         }
         else
         {
@@ -136,11 +143,12 @@ int PlanDirectory(const PlanOptions& options, std::ostream& out, std::ostream& e
                 ++hardSkips; // 两硬值同计入（合并两 case 过 bugprone-branch-clone，语义不变）
                 break;
             }
-            out << "  " << index << ". " << entry.Id << " skip " << SkipReasonText(entry.Reason) << '\n';
+            out << "  " << index << ". " << entry.Id << " skip " << SkipReasonText(entry.Reason) << " ("
+                << tools::SourceText(catalog, entry) << ")\n";
         }
         ++index;
     }
-    for (const vase::SolveNote& note : solved.Value().Notes)
+    for (const vase::SolveNote& note : analyzed.Value().Notes)
     {
         out << "  note: " << SolveNoteKindText(note.Kind) << " " << note.PluginId;
         if (!note.Key.empty())
@@ -160,6 +168,12 @@ int PlanDirectory(const PlanOptions& options, std::ostream& out, std::ostream& e
         out << "plan: FAIL (" << hardSkips << (hardSkips == 1U ? " entry" : " entries")
             << " skipped with a hard reason)\n";
         return kExitCheckFailed;
+    }
+    if (needsRuntimeBinding)
+    {
+        // 进程内来源的入口没法从 argv 得到：分析成功，但可执行计划要等宿主绑定（spec §5.2 末段）。
+        out << "plan: analyzed (in-process sources need the host binding at execution time)\n";
+        return kExitOk;
     }
     out << "plan: ok\n";
     return kExitOk;

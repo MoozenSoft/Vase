@@ -1,0 +1,9 @@
+{
+    "schemaVersion": 1,
+    "id": "Vase.PackageConsumer",
+    "displayName": "包消费方",
+    "version": "1.0.0",
+    "binary": "PackageConsumerPlugin",
+    "requires": [ { "service": "Vase.PackageProvider.Counter", "version": 1 } ],
+    "provides": [ { "service": "Vase.PackageConsumer.Result", "version": 1 } ]
+}

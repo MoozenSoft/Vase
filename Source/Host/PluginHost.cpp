@@ -14,6 +14,7 @@
 #include "Vase/Host/LoadPlan.h"
 #include "Vase/Host/Loader.h"
 #include "Vase/Host/ManifestExpectation.h"
+#include "Vase/Host/PackagePlan.h"
 #include "Vase/PluginDescriptor.h"
 #include "Vase/Pod/Context.h"
 #include "Vase/Pod/DependencyLedger.h"
@@ -21,6 +22,7 @@
 #include "Vase/Service/Service.h"
 
 #include "Detail/InspectInternal.h"
+#include "Detail/PackagePreflight.h"
 
 #include <algorithm>
 #include <array>
@@ -29,6 +31,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -311,6 +314,26 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
         }
     }
 
+    // ①''' 建局前整包预检（T6/spec §4.3）：参与包在本进程**实际持有的镜像**上枚举全部成员并
+    // 逐字段核对，一切都在找/创建 Pod 槽、Stage0、插件/配置实例与 OnLoad/OnStart 之前。
+    // 失败直接 Err 留架（已装载的镜像不卸载、不注册进程状态表），后面的拆除机一概不参与。
+    const Result<std::vector<detail::BinaryRecord*>> preflighted = detail::PreflightPackages(Loader, plan);
+    if (!preflighted.IsOk())
+    {
+        return Result<PodHandle>::Err(preflighted.GetError());
+    }
+    // 条目 → 来源记录：包条目消费预检枚举过的那份镜像（同库成员共享原记录），
+    // 原始手写条目（PackageSourceId 空）逐字走下面的 Ensure 原路径。
+    std::map<std::string_view, detail::BinaryRecord*> packageRecords;
+    {
+        auto record = preflighted.Value().begin();
+        for (const PackagePlanSource& source : plan.PackageSources)
+        {
+            packageRecords.emplace(source.SourceId, *record); // 全跳过包 → nullptr：装配走不到那个键
+            ++record;
+        }
+    }
+
     std::uint32_t index = 0;
     PodSlot* slot = nullptr;
     for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(Slots.size()); ++i)
@@ -384,6 +407,14 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
     };
     std::vector<DeclaredProvider> declaredProviders;
 
+    // 原始逐条目取记录（T6 保留的原路径）：进程内来源走 EnsureInProcess，其余走 EnsureResident。
+    // 包条目在上面的预检里已经拿到同一份记录，不再经过这里。
+    const auto ensureRecord = [this](const LoadPlanEntry& entry)
+    {
+        return entry.InProcessEntry != nullptr ? Loader.EnsureInProcess(entry.InProcessEntry)
+                                               : Loader.EnsureResident(entry.BinaryPath);
+    };
+
     // ④ 阶段 1（§5.3）：逐条目按数组序（= 拓扑序）装载。宽容语义：单条失败只落记录（§0.3-4）。
     // M2a 形状（D27/D33 ②）：声明住二进制里，预检只能在 InspectBinary 之后——镜像驻留是读声明的代价，
     // M2b 清单到位后本段整体提前，此注释随之删。
@@ -411,10 +442,16 @@ Result<PodHandle> PluginHost::CreatePodImpl(const LoadPlan& plan, const PodOptio
             continue;
         }
 
-        // 取记录的分流（本波 §2.4）：进程内来源走 EnsureInProcess，其余逐字不变。
-        const Result<detail::BinaryRecord*> resident = entry.InProcessEntry != nullptr
-                                                           ? Loader.EnsureInProcess(entry.InProcessEntry)
-                                                           : Loader.EnsureResident(entry.BinaryPath);
+        // 取记录的分流（本波 §2.4）：包条目用预检枚举过的那份镜像（T6——校验与装配同一记录，
+        // 不存在「验完卸掉再加载」）；手写条目（无关联键）逐字走 ensureRecord 的原路径。
+        detail::BinaryRecord* preflightedRecord = nullptr;
+        const auto foundRecord = packageRecords.find(entry.PackageSourceId);
+        if (foundRecord != packageRecords.end())
+        {
+            preflightedRecord = foundRecord->second;
+        }
+        const Result<detail::BinaryRecord*> resident =
+            preflightedRecord != nullptr ? Result<detail::BinaryRecord*>::Ok(preflightedRecord) : ensureRecord(entry);
         if (!resident.IsOk())
         {
             recordFailure(entry.Id, Phase::kLoad, resident.GetError().Message());

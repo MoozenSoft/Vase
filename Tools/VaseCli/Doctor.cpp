@@ -1,13 +1,15 @@
 #include "Doctor.h"
 
 #include "Cli.h"
-#include "Vase/Catalog/LibraryFileName.h"
 #include "Vase/Catalog/ManifestView.h"
+#include "Vase/Catalog/PackageManifest.h"
 #include "Vase/Catalog/PluginCatalog.h"
 #include "Vase/Detail/ImageInspect.h"
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Inspect.h"
 #include "Vase/Host/Loader.h"
+#include "Vase/Host/PackageInspect.h"
+#include "Vase/Host/PackagePlan.h"
 #include "Vase/PluginDescriptor.h"
 
 #include <array>
@@ -20,9 +22,11 @@
 #include <ios>
 #include <iterator>
 #include <ostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -52,9 +56,24 @@ struct Finding
     std::size_t Failures = 0;
 };
 
-std::filesystem::path BinaryOf(const vase::PluginCatalog& catalog, const vase::ManifestEntry& entry)
+// 来源组名：单插件来源用它唯一成员的 Id（既有输出形状的锚），包来源用 sourceId——多员来源的
+// 每组检查因此只出现一次，成员级消息仍点名各自 Id。
+std::string SourceLabel(const vase::CatalogSource& source)
 {
-    return catalog.Directory() / entry.Subdirectory / vase::catalog_detail::LibraryFileName(entry.Binary);
+    return source.IsPackage || source.MemberIds.empty() ? source.Id : *source.MemberIds.begin();
+}
+
+// 已链接调用者给出的静态双入口（T8）；argv 腿永远给不出绑定。
+const vase::InProcessBinding* BindingFor(std::span<const vase::InProcessBinding> bindings, std::string_view sourceId)
+{
+    for (const vase::InProcessBinding& binding : bindings)
+    {
+        if (binding.SourceId == sourceId)
+        {
+            return &binding;
+        }
+    }
+    return nullptr;
 }
 
 // ③ 写探针：创建→关→删；删除失败也算 FAIL（D150——探测不得留下不可见副作用）。
@@ -150,6 +169,12 @@ namespace tools::cli
 
 int DoctorDirectory(const std::filesystem::path& pluginDirectory, std::ostream& out, std::ostream& err)
 {
+    return DoctorDirectory(pluginDirectory, std::span<const vase::InProcessBinding>{}, out, err);
+}
+
+int DoctorDirectory(const std::filesystem::path& pluginDirectory, std::span<const vase::InProcessBinding> bindings,
+                    std::ostream& out, std::ostream& err)
+{
     std::error_code ec;
     if (!std::filesystem::is_directory(pluginDirectory, ec))
     {
@@ -182,29 +207,55 @@ int DoctorDirectory(const std::filesystem::path& pluginDirectory, std::ostream& 
     Finding writability("check 3 (directory writability):");
     Finding locks("check 4 (file locks):");
 
-    // —— ① 身份特征在场（磁盘读，零装载）。
-    for (const std::string& id : catalog.Ids())
+    // —— ① 身份特征在场（磁盘读，零装载）+ ④ 残留文件锁：都按**物理来源**查一次（T8/spec §5.2），
+    // 且都在 ② 装载之前采集（D152 的免疫构造）。来源事实只读来源表（T4 的唯一维护处约束）。
+    for (const vase::CatalogSource& source : catalog.Sources())
     {
-        const vase::ManifestEntry* entry = catalog.Find(id);
-        if (entry == nullptr)
+        const std::string label = SourceLabel(source);
+        if (source.Kind == vase::PackageSourceKind::kInProcess)
         {
-            continue; // Ids() 与 Find() 同源，取不到是不可能的；防御性地跳过而非崩溃
+            // 进程内来源没有磁盘文件：身份与文件锁**不适用**——报出来，但不计入未通过（spec §5.2 静态列）。
+            identity.Lines.push_back("  " + label + ": not applicable (in-process source has no on-disk library)");
+            locks.Lines.push_back("  " + label + ": not applicable (in-process source has no on-disk library)");
+            continue;
         }
-        const vase::Result<vase::detail::ImageIdentity> found =
-            vase::detail::Loader::FileIdentity(BinaryOf(catalog, *entry));
+        const vase::Result<vase::detail::ImageIdentity> found = vase::detail::Loader::FileIdentity(source.BinaryPath);
         if (found.IsOk())
         {
-            identity.Lines.push_back("  " + id + ": identity ok");
+            identity.Lines.push_back("  " + label + ": identity ok");
         }
         else
         {
-            identity.Lines.push_back("  " + id + ": FAIL — " + found.GetError().Message() +
+            identity.Lines.push_back("  " + label + ": FAIL — " + found.GetError().Message() +
                                      " (tier-3 adopt would reject this binary)");
             ++identity.Failures;
         }
+#ifdef _WIN32
+        std::error_code existsEc;
+        if (!std::filesystem::exists(source.BinaryPath, existsEc))
+        {
+            // spec §3.4「文件不存在 → info 跳过」：缺件是 ① 的账（那边已 FAIL 点名），④ 不双报也不计成败。
+            locks.Lines.push_back("  " + label + ": absent (check 1 owns it)");
+            continue;
+        }
+        const std::optional<std::string> locked = ProbeExclusiveOpen(source.BinaryPath);
+        if (locked.has_value())
+        {
+            locks.Lines.push_back("  " + label + ": FAIL — " + *locked);
+            ++locks.Failures;
+        }
+        else
+        {
+            locks.Lines.push_back("  " + label + ": unlocked");
+        }
+#endif
     }
+#ifndef _WIN32
+    locks.Lines.emplace_back(
+        "  lock probe: not observable on this platform — a resident mapping does not prevent overwrites here");
+#endif
 
-    // —— ③ 目录可写（根 + 各插件子目录）。
+    // —— ③ 目录可写（根 + 各来源目录，按物理来源去重）。
     {
         std::string detail;
         if (ProbeWrite(catalog.Directory(), detail))
@@ -217,86 +268,75 @@ int DoctorDirectory(const std::filesystem::path& pluginDirectory, std::ostream& 
             ++writability.Failures;
         }
     }
-    for (const std::string& id : catalog.Ids())
+    for (const vase::CatalogSource& source : catalog.Sources())
     {
-        const vase::ManifestEntry* entry = catalog.Find(id);
-        if (entry == nullptr)
-        {
-            continue; // Ids() 与 Find() 同源，取不到是不可能的；防御性地跳过而非崩溃
-        }
         std::string detail;
-        const std::filesystem::path sub = catalog.Directory() / entry->Subdirectory;
-        if (ProbeWrite(sub, detail))
+        const std::filesystem::path directory = source.ManifestPath.parent_path();
+        const std::string name = directory.filename().string();
+        if (ProbeWrite(directory, detail))
         {
-            writability.Lines.push_back("  " + entry->Subdirectory + ": ok");
+            writability.Lines.push_back("  " + name + ": ok");
         }
         else
         {
-            writability.Lines.push_back("  " + entry->Subdirectory + ": FAIL — " + detail);
+            std::string line = "  " + name + ": FAIL — ";
+            line += detail;
+            writability.Lines.push_back(std::move(line));
             ++writability.Failures;
         }
     }
 
-    // —— ④ 残留文件锁（在 ② 装载之前跑——D152 的免疫构造）。
-#ifdef _WIN32
-    for (const std::string& id : catalog.Ids())
-    {
-        const vase::ManifestEntry* entry = catalog.Find(id);
-        if (entry == nullptr)
-        {
-            continue; // Ids() 与 Find() 同源，取不到是不可能的；防御性地跳过而非崩溃
-        }
-        const std::filesystem::path binary = BinaryOf(catalog, *entry);
-        std::error_code existsEc;
-        if (!std::filesystem::exists(binary, existsEc))
-        {
-            // spec §3.4「文件不存在 → info 跳过」：缺件是 ① 的账（那边已 FAIL 点名），④ 不双报也不计成败。
-            locks.Lines.push_back("  " + id + ": absent (check 1 owns it)");
-            continue;
-        }
-        const std::optional<std::string> locked = ProbeExclusiveOpen(binary);
-        if (locked.has_value())
-        {
-            locks.Lines.push_back("  " + id + ": FAIL — " + *locked);
-            ++locks.Failures;
-        }
-        else
-        {
-            locks.Lines.push_back("  " + id + ": unlocked");
-        }
-    }
-#else
-    locks.Lines.emplace_back(
-        "  lock probe: not observable on this platform — a resident mapping does not prevent overwrites here");
-#endif
-
     // —— ② 装载读（全工具唯一装载步，置后——D152；D117 的代价由它单独承担）。
     load.Lines.push_back("  host header version: " + std::to_string(vase::kHeaderVersion));
     vase::detail::Loader loader;
-    for (const std::string& id : catalog.Ids())
+    for (const vase::CatalogSource& source : catalog.Sources())
     {
-        const vase::ManifestEntry* entry = catalog.Find(id);
-        if (entry == nullptr)
+        const std::string label = SourceLabel(source);
+        if (source.Kind == vase::PackageSourceKind::kInProcess)
         {
-            continue; // Ids() 与 Find() 同源，取不到是不可能的；防御性地跳过而非崩溃
+            // 版号要宿主入口：拿不到就是**无法验证**——不许假报 HeaderVersion ok（spec §5.2 静态列）。
+            const vase::InProcessBinding* binding = BindingFor(bindings, source.Id);
+            if (binding == nullptr)
+            {
+                load.Lines.push_back("  " + label +
+                                     ": cannot verify (the plain CLI has no host entry points for this in-process"
+                                     " package — link the generated entries to complete the check)");
+                ++load.Failures;
+                continue;
+            }
+            const vase::Result<std::vector<const vase::PluginDescriptor*>> descriptors =
+                vase::InspectDescriptors(binding->Entries.Enumerate);
+            if (descriptors.IsOk())
+            {
+                load.Lines.push_back("  " + label + ": HeaderVersion matches (" +
+                                     std::to_string(descriptors.Value().size()) + " descriptor(s))");
+            }
+            else
+            {
+                load.Lines.push_back("  " + label + ": FAIL (" + descriptors.GetError().Message() + ")");
+                ++load.Failures;
+            }
+            continue;
         }
-        const vase::Result<vase::detail::BinaryRecord*> record = loader.EnsureResident(BinaryOf(catalog, *entry));
+
+        const vase::Result<vase::detail::BinaryRecord*> record = loader.EnsureResident(source.BinaryPath);
         if (!record.IsOk())
         {
-            load.Lines.push_back("  " + id + ": FAIL (" + record.GetError().Message() + ")");
+            load.Lines.push_back("  " + label + ": FAIL (" + record.GetError().Message() + ")");
             ++load.Failures;
             continue;
         }
+        // 动态包整包枚举（成员级消息点名 Id），单插件来源维持单描述符契约：两者共用这一趟装载读。
         const vase::Result<std::vector<const vase::PluginDescriptor*>> descriptors =
-            vase::InspectDescriptors(*record.Value());
+            source.IsPackage ? vase::InspectPackageMembers(*record.Value()) : vase::InspectDescriptors(*record.Value());
         if (descriptors.IsOk())
         {
-            load.Lines.push_back("  " + id + ": HeaderVersion matches (" + std::to_string(descriptors.Value().size()) +
-                                 " descriptor(s))"); // D151：计数是 info，不假设 1
+            load.Lines.push_back("  " + label + ": HeaderVersion matches (" +
+                                 std::to_string(descriptors.Value().size()) + " descriptor(s))"); // D151：计数是 info
         }
         else
         {
-            load.Lines.push_back("  " + id + ": FAIL (" + descriptors.GetError().Message() + ")");
+            load.Lines.push_back("  " + label + ": FAIL (" + descriptors.GetError().Message() + ")");
             ++load.Failures;
         }
         loader.Unload(*record.Value()); // 借用止于此（Validate.cpp 同款）

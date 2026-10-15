@@ -1,12 +1,13 @@
 // 静态链入的端到端见证（spec §5.1 #2）：组合库的真静态形**链进本可执行**。
 // 与 VasePackTests 的六条恰相反——那些刻意经 Loader 按路径装载（D204），
-// 本文件刻意**真链**：宿主取 &VasePlugin_GetPlugin 这个动作本身即 §8.6 要的硬引用。
+// 本文件刻意真链：生成声明头的入口取址即 §8.6 要的硬引用。
 #include "Vase/Detail/Result.h"
 #include "Vase/Host/Evidence.h"
 #include "Vase/Host/LoadPlan.h"
 #include "Vase/Host/PluginHost.h"
 #include "Vase/PluginDescriptor.h"
 #include "Vase/Pod/Pod.h"
+#include "VasePluginsStatic.entries.h"
 
 #include <string>
 #include <vector>
@@ -24,11 +25,6 @@
 
 #include <gtest/gtest.h>
 
-// 分发表入口（§8.1 的唯一一跳）：静态链入时它就是本可执行里的一个普通符号。
-// 名字是**字面契约**（`Cmake/VasePackDispatch.cpp.in` 与 VASE_PLUGIN 同名生成）。
-// NOLINTNEXTLINE(readability-identifier-naming) 名字是 ABI 契约字面、分发表按此名取，无代码级出路
-extern "C" const vase::PluginDescriptor* VasePlugin_GetPlugin(const char* id);
-
 // 保活证的观测手段按平台三分岔（链接器对「弱未定义会否拉取归档成员」各说各话），但每一支的承重位
 // 与对照组都走**同一套机制**——只测一枚的话，一个恒「不在」的探针会让承重位假通过。机制与理由
 // 见 spec §5.2 / D241。（Apple ld 会拉弱未定义，故 macOS 支走 dlsym；Windows 支读产物导出表。）
@@ -43,7 +39,7 @@ namespace
 {
 
 // 链接期硬引用：不写这一笔，静态库会被整个丢掉（§8.6 末条 iOS 例外，本波由类型承载）。
-constexpr vase::PluginEntryPoint kPackedEntry = &VasePlugin_GetPlugin;
+constexpr vase::PluginEntryPoint kPackedEntry = vase::pack::vasepluginsstatic::kEntryPoints.Lookup;
 
 // 承重位：探针**不在**（未提取）。三平台各说各话，但读数同义。
 bool KeepAliveProbeAbsent()

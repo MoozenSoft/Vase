@@ -96,6 +96,9 @@ struct ManifestEntry
     std::vector<ManifestDependency> Provides;
     std::vector<ManifestConfigField> Config;
     std::vector<std::string> ProcessStates; // M3/D93：进程级状态的**名字**清单（缺键 = 空集）
+    // T4：所属来源的内部关联键（单插件 `@single/<子目录>`、包为包 sourceId）。**不写进任何 JSON**——
+    // 工具与 Catalog 的包路径一律读来源表，不从 Subdirectory / Binary 猜（spec §2.2）。
+    std::string SourceId;
 };
 
 // 清单事实 → 加载期期望（D84）：拥有值形、逐字段深拷（D61 借用窗不随迁）；enum default 的
@@ -109,7 +112,9 @@ VASE_CATALOG_API ManifestConfigField MakeManifestConfigField(const FieldInfo& fi
 
 // 清单序列化（M5/D122/D134）：scan 的落盘口。**原子写**（临时文件 + rename 覆盖）——
 // 盘上任何时刻不出现半个 JSON，而那份 JSON 正是加载期要读的权威副本。
-// 写出的键必须全部落在 ParseManifestFile 的白名单内；两份清单同 TU，round-trip 用例守同源。
+// 写出的键必须全部落在 ParseManifestFile 的白名单内；单插件清单与包成员共用
+// Detail/ManifestFields 的同一份字段规则（ManifestFieldMode 分模式，T2 抽取），
+// 故两条写出面同源，round-trip 用例守它。
 VASE_CATALOG_API Result<void> WriteManifestFile(const std::filesystem::path& file, const ManifestEntry& entry);
 
 } // namespace vase

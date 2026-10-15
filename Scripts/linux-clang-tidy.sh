@@ -39,10 +39,11 @@ echo "   （参考）正文形态行 = $(grep -cE '\.(cpp|h|hpp|cc|ixx):[0-9]+:[
 # 这里不复制阈值，只把数打出来对——首版注释里写过 "49 个 TU / 133833 / 18" 三个数，
 # 收口时三个都已经腐了。逐 TU 的明细不进 stdout，在日志里。
 #
-# 下面两个行数**天生不相等**，不是漏跑：compile_commands.json 的条目数比 TU 数多 1，而
-# Tests/Unit/fixtures/LoadProbe/LoadProbe.cpp 同时编进 LoadProbe 与 UnloadProbe 两个
-# fixture target，run-clang-tidy 按路径去重后少一个（它打的 "N files out of N"
-# 也是去重后的数）。所以 generated 行比 Suppressed 行多 1。
+# 下面两个行数**天生不相等**，不是漏跑：compile_commands.json 的条目数多于 TU 数——同一份源被
+# 多个 target 各编一次（带 PACK 的 fixture 会再编进自己的 .Pack 静态库，另有 LoadProbe 的双
+# target、PackageDescriptorProbe 的两处消费）。run-clang-tidy 对每个条目各打一行
+# "warnings generated"，而 "Suppressed" 与它报的 "N files out of N" 一样按路径去重后只打一行，
+# 差额随重编条目数漂（现值见 CLAUDE.md 的表，这里不写死）。
 echo "--- 摘要行 ---"
 grep -E 'clang-tidy in [0-9]+ threads' "$LOG"
 echo "摘要行数：warnings generated = $(grep -c 'warnings generated' "$LOG")，Suppressed = $(grep -c 'Suppressed [0-9]* warnings' "$LOG")"

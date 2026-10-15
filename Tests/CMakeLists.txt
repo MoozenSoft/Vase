@@ -9,11 +9,13 @@ add_executable(VaseTests
     Unit/EffectTests.cpp
     Unit/ConfigValueTests.cpp
     Unit/ManifestJsonTests.cpp
+    Unit/PackageJsonTests.cpp
     Unit/PresetJsonTests.cpp
     Unit/ConfigBlobTests.cpp
     Unit/ConfigMacroTests.cpp
     Unit/LoaderTests.cpp
     Unit/InspectTests.cpp
+    Unit/PackageInspectTests.cpp
     Unit/RegistryBusTests.cpp
     Unit/LedgerTests.cpp
     Unit/LibraryFileNameTests.cpp
@@ -27,11 +29,17 @@ add_executable(VaseTests
     Integration/RecursiveTeardownTests.cpp
     Integration/ConfigApplyTests.cpp
     Integration/CatalogScanTests.cpp
+    Integration/PackageCatalogTests.cpp
+    Integration/PackageSolveTests.cpp
+    Integration/PackagePreflightTests.cpp
     Integration/SolveTests.cpp
     Integration/VaseCliScanTests.cpp
+    Integration/PackageCliScanTests.cpp
     Integration/VaseCliValidateTests.cpp
     Integration/VaseCliPlanTests.cpp
     Integration/VaseCliDoctorTests.cpp
+    Integration/PackageStageTests.cpp
+    Integration/PackageAssemblyTests.cpp
     Integration/AssemblyFromSolveTests.cpp
     Integration/LoadTimeComparisonTests.cpp
     Integration/VasePackTests.cpp
@@ -39,10 +47,12 @@ add_executable(VaseTests
     HotSwap/EjectTests.cpp
     HotSwap/AdoptTests.cpp
     HotSwap/AdoptManifestTests.cpp
+    HotSwap/PackageAdoptTests.cpp
     HotSwap/HotSwapLoopTests.cpp
     HotSwap/TimerNoReentryTests.cpp
     Abi/ImportEnforcementTests.cpp
-    TestingSupport/PodTestPeer.cpp)
+    TestingSupport/PodTestPeer.cpp
+    TestingSupport/PackageDescriptorProbe.cpp)
 
 # Loader 端到端断言要真实插件二进制：两个 target 同源码不同输出名。
 add_subdirectory(Unit/fixtures/LoadProbe)
@@ -59,7 +69,7 @@ add_subdirectory(HotSwap/fixtures)
 add_subdirectory(Abi/fixtures)
 
 # #7 的组合库（本波）：成员都带 ProcessStates——三员 Sample 没有，故 #1/#2 结构上覆盖不到
-# MakeInstance 的覆盖缺陷（spec §2.5）。用**动态**面：不受「一宿主至多一个静态组合库」限制。
+# MakeInstance 的覆盖缺陷（spec §2.5）。用动态面：由 Loader 按路径装载。
 # 必须写在四个 fixture 子目录的 add_subdirectory 之后：vase_pack_plugins 对每个成员查
 # TARGET ${plugin}.Pack，子目录未加入即 FATAL_ERROR。
 vase_pack_plugins(VasePluginsStateful PLUGINS StatefulPackA StatefulPackB)
@@ -187,7 +197,37 @@ include(GoogleTest)
 # gtest / VasePod / VaseHost 这些 DLL 未必已在可执行文件旁边，
 # 会让构建无缘无故地失败。
 gtest_discover_tests(VaseTests
-    DISCOVERY_MODE PRE_TEST)
+    DISCOVERY_MODE PRE_TEST
+    TEST_FILTER "-PackageAssembly.*")
+gtest_discover_tests(VaseTests
+    DISCOVERY_MODE PRE_TEST
+    TEST_FILTER "PackageAssembly.*"
+    PROPERTIES FIXTURES_REQUIRED PackageReleaseStage)
 
 # 静态链入见证（本波）：独立可执行，理由见该目录的 CMakeLists（spec D223）。
+# ctest 中的显式子构建同样需要 cl.exe 环境；只包装该前端，clang-cl 自行发现工具链。
+set(vaseTestBuildCommand "${CMAKE_COMMAND}")
+if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    configure_file(Package/RunMsvcBuildTest.cmake RunMsvcBuildTest.cmake COPYONLY)
+    set(vaseTestBuildCommand "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/RunMsvcBuildTest.cmake"
+        -- "${PROJECT_SOURCE_DIR}/Scripts/msvc-env.cmd" "${CMAKE_COMMAND}")
+endif()
+add_subdirectory(Package)
 add_subdirectory(StaticLink)
+
+# 包读取见证单独链 STATIC 包，避免影响 VaseTests 中按路径装载的插件。
+add_executable(VasePackageCliReadTests
+    Integration/PackageCliReadTests.cpp
+    Integration/PackageBuildTests.cpp
+    TestingSupport/PackageDescriptorProbe.cpp)
+target_link_libraries(VasePackageCliReadTests
+    PRIVATE VaseBuildOptions VaseHost VaseCatalog VaseCliCore VasePackageProvider GTest::gtest_main)
+target_include_directories(VasePackageCliReadTests PRIVATE TestingSupport)
+target_compile_definitions(VasePackageCliReadTests PRIVATE
+    VASE_FIXTURE_VASEPLUGINS="$<PATH:CMAKE_PATH,$<TARGET_FILE:VasePlugins>>"
+    VASE_FIXTURE_HELLO_MANIFEST="$<PATH:CMAKE_PATH,${PROJECT_SOURCE_DIR}/Samples/HelloPlugin/plugin.json>"
+    VASE_FIXTURE_DEPENDENT_MANIFEST="$<PATH:CMAKE_PATH,${PROJECT_SOURCE_DIR}/Samples/DependentPlugin/plugin.json>"
+    VASE_FIXTURE_FAILING_MANIFEST="$<PATH:CMAKE_PATH,${PROJECT_SOURCE_DIR}/Samples/FailingPlugin/plugin.json>"
+    VASE_FIXTURE_PACKAGEPROVIDER_MANIFEST="$<PATH:CMAKE_PATH,${CMAKE_CURRENT_SOURCE_DIR}/Package/fixtures/Provider/plugin.json>")
+add_dependencies(VasePackageCliReadTests VasePlugins)
+gtest_discover_tests(VasePackageCliReadTests DISCOVERY_MODE PRE_TEST)

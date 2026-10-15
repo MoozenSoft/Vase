@@ -271,6 +271,11 @@ endif()
 # 故在 add_subdirectory 之前就位。
 include(Cmake/VasePluginHelpers.cmake)
 
+# 发布期 staging 目标（T11，spec §3.1）：与插件形态定义并列放在这里——函数体里的
+# VaseCliCore / VaseHost / VaseCatalog 到**调用点**才求值，调用点必须排在
+# add_subdirectory(Tools/VaseCli) 之后（Tests/Package 即在其中）。
+include(Cmake/VasePackageStage.cmake)
+
 # 第三方「只有头文件」依赖（VaseThirdPartyCli → ThirdParty/cli）的编译面。
 # 走自立 INTERFACE target 而非 add_subdirectory / vcpkg，理由与「不得标成 system 头」那条
 # 禁令都在文件里——它关乎异常不变式能否被编译期把守，不是风格选择。

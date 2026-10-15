@@ -1,8 +1,10 @@
 #include "Console.h"
 
+#include "../SourceText.h"
 #include "Greeter.h"
 #include "PlanFile.h"
 #include "Shell.h"
+#include "Vase/Catalog/Analysis.h"
 #include "Vase/Catalog/CatalogAdopt.h"
 #include "Vase/Catalog/LoadRequest.h"
 #include "Vase/Catalog/ManifestView.h"
@@ -401,27 +403,30 @@ void Console::CmdCatalogSolve(std::ostream& out, const std::vector<std::string>&
         }
         request.Preset = std::move(loaded.Value());
     }
-    const auto solved = PreviewCatalog->Solve(request);
-    if (!solved.IsOk())
+    // 预览面走 Analyze（T8/spec §5.2 plan 行）：零装载、不查静态绑定，故静态包无绑定时照样出结果；
+    // 真正的可执行计划仍归 CmdPodNew 主链的 Solve。
+    const auto analyzed = PreviewCatalog->Analyze(request);
+    if (!analyzed.IsOk())
     {
-        out << "catalog solve: " << solved.GetError().Message() << '\n';
+        out << "catalog solve: " << analyzed.GetError().Message() << '\n';
         MarkFailed();
         return;
     }
     std::size_t index = 1;
-    for (const vase::LoadPlanEntry& entry : solved.Value().Plan.Ordered)
+    for (const vase::AnalyzedPlugin& entry : analyzed.Value().Ordered)
     {
         if (entry.Decision == vase::LoadDecision::kLoad)
         {
-            out << "  " << index << ". " << entry.Id << " load\n";
+            out << "  " << index << ". " << entry.Id << " load (" << tools::SourceText(*PreviewCatalog, entry) << ")\n";
         }
         else
         {
-            out << "  " << index << ". " << entry.Id << " skip " << SkipReasonText(entry.Reason) << '\n';
+            out << "  " << index << ". " << entry.Id << " skip " << SkipReasonText(entry.Reason) << " ("
+                << tools::SourceText(*PreviewCatalog, entry) << ")\n";
         }
         ++index;
     }
-    for (const vase::SolveNote& note : solved.Value().Notes)
+    for (const vase::SolveNote& note : analyzed.Value().Notes)
     {
         out << "  note: " << SolveNoteKindText(note.Kind) << " " << note.PluginId;
         if (!note.Key.empty())

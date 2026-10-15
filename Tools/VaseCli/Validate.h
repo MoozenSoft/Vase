@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Vase/Host/PackagePlan.h" // InProcessBinding
 #include "Vase/PluginDescriptor.h"
 
 #include <filesystem>
@@ -13,7 +14,8 @@ namespace tools::cli
 struct ValidateOptions
 {
     std::filesystem::path PluginDirectory;
-    std::vector<vase::ServiceRef> HostProvided; // --host-provides 喂进 LoadRequest（D131，Task 12 解析）
+    std::vector<vase::ServiceRef> HostProvided;           // --host-provides 喂进 LoadRequest（D131，Task 12 解析）
+    std::vector<vase::InProcessBinding> InProcessSources; // 已链接调用者的静态双入口（T8）；argv 不接
 };
 
 // 四项检查（spec §3.2）：① 清单↔二进制一致 ② Id 重复 ③ 依赖图/环/版本 ④ 服务命名前缀。
