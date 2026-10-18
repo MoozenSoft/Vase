@@ -9,6 +9,9 @@
 # 源清单、包与 runtime 都显式 DEPENDS，staging 清单不作输入（spec §3.1）。
 
 function(vase_stage_pack stageTarget)
+    if(VASE_BUILD_PROFILE STREQUAL "mobile")
+        message(FATAL_ERROR "vase_stage_pack(${stageTarget}): mobile profile 禁止执行桌面 staging；请使用宿主伴生构建")
+    endif()
     cmake_parse_arguments(STAGE "" "PACK_TARGET;SOURCE_ID;OUTPUT_DIRECTORY" "RUNTIME_FILES" ${ARGN})
     if(NOT STAGE_PACK_TARGET OR NOT TARGET "${STAGE_PACK_TARGET}")
         message(FATAL_ERROR "vase_stage_pack(${stageTarget}): PACK_TARGET 必须是一个已存在的包目标")

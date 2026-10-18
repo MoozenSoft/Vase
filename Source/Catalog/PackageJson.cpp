@@ -30,9 +30,14 @@ using vase::PackageSourceKind;
 using vase::Result;
 using vase::catalog_detail::ManifestFieldMode;
 
+Error PackageError(std::string_view file, std::string_view detail)
+{
+    return Error("package manifest \"" + std::string(file) + "\": " + std::string(detail));
+}
+
 Error PackageError(const std::filesystem::path& file, std::string_view detail)
 {
-    return Error("package manifest \"" + file.string() + "\": " + std::string(detail));
+    return PackageError(std::string_view(file.string()), detail);
 }
 
 std::string MemberLocation(std::size_t index, const json& member)
@@ -76,7 +81,7 @@ bool ValidBinaryStem(std::string_view stem)
         ;
 }
 
-Result<PackageManifest> ParsePackageDocument(const json& root, const std::filesystem::path& file)
+Result<PackageManifest> ParsePackageDocument(const json& root, std::string_view file, std::string_view subdirectoryName)
 {
     if (!root.is_object())
     {
@@ -144,15 +149,17 @@ Result<PackageManifest> ParsePackageDocument(const json& root, const std::filesy
     for (const json& member : *plugins)
     {
         const std::string location = MemberLocation(index, member);
-        auto parsed = vase::catalog_detail::ParsePluginFields(member, file, file.parent_path().filename().string(),
-                                                              ManifestFieldMode::kPackageMember);
+        auto parsed =
+            vase::catalog_detail::ParsePluginFields(member, file, subdirectoryName, ManifestFieldMode::kPackageMember);
         if (!parsed.IsOk())
         {
-            return Result<PackageManifest>::Err(PackageError(file, location + ": " + parsed.GetError().Message()));
+            return Result<PackageManifest>::Err(PackageError(file, "source \"" + manifest.SourceId + "\": " + location +
+                                                                       ": " + parsed.GetError().Message()));
         }
         if (std::ranges::find(manifest.Plugins, parsed.Value().Id, &ManifestEntry::Id) != manifest.Plugins.end())
         {
-            return Result<PackageManifest>::Err(PackageError(file, location + ": duplicate plugin id"));
+            return Result<PackageManifest>::Err(
+                PackageError(file, "source \"" + manifest.SourceId + "\": " + location + ": duplicate plugin id"));
         }
         manifest.Plugins.push_back(std::move(parsed.Value()));
         ++index;
@@ -165,6 +172,24 @@ Result<PackageManifest> ParsePackageDocument(const json& root, const std::filesy
 namespace vase
 {
 
+Result<PackageManifest> ParsePackageManifest(std::string_view contents, std::string_view location)
+{
+    const auto read = catalog_detail::ReadJsonContents(contents, location);
+    if (!read.IsOk())
+    {
+        return Result<PackageManifest>::Err(PackageError(location, read.GetError().Message()));
+    }
+    auto parsed = ParsePackageDocument(read.Value(), location, {});
+    if (parsed.IsOk())
+    {
+        for (ManifestEntry& member : parsed.Value().Plugins)
+        {
+            member.Subdirectory = parsed.Value().SourceId;
+        }
+    }
+    return parsed;
+}
+
 Result<PackageManifest> ParsePackageManifestFile(const std::filesystem::path& file)
 {
     const auto read = catalog_detail::ReadJsonFile(file);
@@ -172,7 +197,7 @@ Result<PackageManifest> ParsePackageManifestFile(const std::filesystem::path& fi
     {
         return Result<PackageManifest>::Err(PackageError(file, read.GetError().Message()));
     }
-    return ParsePackageDocument(read.Value(), file);
+    return ParsePackageDocument(read.Value(), file.string(), file.parent_path().filename().string());
 }
 
 Result<void> WritePackageManifestFile(const std::filesystem::path& file, const PackageManifest& manifest)
@@ -219,7 +244,7 @@ Result<void> WritePackageManifestFile(const std::filesystem::path& file, const P
         {"source", std::move(source)},
         {"plugins", std::move(plugins)},
     };
-    const auto checked = ParsePackageDocument(root, file);
+    const auto checked = ParsePackageDocument(root, file.string(), file.parent_path().filename().string());
     if (!checked.IsOk())
     {
         return Result<void>::Err(checked.GetError());

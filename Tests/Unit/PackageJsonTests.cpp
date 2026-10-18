@@ -95,6 +95,83 @@ TEST(PackageJson, InProcessPackageNeedsNoBinary)
     EXPECT_EQ(ReadBytes(sandbox.Root / "P/pack.json").find("binary"), std::string::npos);
 }
 
+TEST(PackageJson, TextAndFileParsingShareSchema)
+{
+    const testing_support::CatalogSandbox sandbox{"package-text"};
+    sandbox.WriteFile("P/pack.json", kFullPackage);
+    const auto file = vase::ParsePackageManifestFile(sandbox.Root / "P/pack.json");
+    const auto text = vase::ParsePackageManifest(kFullPackage, "assets/资源/pack.json");
+    ASSERT_TRUE(file.IsOk());
+    ASSERT_TRUE(text.IsOk());
+    EXPECT_EQ(text.Value().SourceId, file.Value().SourceId);
+    EXPECT_EQ(text.Value().Kind, file.Value().Kind);
+    EXPECT_EQ(text.Value().Binary, file.Value().Binary);
+    ASSERT_EQ(text.Value().Plugins.size(), file.Value().Plugins.size());
+    auto left = text.Value().Plugins.begin();
+    for (const auto& right : file.Value().Plugins)
+    {
+        EXPECT_EQ(left->Id, right.Id);
+        EXPECT_EQ(left->DisplayName, right.DisplayName);
+        EXPECT_EQ(left->Version, right.Version);
+        EXPECT_EQ(left->EnabledByDefault, right.EnabledByDefault);
+        EXPECT_EQ(left->ProcessStates, right.ProcessStates);
+        const auto compareServices = [](const auto& a, const auto& b)
+        {
+            ASSERT_EQ(a.size(), b.size());
+            auto service = a.begin();
+            for (const auto& expected : b)
+            {
+                EXPECT_EQ(service->Service, expected.Service);
+                EXPECT_EQ(service->Version, expected.Version);
+                ++service;
+            }
+        };
+        compareServices(left->Requires, right.Requires);
+        compareServices(left->OptionalRequires, right.OptionalRequires);
+        compareServices(left->Provides, right.Provides);
+        ASSERT_EQ(left->Config.size(), right.Config.size());
+        auto field = left->Config.begin();
+        for (const auto& expected : right.Config)
+        {
+            EXPECT_EQ(field->Key, expected.Key);
+            EXPECT_EQ(field->DisplayName, expected.DisplayName);
+            EXPECT_EQ(field->Kind, expected.Kind);
+            EXPECT_EQ(field->DefaultBits, expected.DefaultBits);
+            EXPECT_EQ(field->DefaultStr, expected.DefaultStr);
+            EXPECT_EQ(field->HasMin, expected.HasMin);
+            EXPECT_EQ(field->MinBits, expected.MinBits);
+            EXPECT_EQ(field->HasMax, expected.HasMax);
+            EXPECT_EQ(field->MaxBits, expected.MaxBits);
+            ASSERT_EQ(field->Choices.size(), expected.Choices.size());
+            auto choice = field->Choices.begin();
+            for (const auto& item : expected.Choices)
+            {
+                EXPECT_EQ(choice->Value, item.Value);
+                EXPECT_EQ(choice->Label, item.Label);
+                ++choice;
+            }
+            ++field;
+        }
+        ++left;
+    }
+    std::vector<std::string> const invalid{
+        "{",
+        R"({"schemaVersion":1,"sourceId":"P","source":{"kind":"inProcess"},"plugins":[{"id":"A"}],"unknown":1})",
+        R"({"schemaVersion":1,"sourceId":"P","source":{"kind":"inProcess"},"plugins":[{"id":"A","unknown":1}]})",
+        R"({"schemaVersion":1,"sourceId":"P","source":{"kind":"inProcess"},"plugins":[{"id":"A"},{"id":"A"}]})",
+        std::string(kFullPackage) + '\0' + "invalid trailing bytes",
+    };
+    for (const auto& contents : invalid)
+    {
+        sandbox.WriteFile("P/pack.json", contents);
+        const auto fromFile = vase::ParsePackageManifestFile(sandbox.Root / "P/pack.json");
+        const auto fromText = vase::ParsePackageManifest(contents, "assets/资源/pack.json");
+        EXPECT_FALSE(fromFile.IsOk());
+        ASSERT_FALSE(fromText.IsOk());
+        EXPECT_NE(fromText.GetError().Message().find("assets/资源/pack.json"), std::string::npos);
+    }
+}
+
 TEST(PackageJson, RejectsInvalidRootAndSourceWithFileAttribution)
 {
     const testing_support::CatalogSandbox sandbox{"package-json"};

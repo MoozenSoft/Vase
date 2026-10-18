@@ -18,19 +18,25 @@
 
 // 各动态库自己的公开 API：构建该库时导出，其它地方导入。
 // 构建宏由 CMake 侧 target_compile_definitions(<target> PRIVATE VASE_<LIB>_BUILD) 提供。
-#ifdef VASE_POD_BUILD
+#ifdef VASE_STATIC
+#define VASE_POD_API
+#elif defined(VASE_POD_BUILD)
 #define VASE_POD_API VASE_EXPORT
 #else
 #define VASE_POD_API VASE_IMPORT
 #endif
 
-#ifdef VASE_HOST_BUILD
+#ifdef VASE_STATIC
+#define VASE_HOST_API
+#elif defined(VASE_HOST_BUILD)
 #define VASE_HOST_API VASE_EXPORT
 #else
 #define VASE_HOST_API VASE_IMPORT
 #endif
 
-#ifdef VASE_CATALOG_BUILD
+#ifdef VASE_STATIC
+#define VASE_CATALOG_API
+#elif defined(VASE_CATALOG_BUILD)
 #define VASE_CATALOG_API VASE_EXPORT
 #else
 #define VASE_CATALOG_API VASE_IMPORT

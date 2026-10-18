@@ -60,6 +60,13 @@ compile_commands.json
 *.bak
 *.swp
 
+# Android mobile Gradle example: generated/cached files stay local.
+Samples/Mobile/Android/apk/.gradle/
+Samples/Mobile/Android/apk/.kotlin/
+Samples/Mobile/Android/apk/app/build/
+Samples/Mobile/Android/apk/build/
+Samples/Mobile/Android/apk/local.properties
+
 # vcpkg
 vcpkg_installed/
 

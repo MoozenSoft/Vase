@@ -360,7 +360,39 @@ MSVC 线显式构建目标仍经 `Scripts/msvc-env.cmd`，构建型 CTest 会自
 对两种包都零装载分析；普通 `validate` / `doctor` 缺静态宿主入口时明确报告未完成并返回检查失败，
 已链接调用者可显式传入口完成检查。命令能力详见 [架构文档](wiki/vase-architecture.md#111-vasecli)。
 
-本机制的动态装配与多包静态链入在桌面验证；iOS/Android 的真实构建与交付形态仍待移动波次。
+本机制的动态装配与多包静态链入已在 Windows x64、Linux x64、macOS x64 的八条桌面线回归。
+**移动端发布波（2026-10-17）的验证边界不同于桌面运行能力**：Android arm64-v8a / API 29
+使用 NDK r30 的真实工具链，将 VasePod / VaseHost / VaseCatalog、Provider / Consumer
+两个 STATIC 包链进 `libVaseMobileJni.so`，通过主 APK 中的只读
+`assets/vase/{Provider,Consumer}/pack.json` 导入 Catalog；`VaseMobileApkInputs` 从宿主构建树
+的候选清单与同一 NDK 的 `libc++_shared.so` 组装输入。AGP 9.4.1 / Gradle 9.6 构建出主 APK
+与 instrumentation APK，检查了 ZIP 内容及清单字节一致性。**当时 adb 没有连接 arm64 设备，
+所以未执行 instrumentation，不能声称在 Android 设备上完成了 50 轮 Clean。**
+
+iPhoneOS arm64 以独立的 iPhoneOS18.2.sdk / 最低 iOS 15.0 和 MacPorts Clang 23
+编译静态归档，最终由 `VaseMobileIosLinkProbe.app` 真正引用并链接共用
+`RunPackageScenario`、CoreFoundation Bundle 只读资源读取和双包描述符；实测最终 Mach-O 平台、
+归档架构、链接保活/未选成员的反证和候选清单的字节一致性。**没有安装、签名或在 iOS 设备运行此 App，
+不能把链接通过写成 Bundle 运行、Clean 或元信息漂移拒绝的设备证据。**
+两条移动路径都只支持发布时静态链入，不提供移动热插拔，也不在应用启动时生成或改写清单。
+部署/检查命令的唯一维护入口仍是根 `CLAUDE.md`「构建与测试」；实现入口分别为
+`Scripts/android-mobile-verify.ps1` 和 `Scripts/ios-mobile-verify.sh`。
+
+**补充验收边界（2026-10-17）**：Android 的 `MobilePackageTest` 当时编译了 6 项 instrumentation 测试，
+除正常 50 轮及测试 APK 资源隔离外，还包括在内存中替换坏 JSON、Provider 元信息漂移等负例；
+两条 JNI 入口均有真实 ELF 动态导出，APK/JNI 与 libc++ 的 GNU Build ID 也经过比较。
+但未连接设备时，这些用例只算**编译和打包成功，不能算运行通过**。
+
+**2026-10-18 最新 Android 真机验收**：Xiaomi 14（arm64-v8a / API 36）手动安装两份 APK 后，
+`MobilePackageTest` 的当前 **8 项** instrumentation 全部真实通过（含两条 50 轮 Pod Clean），
+并核实设备已安装 APK 的 SHA256 与当前构建产物一致。官方 `android-mobile-verify.ps1`
+不再将 Gradle `BUILD SUCCESSFUL` 直接视为设备通过：检查完整测试计数、零失败、零跳过，
+以及 ADB runner 的唯一测试名、成功状态和终态。普通手机使用 `-Offline -RunDeviceTests`；
+不支持自动 USB 安装的手机可手动安装已构建 APK，再使用
+`-Offline -RunDeviceTests -UseInstalledApks`，仍严格校验当前 APK 身份。
+无设备校验器回归已纳入 CTest `AndroidInstrumentationReceipt`。
+Android 与 iOS 的资源暂存还有“发布中断、旧产物已移入备份、下次候选缺失”的恢复负例，
+由 `MobileResourceStaging` CTest 检查；该验证不代表跨多个目录的原子发布保证。
 
 ## 运行示例：`VaseEmbedding`
 

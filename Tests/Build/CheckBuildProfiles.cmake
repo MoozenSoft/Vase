@@ -1,0 +1,96 @@
+# 每条桌面线使用自己的真实工具链、独立子树；不伪造目标系统。
+set(configureCommand "${CMAKE_COMMAND}" -S "${VASE_SOURCE_DIR}" -G "${VASE_GENERATOR}"
+    "-DCMAKE_TOOLCHAIN_FILE=${VASE_TOOLCHAIN_FILE}"
+    "-DCMAKE_BUILD_TYPE=${VASE_BUILD_TYPE}"
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)
+string(TIMESTAMP runId "%Y%m%d%H%M%S")
+set(probeRoot "${VASE_BINARY_DIR}/build-profiles/${runId}")
+
+function(expect_rejected name profile reason)
+    execute_process(COMMAND ${configureCommand} -B "${probeRoot}/${name}"
+        "-DVASE_BUILD_PROFILE=${profile}"
+        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    file(WRITE "${probeRoot}/${name}.log" "${output}\n${error}\nRC=${result}\n")
+    if(result EQUAL 0 OR NOT "${output}\n${error}" MATCHES "${reason}")
+        message(FATAL_ERROR "${name}: expected rejection (${reason}), RC=${result}\n${output}\n${error}")
+    endif()
+endfunction()
+
+file(MAKE_DIRECTORY "${probeRoot}")
+expect_rejected(invalid-profile invalid "VASE_BUILD_PROFILE.*invalid")
+expect_rejected(native-mobile mobile "mobile.*Android.*iOS")
+file(WRITE "${probeRoot}/check-shape.cmake" [=[
+function(check_static_profile_shape)
+    file(READ "${VCPKG_INSTALLED_DIR}/vcpkg/status" installedPackages)
+    if(installedPackages MATCHES "Package: gtest" OR NOT installedPackages MATCHES "Package: nlohmann-json")
+        message(FATAL_ERROR "manifest-host must install nlohmann-json without desktop gtest")
+    endif()
+    foreach(framework VasePod VaseHost VaseCatalog)
+        get_target_property(kind ${framework} TYPE)
+        get_target_property(definitions ${framework} INTERFACE_COMPILE_DEFINITIONS)
+        if(NOT kind STREQUAL "STATIC_LIBRARY" OR NOT "VASE_STATIC" IN_LIST definitions)
+            message(FATAL_ERROR "${framework}: expected STATIC with PUBLIC VASE_STATIC")
+        endif()
+    endforeach()
+    if(TARGET VaseTests OR TARGET VaseConsole OR TARGET VaseCli OR TARGET HelloPlugin)
+        message(FATAL_ERROR "manifest-host unexpectedly creates desktop targets")
+    endif()
+    add_library(ProfileHelloCommon INTERFACE)
+    target_link_libraries(ProfileHelloCommon INTERFACE VaseBuildOptions)
+    target_include_directories(ProfileHelloCommon INTERFACE "${PROJECT_SOURCE_DIR}/Samples/HelloCommon")
+    vase_add_plugin_fixture(ProfilePlugin PACK
+        SOURCES "${PROJECT_SOURCE_DIR}/Samples/HelloPlugin/HelloPlugin.cpp"
+        MANIFEST "${PROJECT_SOURCE_DIR}/Samples/HelloPlugin/plugin.json"
+        LINK_LIBRARIES VasePod ProfileHelloCommon)
+    get_target_property(kind ProfilePlugin TYPE)
+    get_target_property(links ProfilePlugin INTERFACE_LINK_LIBRARIES)
+    get_target_property(manifest ProfilePlugin VASE_PLUGIN_MANIFEST)
+    if(NOT kind STREQUAL "INTERFACE_LIBRARY" OR NOT "VaseBuildOptions" IN_LIST links OR NOT EXISTS "${manifest}")
+        message(FATAL_ERROR "ProfilePlugin lost its static property carrier")
+    endif()
+    set_target_properties(ProfilePlugin PROPERTIES VASE_PLUGIN_CLASS HelloPlugin)
+    vase_pack_plugins(ProfilePack STATIC PLUGINS ProfilePlugin)
+    add_dependencies(VaseCheckStaticFramework ProfilePack)
+endfunction()
+cmake_language(DEFER CALL check_static_profile_shape)
+]=])
+execute_process(COMMAND ${configureCommand} -B "${probeRoot}/manifest-host"
+    -DVASE_BUILD_PROFILE=manifest-host
+    "-DCMAKE_PROJECT_Vase_INCLUDE=${probeRoot}/check-shape.cmake"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+file(WRITE "${probeRoot}/manifest-host-configure.log" "${output}\n${error}\nRC=${result}\n")
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "manifest-host configure failed: ${result}\n${output}\n${error}")
+endif()
+execute_process(COMMAND "${CMAKE_COMMAND}" --build "${probeRoot}/manifest-host"
+    --target VaseCheckStaticFramework RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+file(WRITE "${probeRoot}/manifest-host-build.log" "${output}\n${error}\nRC=${result}\n")
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "static framework smoke failed: ${result}\n${output}\n${error}")
+endif()
+execute_process(COMMAND ${configureCommand} -B "${probeRoot}/manifest-host"
+    -DVASE_BUILD_PROFILE=desktop RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+file(WRITE "${probeRoot}/profile-switch.log" "${output}\n${error}\nRC=${result}\n")
+if(result EQUAL 0 OR NOT "${output}\n${error}" MATCHES "profile.*manifest-host.*desktop")
+    message(FATAL_ERROR "profile switching was not rejected: ${result}\n${output}\n${error}")
+endif()
+foreach(probe stage-with-mobile plugin-without-pack shared-package-with-mobile)
+    if(probe STREQUAL "stage-with-mobile")
+        set(body "include(\"${VASE_SOURCE_DIR}/Cmake/VasePackageStage.cmake\")\nvase_stage_pack(ForbiddenStage)")
+        set(reason "vase_stage_pack\\(ForbiddenStage\\).*mobile")
+    elseif(probe STREQUAL "shared-package-with-mobile")
+        set(body "include(\"${VASE_SOURCE_DIR}/Cmake/VasePluginHelpers.cmake\")\nvase_pack_plugins(ForbiddenShared PLUGINS FakePlugin)")
+        set(reason "vase_pack_plugins\\(ForbiddenShared\\).*mobile.*STATIC")
+    else()
+        set(body "include(\"${VASE_SOURCE_DIR}/Cmake/VasePluginHelpers.cmake\")\nvase_add_plugin_fixture(UnpackedPlugin)")
+        set(reason "UnpackedPlugin.*PACK")
+    endif()
+    file(WRITE "${probeRoot}/${probe}.cmake" "set(VASE_BUILD_PROFILE mobile)\n${body}\n")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -P "${probeRoot}/${probe}.cmake"
+        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    file(WRITE "${probeRoot}/${probe}.log" "${output}\n${error}\nRC=${result}\n")
+    if(result EQUAL 0 OR NOT "${output}\n${error}" MATCHES "${reason}")
+        message(FATAL_ERROR "${probe}: rejection missing (${reason}), RC=${result}\n${output}\n${error}")
+    endif()
+endforeach()
+message(STATUS "BuildProfiles: invalid/native-mobile/switch rejected; static framework smoke passed")

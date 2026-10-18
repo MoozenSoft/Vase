@@ -1,9 +1,13 @@
 cmake_minimum_required(VERSION 4.0)
 
+include(Cmake/VaseBuildProfile.cmake)
+
 project(Vase
     VERSION 0.1.0
     DESCRIPTION "插件管理能力库"
     LANGUAGES CXX)
+
+vase_validate_build_profile()
 
 # --- 工具链 doctor ---------------------------------------------------------
 #
@@ -20,9 +24,15 @@ project(Vase
 set(VASE_REQUIRED_CLANG_MAJOR 23)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    if(NOT CMAKE_CXX_COMPILER_VERSION MATCHES "^${VASE_REQUIRED_CLANG_MAJOR}\\.")
+    # 真实 Android NDK r30 自带 Clang 21；仅 mobile + Android 允许这档，桌面仍固定 23。
+    if(VASE_BUILD_PROFILE STREQUAL "mobile" AND CMAKE_SYSTEM_NAME STREQUAL "Android")
+        set(vaseExpectedClangMajor 21)
+    else()
+        set(vaseExpectedClangMajor ${VASE_REQUIRED_CLANG_MAJOR})
+    endif()
+    if(NOT CMAKE_CXX_COMPILER_VERSION MATCHES "^${vaseExpectedClangMajor}\\.")
         message(FATAL_ERROR
-            "Vase 要求 clang ${VASE_REQUIRED_CLANG_MAJOR}.x，当前为 ${CMAKE_CXX_COMPILER_VERSION}（${CMAKE_CXX_COMPILER}）。\n"
+            "Vase 要求 clang ${vaseExpectedClangMajor}.x，当前为 ${CMAKE_CXX_COMPILER_VERSION}（${CMAKE_CXX_COMPILER}）。\n"
             "两侧 LLVM 必须同版本，否则 clang-format / clang-tidy 的双平台判据不成立。\n"
             "处置：把 LLVM ${VASE_REQUIRED_CLANG_MAJOR}.1.x 的 bin 目录放到 PATH 最前（见 README「环境前提」）。")
     endif()
@@ -41,6 +51,10 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(VASE_BUILD_PROFILE STREQUAL "mobile")
+    # 本仓不使用 C++20 modules；NDK 未提供 clang-scan-deps 时避免错误的模块扫描。
+    set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+endif()
 
 # 产物落位：可执行在 bin/；POSIX 侧框架库与静态库在 lib/。
 # **每个插件独占 <产物根>/<target 名>/**（Windows bin/、Linux/macOS lib/）——
@@ -281,11 +295,18 @@ include(Cmake/VasePackageStage.cmake)
 # 禁令都在文件里——它关乎异常不变式能否被编译期把守，不是风格选择。
 include(Cmake/VaseThirdParty.cmake)
 
-enable_testing()
+if(VASE_BUILD_PROFILE STREQUAL "desktop")
+    enable_testing()
+endif()
 
 add_subdirectory(Source/Pod)
 add_subdirectory(Source/Host)
 add_subdirectory(Source/Catalog)
+
+if(NOT VASE_BUILD_PROFILE STREQUAL "desktop")
+    add_subdirectory(Samples/Mobile)
+    return()
+endif()
 
 # HelloCommon（VasePack spec D209）：Samples 三个插件与两个可执行共用服务契约头，
 # 立成 INTERFACE 库。必须在 HelloPlugin 之前——后者经 LINK_LIBRARIES 取它。

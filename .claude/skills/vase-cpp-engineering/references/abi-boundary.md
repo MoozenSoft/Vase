@@ -41,6 +41,8 @@ static_assert(offsetof(PluginDescriptor, HeaderVersion) == 0, "...");
 
 **宿主面结构加字段同理，但不 bump `kHeaderVersion`。** 判据是「谁跨了这个边界」：描述符面（插件与宿主**共享**的结构）动则 bump；宿主面结构（`VaseHost` 自己暴露的公开形）动则是 ABI 变更、却不动 `kHeaderVersion`。现例 = 静态链入波（2026-10-10，D227）给 `Include/Vase/Host/LoadPlan.h` 的 `LoadPlanEntry` 增 `InProcessEntry`（类型 `PluginEntryPoint`，同波 D216）——`kHeaderVersion` 与描述符布局都不动；先例是 M2b 波 2 给同一 struct 加的 `Expected`（D67）。
 
+**移动端资源导入波（2026-10-17）是另一次宿主 API/ABI 增量，而不是描述符 ABI 升级**： `Include/Vase/Catalog/PackageManifest.h` 新增调用期借用视图 `PackageResource{Location, Contents}`、`CatalogSource` 尾增拥有值 `ResourceLocation`，`PluginCatalog::RefreshResources(span)` 和包内容解析共用 Catalog 的解析/快照路径。输入字节在同步导入成功后可释放；Catalog 自持新快照，失败仍保留旧借用窗。**`kHeaderVersion` 保持 4，`PluginMeta` / `PluginDescriptor` / `PackageEntryPoints` 布局均不变**。Android NDK JNI 和 iPhoneOS Bundle reader 均只调用宿主侧 API，不给描述符写新字段。
+
 ---
 
 ## 2. 描述符纪律：POD

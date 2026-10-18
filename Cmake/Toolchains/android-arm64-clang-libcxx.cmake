@@ -1,0 +1,25 @@
+# Android arm64-v8a / API 29 / NDK r30；真实交叉编译，不能回退宿主 clang。
+if(NOT DEFINED ENV{ANDROID_NDK_HOME} OR "$ENV{ANDROID_NDK_HOME}" STREQUAL "")
+    message(FATAL_ERROR "Android mobile: ANDROID_NDK_HOME 未设置，需要 NDK r30")
+endif()
+set(androidNdk "$ENV{ANDROID_NDK_HOME}")
+if(NOT EXISTS "${androidNdk}/source.properties" OR
+   NOT EXISTS "${androidNdk}/build/cmake/android.toolchain.cmake")
+    message(FATAL_ERROR "Android mobile: ANDROID_NDK_HOME 不是可用的 NDK 安装：${androidNdk}")
+endif()
+file(STRINGS "${androidNdk}/source.properties" ndkRevision REGEX "^Pkg\\.Revision[ \\t]*=")
+if(NOT ndkRevision MATCHES "^Pkg\\.Revision[ \\t]*=[ \\t]*30\\.")
+    message(FATAL_ERROR "Android mobile: 需要 NDK r30，实际 ${ndkRevision}")
+endif()
+if(NOT DEFINED ENV{VCPKG_ROOT} OR "$ENV{VCPKG_ROOT}" STREQUAL "")
+    message(FATAL_ERROR "Android mobile: VCPKG_ROOT 未设置")
+endif()
+
+set(ANDROID_NDK "${androidNdk}" CACHE PATH "Validated Android NDK r30" FORCE)
+set(ANDROID_ABI arm64-v8a CACHE STRING "Android mobile ABI" FORCE)
+set(ANDROID_PLATFORM android-29 CACHE STRING "Android minimum API" FORCE)
+set(ANDROID_STL c++_shared CACHE STRING "Android libc++ linkage" FORCE)
+set(VCPKG_TARGET_TRIPLET arm64-android CACHE STRING "Native Android vcpkg triplet" FORCE)
+set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${androidNdk}/build/cmake/android.toolchain.cmake"
+    CACHE FILEPATH "Same NDK official toolchain for vcpkg and Vase" FORCE)
+include("$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")

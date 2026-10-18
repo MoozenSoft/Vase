@@ -1,7 +1,11 @@
 # 平台文件按平台选：Windows 走 PE，macOS 走 Mach-O + dyld，其余走 ELF + dl_iterate_phdr。
 # 三套平台实现同一组接口，由 Source/Host/ImageInspectPlatform.h 声明（Host 内部，不进公开头）。
 # **注意 Mach-O 的纯字节解析器不在这里**——它无条件编译（见 add_library 那一段）。
-if(WIN32)
+if(VASE_BUILD_PROFILE STREQUAL "mobile")
+    set(VASE_HOST_PLATFORM_SOURCES
+        ImageInspectStatic.cpp
+        LoaderStatic.cpp)
+elseif(WIN32)
     set(VASE_HOST_PLATFORM_SOURCES
         ImageInspectWindows.cpp
         LoaderWindows.cpp)
@@ -15,7 +19,7 @@ else()
         LoaderPosix.cpp)
 endif()
 
-add_library(VaseHost SHARED
+add_library(VaseHost ${VASE_FRAMEWORK_LINKAGE}
     SmokeProbe.cpp
     ImageInspectCommon.cpp
     # Mach-O 解析器**无条件**编译（D161）：它是纯字节解析，与 PE/ELF 两段同性质；
@@ -35,6 +39,15 @@ target_include_directories(VaseHost
 
 target_compile_definitions(VaseHost
     PRIVATE VASE_HOST_BUILD)
+
+if(VASE_BUILD_PROFILE STREQUAL "mobile")
+    target_compile_definitions(VaseHost PRIVATE VASE_LINKED_IN_ONLY)
+endif()
+
+if(NOT VASE_BUILD_PROFILE STREQUAL "desktop")
+    target_compile_definitions(VaseHost PUBLIC VASE_STATIC)
+    set_target_properties(VaseHost PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
 
 set_target_properties(VaseHost PROPERTIES
     CXX_VISIBILITY_PRESET hidden

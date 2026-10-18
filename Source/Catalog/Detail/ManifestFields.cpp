@@ -29,7 +29,27 @@ using nlohmann::json;
 
 Error ManifestError(const std::filesystem::path& file, std::string_view detail)
 {
-    return Error("plugin manifest \"" + file.string() + "\": " + std::string(detail));
+    return ManifestError(std::string_view(file.string()), detail);
+}
+
+Error ManifestError(std::string_view location, std::string_view detail)
+{
+    return Error("plugin manifest \"" + std::string(location) + "\": " + std::string(detail));
+}
+
+Result<json> ReadJsonContents(std::string_view contents, std::string_view location)
+{
+    // JSON 的原始 NUL 非法；lexer 将其视作 EOF，须阻止有效前缀掩盖后续字节。
+    if (contents.find('\0') != std::string_view::npos)
+    {
+        return Result<json>::Err(ManifestError(location, "malformed JSON"));
+    }
+    json parsed = json::parse(contents.begin(), contents.end(), nullptr, false);
+    if (parsed.is_discarded())
+    {
+        return Result<json>::Err(ManifestError(location, "malformed JSON"));
+    }
+    return Result<json>::Ok(std::move(parsed));
 }
 
 Result<json> ReadJsonFile(const std::filesystem::path& file)
@@ -40,12 +60,7 @@ Result<json> ReadJsonFile(const std::filesystem::path& file)
         return Result<json>::Err(ManifestError(file, "cannot open file"));
     }
     const std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-    json parsed = json::parse(text, nullptr, false); // D55：无异常形态，坏 JSON 返回 discarded 而非抛
-    if (parsed.is_discarded())
-    {
-        return Result<json>::Err(ManifestError(file, "malformed JSON"));
-    }
-    return Result<json>::Ok(std::move(parsed));
+    return ReadJsonContents(text, file.string());
 }
 
 bool OnlyKeys(const json& object, const std::initializer_list<std::string_view>& allowed, std::string& offender)
@@ -337,8 +352,7 @@ json DepsToJson(const std::vector<ManifestDependency>& deps)
     return array;
 }
 
-Result<std::vector<ManifestDependency>> ParseDeps(const json& array, std::string_view fieldName,
-                                                  const std::filesystem::path& file)
+Result<std::vector<ManifestDependency>> ParseDeps(const json& array, std::string_view fieldName, std::string_view file)
 {
     std::vector<ManifestDependency> out;
     if (!array.is_array())
@@ -390,7 +404,7 @@ Result<std::vector<ManifestDependency>> ParseDeps(const json& array, std::string
 
 // M3/D93：进程级状态的名字数组。重名即刻拒——与 choices 的重值/重 label 同例（D80），
 // 而不是留给比对器报「多重集不等」（那是作者拿不到的归因）。
-Result<std::vector<std::string>> ParseProcessStates(const json& array, const std::filesystem::path& file)
+Result<std::vector<std::string>> ParseProcessStates(const json& array, std::string_view file)
 {
     std::vector<std::string> out;
     if (!array.is_array())
@@ -418,7 +432,7 @@ Result<std::vector<std::string>> ParseProcessStates(const json& array, const std
     return Result<std::vector<std::string>>::Ok(std::move(out));
 }
 
-Result<std::vector<ManifestConfigField>> ParseConfig(const json& array, const std::filesystem::path& file)
+Result<std::vector<ManifestConfigField>> ParseConfig(const json& array, std::string_view file)
 {
     std::vector<ManifestConfigField> out;
     if (!array.is_array())
@@ -612,8 +626,8 @@ Result<std::vector<ManifestConfigField>> ParseConfig(const json& array, const st
 
 } // namespace
 
-Result<ManifestEntry> ParsePluginFields(const json& root, const std::filesystem::path& file,
-                                        std::string_view subdirectoryName, ManifestFieldMode mode)
+Result<ManifestEntry> ParsePluginFields(const json& root, std::string_view file, std::string_view subdirectoryName,
+                                        ManifestFieldMode mode)
 {
     if (!root.is_object())
     {
@@ -775,6 +789,12 @@ Result<ManifestEntry> ParsePluginFields(const json& root, const std::filesystem:
     }
 
     return Result<ManifestEntry>::Ok(std::move(entry));
+}
+
+Result<ManifestEntry> ParsePluginFields(const json& root, const std::filesystem::path& file,
+                                        std::string_view subdirectoryName, ManifestFieldMode mode)
+{
+    return ParsePluginFields(root, std::string_view(file.string()), subdirectoryName, mode);
 }
 
 json SerializePluginFields(const ManifestEntry& entry, ManifestFieldMode mode)

@@ -3,8 +3,14 @@
   "version-string": "0.1.0",
   "description": "插件管理能力库",
   "dependencies": [
-    "gtest",
     "nlohmann-json"
   ],
+  "default-features": ["desktop-tests"],
+  "features": {
+    "desktop-tests": {
+      "description": "Desktop test dependencies",
+      "dependencies": ["gtest"]
+    }
+  },
   "builtin-baseline": "114d9fe62faf35856b45cf55cb93b57028a45d63"
 }

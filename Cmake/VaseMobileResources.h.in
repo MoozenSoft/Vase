@@ -1,0 +1,25 @@
+#pragma once
+
+// 自动生成，来源是 VASE_MOBILE_PACKAGE_TARGETS 及包目标属性。
+#include "Vase/Host/PackagePlan.h"
+
+#include <array>
+#include <string_view>
+
+@VASE_MOBILE_ENTRY_INCLUDES@
+namespace vase_mobile
+{
+
+struct PackageResourceName
+{
+    std::string_view AssetName;
+    std::string_view SourceId;
+};
+
+inline constexpr std::array<PackageResourceName, @VASE_MOBILE_RESOURCE_COUNT@> kPackageResources{
+@VASE_MOBILE_RESOURCE_ITEMS@};
+
+inline const std::array<vase::InProcessBinding, @VASE_MOBILE_RESOURCE_COUNT@> kPackageBindings{
+@VASE_MOBILE_BINDING_ITEMS@};
+
+} // namespace vase_mobile

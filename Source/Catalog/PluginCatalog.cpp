@@ -15,6 +15,7 @@
 #include "Vase/Host/PluginHost.h"
 #include "Vase/Pod/Pod.h"
 
+#include "Detail/CatalogSnapshot.h"
 #include "Detail/ChoiceCoerce.h"
 
 #include <algorithm>
@@ -23,6 +24,7 @@
 #include <filesystem>
 #include <iterator>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -133,21 +135,6 @@ Result<bool> IsRegularFile(const std::filesystem::path& file)
         Error("catalog refresh: cannot stat manifest \"" + file.string() + "\": " + statEc.message()));
 }
 
-// 全局 Id 唯一（spec §3）：单插件与包成员共用这条拒绝路径，重复即整体 Err。
-Result<void> AppendEntry(std::vector<ManifestEntry>& entries, ManifestEntry entry)
-{
-    for (const ManifestEntry& held : entries)
-    {
-        if (held.Id == entry.Id)
-        {
-            return Result<void>::Err(Error("catalog refresh: duplicate plugin id \"" + entry.Id + "\" in \"" +
-                                           held.Subdirectory + "\" and \"" + entry.Subdirectory + "\""));
-        }
-    }
-    entries.push_back(std::move(entry));
-    return Result<void>::Ok();
-}
-
 } // namespace
 
 PluginCatalog::PluginCatalog() = default;
@@ -216,9 +203,7 @@ Result<void> PluginCatalog::Refresh(const std::filesystem::path& pluginDirectory
     std::ranges::sort(subdirectories, [](const std::filesystem::path& a, const std::filesystem::path& b)
                       { return a.filename().string() < b.filename().string(); });
 
-    std::vector<ManifestEntry> nextEntries;
-    std::vector<CatalogSource> nextSources;
-    std::vector<CatalogWarning> nextWarnings;
+    catalog_detail::PendingCatalogSnapshot pending;
     for (const std::filesystem::path& dir : subdirectories)
     {
         const std::string name = dir.filename().string();
@@ -241,7 +226,7 @@ Result<void> PluginCatalog::Refresh(const std::filesystem::path& pluginDirectory
         }
         if (!hasSingle.Value() && !hasPackage.Value())
         {
-            nextWarnings.push_back(
+            pending.Warnings.push_back(
                 CatalogWarning{.Subdirectory = name, .Message = "no plugin.json or pack.json — skipped"});
             continue;
         }
@@ -260,13 +245,12 @@ Result<void> PluginCatalog::Refresh(const std::filesystem::path& pluginDirectory
             source.ManifestPath = singleManifest;
             source.BinaryPath = dir / std::filesystem::path(catalog_detail::LibraryFileName(entry.Binary));
             source.MemberIds.push_back(entry.Id);
-            entry.SourceId = source.Id;
-            const Result<void> appended = AppendEntry(nextEntries, std::move(entry));
+            const Result<void> appended = catalog_detail::AppendCatalogEntry(pending, std::move(entry), source);
             if (!appended.IsOk())
             {
                 return Result<void>::Err(appended.GetError());
             }
-            nextSources.push_back(std::move(source));
+            pending.Sources.push_back(std::move(source));
             continue;
         }
 
@@ -276,46 +260,75 @@ Result<void> PluginCatalog::Refresh(const std::filesystem::path& pluginDirectory
             return Result<void>::Err(parsed.GetError());
         }
         PackageManifest package = std::move(parsed.Value());
-        for (const CatalogSource& held : nextSources)
-        {
-            if (held.Id == package.SourceId)
-            {
-                return Result<void>::Err(Error("catalog refresh: duplicate source id \"" + package.SourceId +
-                                               "\" in \"" + held.ManifestPath.parent_path().filename().string() +
-                                               "\" and \"" + name + "\""));
-            }
-        }
-        source.Id = package.SourceId;
-        source.IsPackage = true;
-        source.Kind = package.Kind;
         source.ManifestPath = packageManifest;
         if (package.Kind == PackageSourceKind::kDynamic)
         {
             // 库文件与 pack.json 同处包目录；目录名不参与来源标识（spec §2.1/§3）。
             source.BinaryPath = dir / std::filesystem::path(catalog_detail::LibraryFileName(package.Binary));
         }
-        source.MemberIds.reserve(package.Plugins.size());
-        for (ManifestEntry& member : package.Plugins)
+        const auto appended = catalog_detail::AppendCatalogPackage(pending, std::move(package), std::move(source));
+        if (!appended.IsOk())
         {
-            // 包成员的 Subdirectory 是目录展示值、Binary 留空（spec §2.2）：加载只读本来源表。
-            source.MemberIds.push_back(member.Id);
-            member.SourceId = source.Id;
-            const Result<void> appended = AppendEntry(nextEntries, std::move(member));
-            if (!appended.IsOk())
-            {
-                return Result<void>::Err(appended.GetError());
-            }
+            return Result<void>::Err(appended.GetError());
         }
-        std::ranges::sort(source.MemberIds);
-        nextSources.push_back(std::move(source));
     }
 
-    std::ranges::sort(nextEntries, [](const ManifestEntry& a, const ManifestEntry& b) { return a.Id < b.Id; });
+    catalog_detail::SortCatalogEntries(pending);
 
     SnapshotDirectory = std::move(abs);
-    SnapshotEntries = std::move(nextEntries);
-    SnapshotSources = std::move(nextSources);
-    SnapshotWarnings = std::move(nextWarnings);
+    SnapshotEntries = std::move(pending.Entries);
+    SnapshotSources = std::move(pending.Sources);
+    SnapshotWarnings = std::move(pending.Warnings);
+    HasScanned = true;
+    return Result<void>::Ok();
+}
+
+Result<void> PluginCatalog::RefreshResources(std::span<const PackageResource> resources)
+{
+    std::vector<PackageResource> ordered(resources.begin(), resources.end());
+    for (const PackageResource& resource : ordered)
+    {
+        if (resource.Location.empty() || resource.Location.find('\0') != std::string_view::npos)
+        {
+            return Result<void>::Err(Error("catalog resources: location must be non-empty and contain no NUL: \"" +
+                                           std::string(resource.Location) + "\""));
+        }
+    }
+    std::ranges::sort(ordered, {}, &PackageResource::Location);
+    catalog_detail::PendingCatalogSnapshot pending;
+    std::string_view previous;
+    for (const PackageResource& resource : ordered)
+    {
+        if (resource.Location == previous)
+        {
+            return Result<void>::Err(
+                Error("catalog resources: duplicate location \"" + std::string(resource.Location) + "\""));
+        }
+        previous = resource.Location;
+        auto parsed = ParsePackageManifest(resource.Contents, resource.Location);
+        if (!parsed.IsOk())
+        {
+            return Result<void>::Err(parsed.GetError());
+        }
+        if (parsed.Value().Kind != PackageSourceKind::kInProcess)
+        {
+            return Result<void>::Err(Error("catalog resources: \"" + std::string(resource.Location) + "\" source \"" +
+                                           parsed.Value().SourceId + "\" must be inProcess"));
+        }
+        CatalogSource source;
+        source.ResourceLocation = resource.Location;
+        const auto appended =
+            catalog_detail::AppendCatalogPackage(pending, std::move(parsed.Value()), std::move(source));
+        if (!appended.IsOk())
+        {
+            return Result<void>::Err(appended.GetError());
+        }
+    }
+    catalog_detail::SortCatalogEntries(pending);
+    SnapshotDirectory.clear();
+    SnapshotEntries = std::move(pending.Entries);
+    SnapshotSources = std::move(pending.Sources);
+    SnapshotWarnings = std::move(pending.Warnings);
     HasScanned = true;
     return Result<void>::Ok();
 }

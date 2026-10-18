@@ -30,6 +30,7 @@ add_executable(VaseTests
     Integration/ConfigApplyTests.cpp
     Integration/CatalogScanTests.cpp
     Integration/PackageCatalogTests.cpp
+    Integration/CatalogResourceTests.cpp
     Integration/PackageSolveTests.cpp
     Integration/PackagePreflightTests.cpp
     Integration/SolveTests.cpp
@@ -215,7 +216,41 @@ endif()
 add_subdirectory(Package)
 add_subdirectory(StaticLink)
 
+add_test(NAME BuildProfiles COMMAND ${vaseTestBuildCommand}
+    "-DVASE_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+    "-DVASE_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+    "-DVASE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+    "-DVASE_GENERATOR=${CMAKE_GENERATOR}"
+    "-DVASE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/Build/CheckBuildProfiles.cmake")
+set_tests_properties(BuildProfiles PROPERTIES RESOURCE_LOCK VaseBuildProfiles)
+
+# 宿主候选清单由真实原生静态包生成，并验证坏策略阻断旧清单复用。
+add_test(NAME MobileManifests COMMAND ${vaseTestBuildCommand}
+    "-DVASE_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+    "-DVASE_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+    "-DVASE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+    "-DVASE_GENERATOR=${CMAKE_GENERATOR}"
+    "-DVASE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/Build/CheckMobileManifests.cmake")
+set_tests_properties(MobileManifests PROPERTIES RESOURCE_LOCK VaseBuildProfiles)
+
 # 包读取见证单独链 STATIC 包，避免影响 VaseTests 中按路径装载的插件。
+add_test(NAME MobileResourceStaging COMMAND "${CMAKE_COMMAND}"
+    "-DVASE_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+    "-DVASE_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/Build/CheckMobileResourceStaging.cmake")
+set_tests_properties(MobileResourceStaging PROPERTIES RESOURCE_LOCK VaseMobileStaging)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME MobileSymbolsExports COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Build/CheckMobileSymbols.py")
+
+# Script-only Android acceptance regression: reject 0 tests, partial/failed
+# runners and missing terminal receipts on all desktop CI platforms.
+add_test(NAME AndroidInstrumentationReceipt COMMAND "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/Android/CheckAndroidInstrumentation.py")
+
 add_executable(VasePackageCliReadTests
     Integration/PackageCliReadTests.cpp
     Integration/PackageBuildTests.cpp

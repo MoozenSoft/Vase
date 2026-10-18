@@ -42,15 +42,16 @@ gtest_discover_tests(VaseStaticLinkTests
 add_executable(VaseMultiPackageLinkTests MultiPackageLinkTests.cpp PackageAssemblyTests.cpp)
 target_link_libraries(VaseMultiPackageLinkTests
     PRIVATE VaseBuildOptions VaseHost VaseCatalog VaseCliCore PackageServices
-            VasePackageProvider VasePackageConsumer VasePluginsStatic GTest::gtest_main)
-target_include_directories(VaseMultiPackageLinkTests PRIVATE ../TestingSupport)
+            VasePackageProvider VasePackageConsumer VaseMobileScenarioCore VasePluginsStatic GTest::gtest_main)
+target_include_directories(VaseMultiPackageLinkTests PRIVATE ../TestingSupport
+    "${PROJECT_SOURCE_DIR}/Samples/Mobile")
 target_compile_definitions(VaseMultiPackageLinkTests PRIVATE
     VASE_PACKAGE_STATIC_STAGE="$<PATH:CMAKE_PATH,${CMAKE_BINARY_DIR}/Tests/Package/release static>"
     VASE_PACKAGE_STATIC_SAMPLE_STAGE="$<PATH:CMAKE_PATH,${CMAKE_BINARY_DIR}/Tests/Package/release samples/samples>")
 gtest_discover_tests(VaseMultiPackageLinkTests
     DISCOVERY_MODE PRE_TEST
-    TEST_FILTER "-StaticPackageAssembly.*")
+    TEST_FILTER "-StaticPackageAssembly.*:StaticResourceAssembly.*")
 gtest_discover_tests(VaseMultiPackageLinkTests
     DISCOVERY_MODE PRE_TEST
-    TEST_FILTER "StaticPackageAssembly.*"
+    TEST_FILTER "StaticPackageAssembly.*:StaticResourceAssembly.*"
     PROPERTIES FIXTURES_REQUIRED PackageReleaseStage)

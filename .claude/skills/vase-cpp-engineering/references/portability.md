@@ -9,7 +9,7 @@
 
 > macOS 原口径是 arm64，需求方 2026-10-01 裁定改 x64、**arm64 永久移出**（将来若要 arm64 = 新增一套 preset + triplet，不是改这一套；macOS 腿 spec D157）。
 
-**仓库当前实际构建的是 Win x64、Linux x64、macOS x64 三棵（八条 preset 线）。** macOS 腿（2026-10-02）已落地：档二证据 = `_dyld_image_count` / 路径枚举（`Source/Host/ImageInspectDarwin.cpp`）、档三身份 = `LC_UUID`（链接器必写，**无对位承重 flag**——承重性由 `NoIdentityPlugin` 的 `-Wl,-no_uuid` 负例反向把守，D159/D167）。Android / iOS 的代码路径与构建仍未落地——移动端实现不存在。**不要把 §8.5 的平台矩阵读成"桌面三棵 = 全矩阵已支持"**；preset 名与各线基数以根 `CLAUDE.md`「构建与测试」为准。
+**桌面主干仍是 Win x64、Linux x64、macOS x64 三平台八条 Debug/Release preset 线；移动端另有两条不同证据级别的构建路径。** macOS 腿（2026-10-02）已落地：档二证据 = `_dyld_image_count` / 路径枚举（`Source/Host/ImageInspectDarwin.cpp`）、档三身份 = `LC_UUID`（链接器必写，**无对位承重 flag**——承重性由 `NoIdentityPlugin` 的 `-Wl,-no_uuid` 负例反向把守，D159/D167）。**2026-10-17 移动发布波实测**：Android arm64-v8a/API29 NDK r30（自带 Clang21）真正生成 JNI AArch64 ELF 并用 Gradle 打包 APK/测试 APK；iPhoneOS arm64/SDK18.2/minos15.0 使用 MacPorts Clang23 真正归档并链接最终 Mach-O，Bundle 资源字节匹配。两条都在 native 构建树准备只读候选；Android 无兼容 adb 设备、iOS 未安装/签名/运行，所以两者的 50 轮 Clean **仅在桌面共用 Scenario 测试中已跑过，不可冒充移动设备证据**。**不要把 §8.5 的平台矩阵读成"桌面三棵 = 全矩阵已支持"**；preset 名与各线基数以根 `CLAUDE.md`「构建与测试」为准。
 
 `Loader` 的平台分支今天在三选一（`Source/Host/CMakeLists.txt`；`ImageInspectMachO.cpp` 例外——**无条件编译**，八线合成字节用例都链它）：
 
@@ -34,7 +34,7 @@ else()       ImageInspectLinux.cpp    LoaderPosix.cpp   # 由 Posix 更名
 
 ### 版本由 configure 守，但守不全
 
-`CMakeLists.txt` 只校验 **CXX 编译器**的 clang **主版本**（钉的是哪个主版本，以根 `CLAUDE.md`「静态检查与格式」为准）；`cl.exe` 分支只查平台、**不查版本**。
+`CMakeLists.txt` 校验 **CXX 编译器**的 clang **主版本**；仅真实 Android mobile 配置使用 NDK 随附编译器的特定主版本例外，桌面和 iPhoneOS 仍按项目默认门禁。具体主版本、例外条件与工具链命令以根 `CLAUDE.md`「静态检查与格式」和「构建与测试」为准；`cl.exe` 分支只查平台、**不查版本**。
 
 > **它管不到 `clang-format` / `clang-tidy` 这两个独立可执行文件。** "CXX 编译器的 clang 落在被钉的那个主版本"不等于"tidy / format 也同版本"——后者由环境（PATH 最前）保证，不是 configure 保证的。
 
@@ -79,7 +79,7 @@ else()       ImageInspectLinux.cpp    LoaderPosix.cpp   # 由 Posix 更名
 ## 6. 尚未落地的平台风险（记着，别当已解决）
 
 - **macOS 有比 glibc 宽得多的 neverUnload 清单**（dyld4）：ObjC/Swift 元数据、**带析构函数的静态对象（static terminators）**、主程序静态依赖、`RTLD_NODELETE`——命中时 `dlclose` **返回 0 但镜像永在**。**实测（2026-10-01，macOS 腿 spec 取证注②）：本仓库关心的形态——纯 C++/libc++ 插件、无 ObjC/Swift 元数据、无 `RTLD_NODELETE`——包括带静态析构的那一档，`dlclose` 后镜像都从 dyld 清单真实消失、neverUnload 未触发；清单其余项（ObjC/Swift 元数据、主程序静态依赖等）未测。** 这句结论**带形态限定**，不许写成"macOS 不会 neverUnload"（D171）。不设"禁用静态析构"的契约（对正常 C++ 伤得太深）；档二在 macOS 上以 `_dyld_image_count` 枚举直接观测镜像去留，命中 neverUnload 也会**被看见**而不是静默成功。
-- **移动端**：Apple 平台**禁下载代码 `dlopen`**——Android / iOS 上的任何热插拔都不做，档 ① 也不给例外。发布形态下插件必须静态链接。
+- **移动端**：Android / iOS 发布只允许静态链入，不开放热插拔/Eject/Adopt，即使档 ① 也不给例外；iOS 不经 `dlopen` 下载执行代码。Android 是 JNI `.so` 中的静态成员，iOS 是 `.a` 由宿主最终链接。真实链接已验证，但设备运行仍待独立取证。
 - **libc++ 自身是带异常编译的**，其内部抛错路径若被触达，会穿过我们关闭异常的栈帧。正向路径已实测正常，错误路径行为待实测。
 
 ---

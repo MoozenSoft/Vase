@@ -88,7 +88,10 @@ UnloadEvidence Loader::Unload(const BinaryRecord& record)
     Binaries.erase(it); // 先摘表，后释放——释放触发的任何回调都看不到这个记录（防重入）
     PlatformFree(copy.Raw);
 
-#ifdef _WIN32
+#ifdef VASE_LINKED_IN_ONLY
+    // 静态发布形没有文件镜像卸载观测；不得把平台空实现标成有效证据。
+    return evidence;
+#elif defined(_WIN32)
     evidence.ReopenWritable = PlatformReopenWritable(copy.Path);
     evidence.ReopenWritableIsMeaningful = true;
     // MappingRemoved 在 Windows 不可观测（§8.2 档二：FreeLibrary 返回值不保证卸载干净），

@@ -25,18 +25,26 @@ function(vase_add_plugin_fixture name)
         get_filename_component(sourceManifest "${FIX_MANIFEST}" ABSOLUTE
             BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     endif()
-    add_library(${name} SHARED ${FIX_SOURCES})
-    target_link_libraries(${name}
-        PRIVATE VaseBuildOptions ${FIX_LINK_LIBRARIES})
+    if(DEFINED VASE_BUILD_PROFILE AND NOT VASE_BUILD_PROFILE STREQUAL "desktop")
+        if(NOT FIX_PACK)
+            message(FATAL_ERROR "vase_add_plugin_fixture(${name}): ${VASE_BUILD_PROFILE} 插件必须声明 PACK")
+        endif()
+        add_library(${name} INTERFACE)
+        target_link_libraries(${name} INTERFACE VaseBuildOptions ${FIX_LINK_LIBRARIES})
+    else()
+        add_library(${name} SHARED ${FIX_SOURCES})
+        target_link_libraries(${name} PRIVATE VaseBuildOptions ${FIX_LINK_LIBRARIES})
+        set_target_properties(${name} PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN ON
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${name}")
+    endif()
     set_target_properties(${name} PROPERTIES
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON
         VASE_PLUGIN_CLASS "${name}"
-        VASE_PLUGIN_MANIFEST "${sourceManifest}"
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}"
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${name}")
+        VASE_PLUGIN_MANIFEST "${sourceManifest}")
 
-    if(FIX_MANIFEST)
+    if(FIX_MANIFEST AND (NOT DEFINED VASE_BUILD_PROFILE OR VASE_BUILD_PROFILE STREQUAL "desktop"))
         # 构建后把清单铺到插件产物目录旁（D186 的「拷贝」形态）。本命令无 DEPENDS，
         # 只改源清单而不重链目标时不会重跑——不保证副本随源清单单独改动自动同步。
         add_custom_command(TARGET ${name} POST_BUILD
@@ -73,6 +81,9 @@ endfunction()
 # 故落 VASE_PACK_INTERMEDIATE_DIR 而非产物根；SHARED 支的平铺落位（D201）逐字不变。
 function(vase_pack_plugins target)
     cmake_parse_arguments(PACK "STATIC" "" "PLUGINS" ${ARGN})
+    if(VASE_BUILD_PROFILE STREQUAL "mobile" AND NOT PACK_STATIC)
+        message(FATAL_ERROR "vase_pack_plugins(${target}): mobile profile requires STATIC in-process packages")
+    endif()
 
     if(NOT PACK_PLUGINS)
         message(FATAL_ERROR

@@ -1,10 +1,11 @@
 find_package(nlohmann_json CONFIG REQUIRED)
 
-add_library(VaseCatalog SHARED
+add_library(VaseCatalog ${VASE_FRAMEWORK_LINKAGE}
     PluginCatalog.cpp
     ManifestJson.cpp
     PackageJson.cpp
     Detail/ManifestFields.cpp
+    Detail/CatalogSnapshot.cpp
     PresetJson.cpp
     Solve.cpp)
 
@@ -14,6 +15,11 @@ target_include_directories(VaseCatalog
 target_compile_definitions(VaseCatalog
     PRIVATE VASE_CATALOG_BUILD
             JSON_NOEXCEPTION)
+
+if(NOT VASE_BUILD_PROFILE STREQUAL "desktop")
+    target_compile_definitions(VaseCatalog PUBLIC VASE_STATIC)
+    set_target_properties(VaseCatalog PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
 
 set_target_properties(VaseCatalog PROPERTIES
     CXX_VISIBILITY_PRESET hidden

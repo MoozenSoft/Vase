@@ -21,10 +21,14 @@ enum class ManifestFieldMode : std::uint8_t
 };
 
 Error ManifestError(const std::filesystem::path& file, std::string_view detail);
+Error ManifestError(std::string_view location, std::string_view detail);
+Result<nlohmann::json> ReadJsonContents(std::string_view contents, std::string_view location);
 Result<nlohmann::json> ReadJsonFile(const std::filesystem::path& file);
 bool OnlyKeys(const nlohmann::json& object, const std::initializer_list<std::string_view>& allowed,
               std::string& offender);
 Result<ManifestEntry> ParsePluginFields(const nlohmann::json& root, const std::filesystem::path& file,
+                                        std::string_view subdirectoryName, ManifestFieldMode mode);
+Result<ManifestEntry> ParsePluginFields(const nlohmann::json& root, std::string_view file,
                                         std::string_view subdirectoryName, ManifestFieldMode mode);
 nlohmann::json SerializePluginFields(const ManifestEntry& entry, ManifestFieldMode mode);
 Result<void> ValidatePluginValues(const ManifestEntry& entry, const std::filesystem::path& file);

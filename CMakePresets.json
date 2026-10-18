@@ -25,6 +25,39 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
+      "name": "mobile-manifest-host",
+      "inherits": "win-x64-clang-debug",
+      "displayName": "Native manifest host for mobile packages",
+      "binaryDir": "${sourceDir}/build-win/mobile-manifest-host",
+      "cacheVariables": { "VASE_BUILD_PROFILE": "manifest-host" }
+    },
+    {
+      "name": "android-arm64-clang-release",
+      "generator": "Ninja",
+      "displayName": "Android arm64-v8a / NDK r30 / API 29 / Release",
+      "binaryDir": "${sourceDir}/build-android/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/Cmake/Toolchains/android-arm64-clang-libcxx.cmake",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "VASE_BUILD_PROFILE": "mobile",
+        "VASE_MANIFEST_HOST_BUILD_DIR": "${sourceDir}/build-win/mobile-manifest-host"
+      }
+    },
+    {
+      "name": "ios-arm64-clang-release",
+      "generator": "Ninja",
+      "displayName": "iPhoneOS arm64 / SDK 18.2 / iOS 15.0 / Release",
+      "binaryDir": "${sourceDir}/build-ios/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/Cmake/Toolchains/ios-arm64-clang-libcxx.cmake",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "VASE_BUILD_PROFILE": "mobile",
+        "VASE_MANIFEST_HOST_BUILD_DIR": "${sourceDir}/build-macos/mobile-manifest-host-macos"
+      }
+    },
+    {
       "name": "win-x64-msvc",
       "hidden": true,
       "generator": "Ninja",
@@ -85,6 +118,13 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
     },
     {
+      "name": "mobile-manifest-host-macos",
+      "inherits": "macos-x64-clang-debug",
+      "displayName": "macOS x64 native manifest host",
+      "binaryDir": "${sourceDir}/build-macos/mobile-manifest-host-macos",
+      "cacheVariables": { "VASE_BUILD_PROFILE": "manifest-host" }
+    },
+    {
       "name": "macos-x64-clang-release",
       "inherits": "macos-x64-clang",
       "displayName": "macOS x64 / clang / libc++ / Release",
@@ -92,6 +132,10 @@
     }
   ],
   "buildPresets": [
+    { "name": "ios-arm64-clang-release", "configurePreset": "ios-arm64-clang-release" },
+    { "name": "android-arm64-clang-release", "configurePreset": "android-arm64-clang-release" },
+    { "name": "mobile-manifest-host", "configurePreset": "mobile-manifest-host" },
+    { "name": "mobile-manifest-host-macos", "configurePreset": "mobile-manifest-host-macos" },
     { "name": "win-x64-clang-debug", "configurePreset": "win-x64-clang-debug" },
     { "name": "win-x64-clang-release", "configurePreset": "win-x64-clang-release" },
     { "name": "win-x64-msvc-debug", "configurePreset": "win-x64-msvc-debug" },

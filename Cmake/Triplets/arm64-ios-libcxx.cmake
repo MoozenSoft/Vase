@@ -1,0 +1,18 @@
+# Same iPhoneOS SDK/target compiler as the Vase CMake toolchain; no macOS triplet.
+set(VCPKG_TARGET_ARCHITECTURE arm64)
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_CMAKE_SYSTEM_NAME iOS)
+set(VCPKG_OSX_ARCHITECTURES arm64)
+set(VCPKG_OSX_DEPLOYMENT_TARGET 15.0)
+if(NOT DEFINED ENV{VASE_IOS_SDK_ROOT} OR "$ENV{VASE_IOS_SDK_ROOT}" STREQUAL "")
+    message(FATAL_ERROR "arm64-ios-libcxx: VASE_IOS_SDK_ROOT required")
+endif()
+set(VCPKG_OSX_SYSROOT "$ENV{VASE_IOS_SDK_ROOT}")
+set(VCPKG_CMAKE_CONFIGURE_OPTIONS
+    "-DCMAKE_C_COMPILER=clang-mp-23"
+    "-DCMAKE_CXX_COMPILER=clang++-mp-23"
+    "-DCMAKE_C_COMPILER_TARGET=arm64-apple-ios15.0"
+    "-DCMAKE_CXX_COMPILER_TARGET=arm64-apple-ios15.0")
+set(VCPKG_CXX_FLAGS "-stdlib=libc++")
+set(VCPKG_C_FLAGS "")

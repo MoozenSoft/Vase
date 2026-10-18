@@ -18,6 +18,13 @@ target_include_directories(VaseCliCore
     PUBLIC "${PROJECT_SOURCE_DIR}/Include"
            "${CMAKE_CURRENT_SOURCE_DIR}")
 
+# 宿主静态框架消费方通过 PUBLIC 依赖获得 VASE_STATIC，避免 Windows dllimport 误链。
+# 不创建桌面 CLI 主程序或用法测试。
+if(NOT VASE_BUILD_PROFILE STREQUAL "desktop")
+    target_link_libraries(VaseCliCore PRIVATE VaseHost VaseCatalog)
+    return()
+endif()
+
 # 不链 VaseThirdPartyCli：VaseCli 是批处理工具，argv 手写（D137）。
 add_executable(VaseCli main.cpp)
 target_link_libraries(VaseCli

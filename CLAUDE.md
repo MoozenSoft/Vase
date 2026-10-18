@@ -46,6 +46,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 交付形态仍待后续，桌面机制不表述为 iOS/Android 已验证。行为与使用入口见 README、wiki §3.5/§5.1/
 §8.6/§11.1，门禁最终值以本文件下方表为准。
 
+**移动端发布波 Task 1（2026-10-16）已落 Catalog 只读资源输入**：`PackageResource`、
+`ParsePackageManifest(contents, location)` 与 `RefreshResources` 共用文件入口的解析和快照构建；
+资源仅收 inProcess 包，成功后输入可释放，失败保留旧快照及借用窗。`CatalogSource` 尾追加
+`ResourceLocation` 是宿主 ABI 增量；描述符与 `kHeaderVersion` 不动。真实移动构建与运行仍待后续。
+
 **M0（构建地基）、M1（Pod 闭环 + 热插拔骨架）、M2a（M2 第一波：装配地基——配置面、`LoadPlan` 定形、
 多插件装配与跳过/碰撞执法、递归拆除、报告结构化）、M2b 第一波（清单解析/Catalog/Solve/Preset）
 与第二波均已完成**。第二波的五件：**加载期全字段比对**（`ManifestExpectation` 进 Host、
@@ -336,7 +341,86 @@ M5 欠账自此余**两件**（D125、VasePack）——五件里 `plan`+`doctor`
 ### 构建与测试
 
 
-**N:1 包发布波（2026-10-14 至 15）实测**：八线删树重配的完整 ctest 与 -N 已核对，debug四线516、
+**构建 profile（移动端发布波 Task 3）**：`VASE_BUILD_PROFILE` 默认 `desktop`，保持桌面框架
+SHARED 与既有 Samples / Tools / Tests。`manifest-host` 只允许原生工具链，`mobile` 只允许
+Android / iOS；两者框架均为 STATIC，PUBLIC 传播 `VASE_STATIC`，不建立桌面工具与测试。
+profile 在首次 `project()` 前选择 vcpkg features：`gtest` 属于默认 `desktop-tests` feature，
+静态 profile 禁用默认 feature、仍安装 nlohmann-json。构建树不得切换 profile（包含升级前的 desktop 树）。
+原生静态框架 smoke 的命令形态如下，必须使用独立构建树：
+
+```bash
+cmake --preset win-x64-clang-debug -B build-win/manifest-host-debug -DVASE_BUILD_PROFILE=manifest-host
+cmake --build build-win/manifest-host-debug --target VaseCheckStaticFramework
+```
+
+`VaseCheckStaticFramework` 实际运行空资源导入与空 Pod 建销；`BuildProfiles` 桌面 CTest
+另验证真实宿主工具链下的配置拒绝、静态框架/插件形态和依赖裁剪。子构建目录独立，受资源锁保护。
+mobile 平台桥只接受进程内来源，文件装载明确返回不支持；真实移动编译、tidy 和目标执行另行验证，
+桌面或 manifest-host 证据不替代它们。
+
+**移动端发布波 Task 4：原生宿主候选清单与资源名表**。Provider/Consumer 的 fixture、PackageServices、
+双 STATIC 包由 `Samples/Mobile/Packages.cmake` 唯一定义，桌面原输出路径保留；
+包的 `VASE_MOBILE_SOURCE_ID` 属性和 `VASE_MOBILE_PACKAGE_TARGETS` 是阶段与生成头的共同输入。
+`Cmake/VaseMobileResources.{cmake,h.in}` 输出相对资源名和静态 `InProcessBinding`，不手抄成员 Id 和主机绝对资源路径。
+`manifest-host` 是实际本机静态框架构建，内部链接生产 `VaseCliCore`，生成器只在宿主执行；
+`VaseMobileCandidateStage` 每次重新生成两份候选，输出 `mobile-resources/vase/{Provider,Consumer}/pack.json`，
+`VaseCheckMobileManifests` 以现有 Catalog 校验。坏策略的构建树副本必须使当次阶段构建失败，
+即使前轮 `pack.json` 仍存在，也不得被当作成功；恢复副本后重新生成。
+正常移动应用启动只读取内置资源，不运行本机生成器、不写出包或清单。
+本机宿主命令（Windows clang-cl）：
+
+```bash
+cmake --preset mobile-manifest-host
+cmake --build --preset mobile-manifest-host --target VaseCheckMobileManifests
+cmake --build --preset mobile-manifest-host --target VaseCheckStaticFramework
+```
+
+macOS x64 使用 `mobile-manifest-host-macos` 同名构建目标与既有 MacPorts 工具链；
+Android/iOS 目标交叉编译必须使用独立 mobile 构建树及已核验的 `VASE_MANIFEST_HOST_BUILD_DIR`。
+宿主元信息只是候选，不能替代真实移动目标元信息一致性的运行期拒绝验证。
+
+**移动端发布波 Task 5：Android NDK r30 / JNI 静态链入**。`android-arm64-clang-release`
+使用环境 `ANDROID_NDK_HOME` 指向 r30、官方 NDK toolchain + vcpkg arm64-android chainload，
+ABI arm64-v8a、API29、c++_shared；该 profile 限定可使用 NDK 自带 Clang 21，桌面仍要求 LLVM 23。
+`Samples/Mobile/MobileScenario.cpp` 通过生成的双包绑定运行 50 局 Provider/Consumer 7/3/7 循环，
+每轮 DestroyPod 后归零；桌面有同一 Scenario 的 gtest。JNI 只读 AssetManager，不保留 Host/服务引用，
+`VaseMobileJni` 链入静态 Pod/Host/Catalog、两包和不引用的 KeepAliveProbe；
+`VaseVerifyMobileSymbols` 核对 ELF AArch64、JNI/双包符号、剔除 KeepAliveProbe、依赖 libc++_shared。
+显式 `VaseMobileApkInputs` 先执行本机 `VaseMobileCandidateStage`，只在构建树 `apk-inputs/` 装配
+`jniLibs/arm64-v8a/{libVaseMobileJni.so,libc++_shared.so}` 与 `assets/vase/{Provider,Consumer}/pack.json`；
+普通应用启动既不复制也不生成清单。Windows 本机示例：
+
+```powershell
+$env:ANDROID_NDK_HOME = '<本机 NDK r30 的实际安装目录>'
+cmake --preset mobile-manifest-host
+cmake --build --preset mobile-manifest-host --target VaseCheckMobileManifests
+cmake --preset android-arm64-clang-release
+cmake --build --preset android-arm64-clang-release --target VaseMobileApkInputs
+```
+
+Android `.so`/资源装配及符号验证不等于 APK 安装或设备 JNI 运行；相关实证归后续任务。
+
+**移动端发布波 Task 3（2026-10-17）构建/测试实测**：八条桌面 preset 按原工具链在独立 `task3-*` 树配置、构建，四条 Debug 各 530 项、四条 Release 各 529 项，全量 ctest 与 `-N` 最终通过；各模式四线名字集合全等，相对 Task 2 仅新增 `BuildProfiles` 一条 CTest，唯一 Debug/Release 差仍是 M1 的 death test。Windows、Linux 及 macOS Release 首轮通过；macOS Debug 的初轮测试发现曾超时、非用例断言失败，原树重跑 530/530（RC=0，`task3-macos-x64-clang-debug-ctest-resume.log`）。BuildProfiles 的宿主子树编译真实静态框架、PACK 插件及包并执行 Smoke；三个平台 `HotSwap|Eject|Adopt` 专项记录均通过。实际 Android/iOS 目标编译、tidy、文件加载拒绝与设备执行仍归 Task 5/7 验证，不能由桌面 smoke 代替。
+
+**移动端发布波 Task 2（2026-10-17）增量复核**：八线现有树增量 configure/build、完整 ctest 与
+`-N` 均通过，debug四线529、release四线528；同模式名字集合全等，唯一debug−release差仍为
+`EffectScopeDeath.CreateAfterDisposeTerminates`。每线恰新增`StaticResourceAssembly`七条，无旧名删除、
+无平台或debug门：真实发布stage资源导入后释放输入、Value=7服务消费、同一Host按7/3/7循环50轮
+及归零、bool配置/缺绑定/错入口拒绝、禁用成员漂移每局预检、全禁用包无绑定不进包计划。
+本任务只改既有测试TU与fixture注册；八份编译数据库未变、生产变异逐字节还原。按任务裁定，
+未变输入沿用Task 1全量证据，四线变动TU检查与三平台format另行通过；这不是新一轮clean构建或
+160TU全量tidy。Mac继续使用Task 1实际树，原preset仅用`-B`选择该树。桌面结果不代表移动目标验证。
+
+**移动端发布波 Task 1（2026-10-16）实测**：八线完整构建、ctest 与 -N 已核对，debug四线522、
+release四线521；同模式四线名字集合全等，唯一debug−release差仍为
+`EffectScopeDeath.CreateAfterDisposeTerminates`。相对N:1波每线净增6条gtest：
+`PackageJson.TextAndFileParsingShareSchema` 1条与 `CatalogResources` 5条，无平台门或debug门。
+Windows clang-debug首轮撞`z-applocal`文件锁，单线删树重跑后全绿，其余Windows三线与Linux两线
+首轮全绿。macOS旧树预清理撞SMB `Resource busy`，最终用原preset仅经`-B`选择全新
+`build-macos/task1-macos-x64-clang-{debug,release}`，在实际新树完整build/ctest/-N首轮全绿；
+编译器、flags、依赖和测试选择不变。静态检查的最终结果见「静态检查与格式」。
+
+**N:1 包发布波（2026-10-14 至 15）历史实测**：八线删树重配的完整 ctest 与 -N 已核对，debug四线516、
 release四线515。同模式四线名字集合全等，唯一debug−release差为受NDEBUG门控的
 EffectScopeDeath.CreateAfterDisposeTerminates。本波相对执行基线1641208净新增158条：149条gtest
 +9条CTest（CLI包参数4、Console跳过来源3、构建策略1、发布stage fixture1），无旧名字删除。收口波
@@ -415,8 +499,32 @@ tidy 四条 debug 线各自跑（见「静态检查与格式」；**macOS 腿首
 | Linux / clang + libc++ | `linux-x64-clang-debug`、`linux-x64-clang-release` |
 | macOS x64 / clang + libc++（MacPorts `clang++-mp-23`） | `macos-x64-clang-debug`、`macos-x64-clang-release` |
 
-**各线 `ctest -N` 现值为 N:1 波 2026-10-14 至 15 实测**，见下表；八线同模式名字集合全等，新增与唯一
-debug/release差的成因见本节开头。以下旧波计算保留为历史：
+**移动发布构建（非上表八条桌面 CTest 线，不得把交叉链接当设备执行）**：
+
+| 目标 | preset / 真实工具链 | 已通过边界 |
+|---|---|---|
+| Android arm64-v8a，API 29 | `android-arm64-clang-release`；NDK r30 Clang 21、`c++_shared`；由 `Cmake/Toolchains/android-arm64-clang-libcxx.cmake` chainload 官方 NDK toolchain；宿主 `mobile-manifest-host` | JNI AArch64 ELF 符号/依赖检查、只读双候选生成、Gradle 主 APK 与 androidTest APK；**2026-10-18 Xiaomi 14 / API 36 实际 instrumentation 8/8 PASS（含两条 50 轮）** |
+| iPhoneOS arm64，最低 iOS 15.0 | `ios-arm64-clang-release`；MacPorts Clang 23、独立 iPhoneOS18.2.sdk、`arm64-ios-libcxx` overlay triplet；宿主 `mobile-manifest-host-macos` | 8 个 arm64 归档、最终 Mach-O SDK/minOS/双包符号及 Bundle 字节一致性，**未签名、未在 iPhone 执行** |
+
+Android 真构建须提供 `ANDROID_NDK_HOME`（指向 NDK r30）、`ANDROID_HOME`、`VCPKG_ROOT` 与运行 Gradle 所需的 `JAVA_HOME`（已验证 JDK 25）；
+在 Windows 以 PowerShell 执行 `cmake --preset mobile-manifest-host`，
+`cmake --preset android-arm64-clang-release`，
+`cmake --build --preset android-arm64-clang-release --target VaseMobileApkInputs`，
+再以 `Scripts/android-mobile-verify.ps1 -Offline` 执行完整的宿主候选、NDK 产物、Gradle 双 APK 与 ZIP 审计。
+PowerShell 默认禁脚本时，仅对子进程使用 `powershell -NoProfile -ExecutionPolicy Bypass -File Scripts/android-mobile-verify.ps1 -Offline`；
+有符合 arm64/API 29 的设备才启用 `-RunDeviceTests`，并读取 instrumentation 结果。Gradle 不使用另一套 `externalNativeBuild`。
+`-RunDeviceTests` 不再仅凭 Gradle 退出码判绿：会清理旧 connected 报告，检查 8 项完整执行、零失败与零跳过，随后核对设备已安装 APK 的 SHA256，并要求 ADB runner 8 个不同测试全部成功且终态为 -1。
+手机不允许 USB 自动安装时，用户可手动安装这两份已审计 APK，再运行 `Scripts/android-mobile-verify.ps1 -Offline -RunDeviceTests -UseInstalledApks`；该模式跳过 Gradle 自动安装但不跳过 APK 身份比对和真机 instrumentation。
+脚本回执验证器为 `Scripts/VerifyAndroidInstrumentation.py`；无设备回归测试为 `Tests/Android/CheckAndroidInstrumentation.py`（CTest `AndroidInstrumentationReceipt`）。
+
+iOS 在 macOS 执行 `export VASE_IOS_SDK_ROOT=<真实 iPhoneOS18.2.sdk 目录>`
+（同时具备 `VCPKG_ROOT`），再运行 `bash Scripts/ios-mobile-verify.sh`；
+它构建 Mac 原生候选、真正 iPhoneOS arm64 静态归档与最终应用链接，检查链接符号与包内两份只读清单，
+**不签名、不安装、不运行设备**。两端平台件都只静态链接包；正常 App 启动不生成、不改写、不复制 pack.json。
+新接口 `PluginCatalog::RefreshResources` 是宿主 API/ABI 增量，描述符 `kHeaderVersion` 未动。
+
+**各线 `ctest -N` 现值为移动端发布波 Task 5 新增、Task 7/8（2026-10-17）复核**，见下表；八线同模式名字集合全等，相对 Task 4（531/530）各新增一条 `StaticResourceAssembly.SharedMobileScenarioRunsFiftyRoundsAndCleansEveryPod`。Task 4 相对 Task 3（530/529）各新增一条构建型 `MobileManifests` CTest；Task 3 相对 Task 2 各新增 `BuildProfiles`。唯一
+debug/release差仍是 `EffectScopeDeath.CreateAfterDisposeTerminates`，无平台差、无旧用例删改。Linux Release 首轮 `-j6` 因 LoadProbe fixture 文件被其他测试移动而失败，串行完整重测 531/531 RC0；其它七线完整通过。以下旧波计算保留为历史：
 
 **静态链入波 2026-10-10 历史基数**（八条 preset 线删树重配全量、`ctest` 与
 `ctest -N` 一并跑完；相对 VasePack 波表 348/347 **八线各 +10 = 十枚 gtest**（`InProcessSource` 5 + `StaticLink` 4 +
@@ -464,8 +572,12 @@ T6 Five→Fifty 与 T7 空壳用例替换均 1:1 改写净 0，M3 终审修复�
 
 | preset | `Total Tests` | 与 debug 基线的差 |
 |---|---|---|
-| `win-x64-{clang,msvc}-debug`、`linux-x64-clang-debug`、`macos-x64-clang-debug` | 516 | —（四条 debug 线零差） |
-| `win-x64-{clang,msvc}-release`、`linux-x64-clang-release`、`macos-x64-clang-release` | 515 | −1：M1 T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门——四条 release 线恰同这一条，**平台差 0 自 macOS 入场后维持**（M4 的 `linux − win` 归零形状见下，macOS 未引入新差集，spec §5 收口形态） |
+| `win-x64-{clang,msvc}-debug`、`linux-x64-clang-debug`、`macos-x64-clang-debug` | 535 | —（四条 debug 线零差） |
+| `win-x64-{clang,msvc}-release`、`linux-x64-clang-release`、`macos-x64-clang-release` | 534 | −1：M1 T3 的 death test（`EffectScopeDeath.CreateAfterDisposeTerminates`）受 `#ifndef NDEBUG` 门——四条 release 线恰同这一条，**平台差 0 自 macOS 入场后维持**（M4 的 `linux − win` 归零形状见下，macOS 未引入新差集，spec §5 收口形态） |
+
+**2026-10-17 评审修复基数修订：**相比 Task 8 原始冻结值 Debug 532 / Release 531，新增两个所有桌面平台同名注册的 CTest（`MobileResourceStaging` 与 `MobileSymbolsExports`），故当时目标值 Debug 534 / Release 533；新增测试分别验证 Android/iOS 二次选包移除旧资源，以及 JNI ELF `.dynsym` 中真实动态导出。原 Task 8 全新树证据属于修复前提交，不能冒充修复后完整八线复验。
+
+**2026-10-18 Android 真机验收脚本修复后最新基数：**新增所有八条桌面线同名注册的 CTest `AndroidInstrumentationReceipt`，故 Debug **535** / Release **534**；Windows 四线各 2 项既有条件 Skipped，跨平台同模式名称集合保持一致，唯一 Debug 专属仍是 `EffectScopeDeath.CreateAfterDisposeTerminates`。八线重新 configure/build/完整 CTest/ctest -N 审计见 SDD `receipt-fix-20261018-audit.json`（`passed=true`）；macOS Debug 首轮在 GoogleTest discovery 超时，原始失败留存，独立重试 535/535 RC0。
 
 **基数差是设计，不是漏注册**：**macOS 入场未引入任何新差集**——macOS 腿全部用例增量（macOS 腿 T3 的合成字节三枚）与
 平台无关（D173 的设计点），体内 `#ifdef` 的两枚平台证人自 macOS 腿起在三条非 Windows 线上各注册各的同名一条；
@@ -1007,7 +1119,24 @@ git ls-files -z --cached --others --exclude-standard '*.h' '*.hpp' '*.cpp' '*.cc
 stdout 打全「退出码 + 正文 `error:` 条数 + 正文 `warning:` 条数」三判据与摘要计数，**退出码非 0 即门禁未过**，
 不必再手工 grep 日志。（**macOS 线的 RC 与正文 warning 不耦合**——2026-10-03 勘误，见「核这些门禁时…」那节。）
 基数见「核这些门禁时，退出码单独用是不够的」那节的实测表，脚本不复制阈值。
-**N:1 包发布波（2026-10-14 至 15）检查现值**：Windows clang-cl、cl.exe 两线全量各158 TU，
+**移动端发布波 Task 3（2026-10-17）全量静态检查**：四条 debug 线按独立 `task3-*` 树各检查 160/160 TU，Windows clang-cl / cl.exe、Linux / macOS 最终均 RC=0、正文 error/warning 双 0、裸 error 0；Suppressed 分别 1162356 / 1162356 / 462516 / 650516，NOLINT 分别 7563 / 7563 / 7548 / 7547。macOS 首轮因同时执行 CTest 而缺 `.o.modmap` 产生一条裸 error（RC=1），完整 CTest 生成中间产物后全量重跑最终三判据通过；没有因环境失败跳过任何 TU。原生 manifest-host 30/30 TU，RC0、正文双0；三平台完整源码 format RC0，`git diff --check` RC0。上述证据均为 desktop/manifest-host，不是移动目标编译结果。
+
+**移动端发布波 Task 2（2026-10-17）增量检查**：四条debug线各检查变动的
+`Tests/StaticLink/PackageAssemblyTests.cpp`一份TU（1/160），RC0、正文error/warning双0、裸error为0；
+仅该TU的Suppressed/NOLINT为Windows两线各5474/55、Linux3789/56、macOS4304/56。
+编译数据库仍为170项/160唯一路径，八线各自编译命令前后全等；其余未变输入沿用Task 1全量结果，不合成新总体。
+三平台format均RC0、输出0字节；初轮新代码四条warning经const、直接包含与尾逗号修正，未加NOLINT。
+
+**移动端发布波 Task 1（2026-10-16 至 17）最新全量检查值**：四条debug线全量各160/160 TU，
+最终退出码0、正文error/warning双0；相对N:1波新增`CatalogSnapshot.cpp`与`CatalogResourceTests.cpp`，
+四线编译数据库各170项、160个唯一路径。Windows clang-cl与cl.exe的Suppressed各1162336、
+NOLINT命中7559，Linux为462496/7544，macOS为650496/7543；单TU极值维持998/45609、359/11337、
+278/7454。新代码没有新增NOLINT位点，三平台format均RC0。
+clang-cl第一轮tidy早于完整ctest结束，两个构建型fixture的生成器`.modmap`尚缺，出现两条裸
+`error:`、tidy RC1而正文格式计数双0；完整ctest后核对产物齐全并全量重跑，最终三判据全过。
+macOS使用实际构建并完整测试过的新debug树，默认2线程全量首轮通过；未更改检查或抑制规则。
+
+**N:1 包发布波（2026-10-14 至 15）历史检查值**：Windows clang-cl、cl.exe 两线全量各158 TU，
 退出码0、正文error/warning双0；Suppressed各1151738、NOLINT命中各7481，单TU极值998/45609。
 macOS全量158 TU同样退出码0、正文双0；Suppressed642556、NOLINT命中7465，极值278/7454。
 Linux全量首轮158 TU退出码0、正文error 0但warning 1（`PackageStageTests.cpp` 的未用`utility`包含）；
@@ -1174,8 +1303,9 @@ dllexport 强制提取归档成员」，只验了带 `/INCREMENTAL` 的 debug �
   原句的出处是 macOS 腿 T10 首跑的**包装器缺口**（`rc=1` 且正文双 0，见 `Scripts/macos-clang-tidy.sh` 注释与
   该腿 plan 偏离登记第 9 条），不是「warning 推高 RC」。**四线的 RC 与正文 warning 不耦合**，方向一致——
   但仍别只信 RC：RC=0 也不蕴含无抑制量，三判据要一起读。
-  下表为**N:1 包发布波最新读数**；Linux一行已是最终字节全量重跑后的读数（首轮那 1 条正文 warning
-  与修复后定点复验的范围见「静态检查与格式」，全量重跑本身 158/158、正文双 0）。历史口径（**VasePack 波 2026-10-04，
+  下表为**移动端发布波 Task 1 最新全量读数（2026-10-16 至 17）**；Task 2的增量范围见「静态检查与格式」。
+  四条debug线均为当时最终字节全量
+  三判据通过后的读数，首轮环境/时序失败与恢复范围见「静态检查与格式」。历史口径（**VasePack 波 2026-10-04，
   四线全量、首跑即三判据全过、正文双 0——账见「静态检查与格式」段**；
   macOS 腿 T10 2026-10-02 四线全量复跑三判据全过、正文双 0，该波首跑捕得 21 条正文 warning、全部代码级出路；
   M6 终审修复波 T6 2026-09-30 为三线全量首跑即双 0；
@@ -1191,14 +1321,14 @@ dllexport 强制提取归档成员」，只验了带 `/INCREMENTAL` 的 debug �
   的 `auto loaded` 消费形 / 合并两 case 保穷举），复跑三线三判据全过、正文双 0）。**M6 终审修复波 T6 三线全量首跑即三判据全过、正文双 0**——
   终审修复未带入正文 warning（本波新代码仅一枚用例与两处分支）。正文双 0 之外，
   当时的抑制落在第三方头、gtest/nlohmann 模板与被 NOLINT 豁免的自有位形/宏机制代码里，
-  自有代码零正文 warning。本波四线摘要如下（Linux 首轮例外已在上文记载）：
+  自有代码零正文 warning。Task 1四线最终摘要如下：
 
   | 线 | 文件数 | 摘要行 Suppressed 合计 | 单 TU 最小 / 最大 |
   |---|---|---|---|
-  | clang-cl（`win-x64-clang-debug`） | 158 | 1151738 | 998 / 45609 |
-  | cl.exe（`win-x64-msvc-debug`） | 158 | 1151738 | 998 / 45609 |
-  | Linux（`linux-x64-clang-debug`） | 158 | 456379 | 359 / 11337 |
-  | macOS（`macos-x64-clang-debug`） | 158 | 642556 | 278 / 7454 |
+  | clang-cl（`win-x64-clang-debug`） | 160 | 1162336 | 998 / 45609 |
+  | cl.exe（`win-x64-msvc-debug`） | 160 | 1162336 | 998 / 45609 |
+  | Linux（`linux-x64-clang-debug`） | 160 | 462496 | 359 / 11337 |
+  | macOS（`macos-x64-clang-debug`） | 160 | 650496 | 278 / 7454 |
 
   **历史口径——静态链入波TU数四线同为126**（2026-10-10 复跑，「126 files out of 126」四线一致：VasePack 波的
   119 → **+7 = 五个新源**（`Tests/StaticLink/StaticLinkTests.cpp`、`Tests/StaticLink/fixtures/KeepAliveProbe/KeepAliveProbe.cpp`、

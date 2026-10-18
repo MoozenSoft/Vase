@@ -1,19 +1,7 @@
-add_library(PackageServices INTERFACE)
-target_link_libraries(PackageServices INTERFACE VaseBuildOptions)
-target_include_directories(PackageServices INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
-
-add_subdirectory(fixtures/Provider)
-add_subdirectory(fixtures/Consumer)
-
-# 测试源策略不得进入开发根的 validate 全集；发布链只消费下方显式 stage 目录。
-foreach(packageFixture IN ITEMS PackageProviderPlugin PackageConsumerPlugin)
-    set_target_properties(${packageFixture} PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixture plugins/${packageFixture}"
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixture plugins/${packageFixture}")
-endforeach()
-
-vase_pack_plugins(VasePackageProvider PLUGINS PackageProviderPlugin STATIC)
-vase_pack_plugins(VasePackageConsumer PLUGINS PackageConsumerPlugin STATIC)
+# 桌面与宿主原生候选生成器共同消费唯一的 Provider/Consumer 包定义。
+include("${PROJECT_SOURCE_DIR}/Samples/Mobile/Packages.cmake")
+vase_define_mobile_packages()
+vase_define_mobile_scenario()
 
 # VaseTests 只持有动态路径；STATIC 包仅由独立见证程序链入。
 target_compile_definitions(VaseTests PRIVATE

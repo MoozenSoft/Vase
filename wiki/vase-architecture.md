@@ -1768,7 +1768,7 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | M2 求解 | + 依赖账本执法与解析记录（3b） |
 | M3 多插件 | + 叶判定的图反查与拒绝报告（3a，全量形 = 三插件局中对叶 50 轮）；+ Eject 自动重置登记的进程级状态并写入报告（3d）。**判据 19 的完整属主追踪器经核查否决（D97，spec §4）**——不新增可达检出情形，M3 行自此只有这两笔 |
 | M4 热替换 | **已落（Win / Linux，2026-09-27）**：换件谱扩到**描述符维含回退方向**（五步阶梯，每步只差一维；D105/D113）、**Windows 侧档三负例**（换件序列两平台统一为「改名离开+落新字节」；D108）、**语义依赖知情位**（`EjectReport::SemanticDependencyPossible`，如实上报不可知；D110/D115）。**macOS 腿顺延 M5**（与 M0–M3 平台口径一致） |
-| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外）。**VaseCli `scan` / `validate` 已落（第一波，2026-09-28，spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117–D140）**；平台腿与 `plan` / `doctor` 归后续波次（`plan` / `doctor` **已于 M6 落地，2026-09-30**，见 11.1 的 M6 现状注；**macOS 平台腿已落（x64，2026-10-02）**——spec `docs/superpowers/specs/2026-10-01-vase-macos-x64-platform-leg-design.md` D156–D179：档二 `_dyld_image_count` 映射清单、档三 `LC_UUID`（链接器必写、无对位承重 flag，由 `-Wl,-no_uuid` 负例反向把守）、`LibraryFileName` 的 `.dylib` 分支还清 D138；**arm64 已由需求方 2026-10-01 裁定永久移出（D157）**；本行原先的 neverUnload「由 M5 实测判定」由该波取证**部分**回答——纯 C++/libc++ 插件形态实测不触发、清单其余项未测，结论带形态限定记在技能 `portability.md` §6 与 D171。VasePack 仍归后续；**CI / CD 已由需求方 2026-10-03 裁定不做**，见 §13.4）。**后续现状指针（补于 VasePack 两波之后）**：四条 VaseCli 命令（`scan` / `validate` / `plan` / `doctor`）与 macOS x64 腿均已落地（见 11.1 各现状注）；组合库机制**已落**——桌面发布形（SHARED）2026-10-04（VasePack 波，spec D196–D215，见 8.6 现状注），静态链入（进程内来源）那半边 2026-10-10（静态链入波，spec D216–D241，见 8.1 / 8.6 现状注）；**移动产物形态与真移动构建腿仍归后续**（见 §13.2 插件形态行） |
+| M5 平台收口 | macOS 证据链补全，并实测判定「dyld4 neverUnload（含 static terminators）对普通 C++ 插件热卸能力的上限」；**Android / iOS 仅冷装配的边界验证——热插拔明文不出桌面**（Apple 禁下载代码 dlopen，档 ① 也不给例外）。**VaseCli `scan` / `validate` 已落（第一波，2026-09-28，spec `docs/superpowers/specs/2026-09-27-vase-m5-vasecli-scan-validate-design.md` D117–D140）**；平台腿与 `plan` / `doctor` 归后续波次（`plan` / `doctor` **已于 M6 落地，2026-09-30**，见 11.1 的 M6 现状注；**macOS 平台腿已落（x64，2026-10-02）**——spec `docs/superpowers/specs/2026-10-01-vase-macos-x64-platform-leg-design.md` D156–D179：档二 `_dyld_image_count` 映射清单、档三 `LC_UUID`（链接器必写、无对位承重 flag，由 `-Wl,-no_uuid` 负例反向把守）、`LibraryFileName` 的 `.dylib` 分支还清 D138；**arm64 已由需求方 2026-10-01 裁定永久移出（D157）**；本行原先的 neverUnload「由 M5 实测判定」由该波取证**部分**回答——纯 C++/libc++ 插件形态实测不触发、清单其余项未测，结论带形态限定记在技能 `portability.md` §6 与 D171。VasePack 仍归后续；**CI / CD 已由需求方 2026-10-03 裁定不做**，见 §13.4）。**后续现状指针（补于 VasePack 两波之后）**：四条 VaseCli 命令（`scan` / `validate` / `plan` / `doctor`）与 macOS x64 腿均已落地（见 11.1 各现状注）；组合库机制**已落**——桌面发布形（SHARED）2026-10-04（VasePack 波，spec D196–D215，见 8.6 现状注），静态链入（进程内来源）那半边 2026-10-10（静态链入波，spec D216–D241，见 8.1 / 8.6 现状注）；**移动产物形态与真移动构建腿在当时仍归后续**（这是 2026-10-10 的历史口径；2026-10-17 已完成 Android/iPhoneOS 真构建，尚未在设备执行，见 §13.2 插件形态行） |
 
 **连带文书义务**：v3 落地（M1 更名）时同步更新 `CLAUDE.md`（目录名、构建命令、ctest 基数预期）；M0/M1 设计文档不改史，挂一条指向本文的勘误标注（涉及其 2.4 判据表与 3.3(4) 的 Linux 判据去向）。
 
@@ -1789,13 +1789,13 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 - **身份特征缺失时的内存哈希兜底（v3）**——特征已是构建要求（8.2、13.2），但「无特征的旧二进制」是永远被拒还是有哈希兜底，未决。暂不设计，出现真实需求再议。
 - **macOS 热插拔能力上限（v3）**——dyld4 neverUnload 的条件清单远宽于 glibc（ObjC/Swift、static terminators、主程序静态依赖），且 `dlclose` 返回 0 不可信。「哪些插件在 macOS 上可热卸」由 M5 实测回答；机制与风险段见 8.2。
 
-### 13.2 已决定，待实现
+### 13.2 已决定的平台、移动发布构建与运行验证边界
 
 | 项 | 决定 |
 |---|---|
 | 构建系统 | CMake + vcpkg；编译矩阵由平台工具链文件承载（8.5） |
 | 目标平台 | Win x64 / Linux x64 / macOS **x64**（**开发 + 发布**；macOS 原口径 arm64，需求方 2026-10-01 裁定改 x64、arm64 永久移出——macOS 腿 spec D157，x64 腿 2026-10-02 已落）；Android arm64 / iOS arm64（**仅发布**）。工具链见 8.5 |
-| 插件形态 | 开发期每插件一个动态库；发布期组合库由CMake函数生成。2026-10-04桌面SHARED机制、2026-10-10进程内STATIC链入均已落，历史范围见§8.1/§8.6；本次N:1波进一步兑现包清单、目录发现、来源绑定、每局预检和显式生成/staging（§3.5/§5.1/§11.1）。**丁（N:1清单/装配链）已实现；余甲、乙**：真实iOS/Android工具链、triplet、preset，以及移动产物命名与交付落位。桌面验证不表述为移动端已验证。 |
+| 插件形态 | 开发期每插件一个动态库；发布期组合库由CMake函数生成。2026-10-04桌面SHARED机制、2026-10-10进程内STATIC链入均已落，历史范围见§8.1/§8.6；本次N:1波进一步兑现包清单、目录发现、来源绑定、每局预检和显式生成/staging（§3.5/§5.1/§11.1）。**丁（N:1清单/装配链）与甲、乙的真实移动构建产物已实现**：Android NDK r30 arm64 JNI/Gradle APK、iPhoneOS18.2 SDK arm64 归档和最终链接；**设备执行未验证**（Android 无连接的 arm64 设备，iOS 本波仅链接不签名运行），不可把桌面测试或交叉链接当作设备证据。 |
 | 组合库入口 | VasePack 生成 `VasePlugin_GetPlugin(id)` 分发表，靠**硬引用**保活（8.6） |
 | JSON 库 | `nlohmann/json`，**且只出现在 `PluginCatalog` 层**（4.1） |
 | 配置 `type` 取值 | `bool` / `int32` / `int64` / `float` / `double` / `string` / `enum`；**不支持嵌套对象与数组**（4.2） |
@@ -1817,6 +1817,24 @@ Vase 的核心承诺是**运行期性质**，而运行期性质只能由运行�
 | 档三失败政策 | Adopt 失败、X 留局外、报告明文「重建整局」逃生门；不自动重试、不自动重建局（8.2） |
 | 插件身份特征 | 构建要求：MSVC `/DEBUG`、Linux `-Wl,--build-id`（macOS 天然 LC_UUID）；缺失 = Adopt 拒绝；`-fno-gnu-unique` 一并入构建模板（8.2） |
 
+> **[移动发布现状注（2026-10-17，VasePack Mobile）]**
+> 上表的移动构建腿现已落地，先前各节带 2026-10-04/10-10 日期的「真 Android/iOS 工具链待后续」仅作为当时历史状态。
+> 候选 pack.json 由 Windows/macOS **原生 manifest-host** 从同一套 Provider/Consumer 描述符生成，
+> `Cmake/VaseMobileResources.cmake` 再依目标属性机械生成资源名与 `InProcessBinding`；两端
+> 运行入口只读 Android AssetManager / iOS CFBundle 字节输入，绝不在 App 启动时调用生成器。
+> Catalog 新增宿主 API `RefreshResources(span<PackageResource>)` 及内容解析入口；
+> `CatalogSource::ResourceLocation` 追加为拥有字符串、属于 **Catalog/Host ABI** 变化，不影响
+> `PluginDescriptor`、`PackageEntryPoints` 布局或 `kHeaderVersion=4`。清单只有源策略
+> `enabledByDefault` 可不同于描述符；其它元信息由描述符唯一裁决，漂移必须拒绝、不自动修正。
+>
+> Android NDK r30 arm64-v8a/API29 静态成员最终进入 JNI ELF `libVaseMobileJni.so`，
+> `VaseMobileApkInputs` 先构建宿主候选，再打包只读资源与匹配的 `libc++_shared.so`。
+> Gradle 已实际生成主 APK 和 instrumentation APK，但 **adb 无兼容设备，未运行 instrumentation**。
+> iPhoneOS18.2.sdk / 最低 iOS 15.0 真正生成 arm64 归档，最终由
+> `VaseMobileIosLinkProbe.app` 链入共用 ScenarioCore 与 CFBundle 资源读取；
+> 用 Mach-O 的 LC_BUILD_VERSION、符号与链入反证验证链接闭包，**没有签名/安装/在 iPhone 上执行**。
+> 因而两端的 Clean、读取权限与元信息漂移 **设备运行**均属待证，不能从 CTest 桌面证人或链接成功推断。
+>
 ### 13.3 已知的静默失败点（已接受）
 
 **配置与进程级状态靠 `VASE_PLUGIN` 里的显式引用**（`.Config = vase::FieldsOf<T>`、`.ProcessState = kProcessStates`）。忘写不会编译报错、不会加载失败——插件照跑，**只表现为宿主界面上的配置面板凭空消失**，而现有的加载期比对拦不住（3.1 末）。

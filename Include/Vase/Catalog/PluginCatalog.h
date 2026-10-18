@@ -32,11 +32,13 @@ public:
     PluginCatalog(PluginCatalog&&) = delete;
     PluginCatalog& operator=(PluginCatalog&&) = delete;
 
-    [[nodiscard]] std::vector<std::string> Ids() const;                 // 值拷贝，字典序
-    [[nodiscard]] const ManifestEntry* Find(std::string_view id) const; // 借用快照，下次 Refresh 失效（D61）
+    [[nodiscard]] std::vector<std::string> Ids() const; // 值拷贝，字典序
+    // 借用快照；下次成功 Refresh/RefreshResources 失效，失败保留（D61）。
+    [[nodiscard]] const ManifestEntry* Find(std::string_view id) const;
     [[nodiscard]] const std::vector<CatalogWarning>& Warnings() const { return SnapshotWarnings; }
+    // 目录导入为绝对路径；首扫前或资源导入后为空。
     [[nodiscard]] const std::filesystem::path& Directory() const { return SnapshotDirectory; }
-    // 来源表（T4）：按一级目录名顺序产出，非 Id 序；借用窗与 Warnings 同（下一次成功 Refresh）。
+    // 来源表：目录导入按一级目录名序，资源导入按 Location 字节序；借用窗与 Find 同。
     [[nodiscard]] const std::vector<CatalogSource>& Sources() const { return SnapshotSources; }
     // 插件 → 所属来源。未收录的 Id → nullptr。
     [[nodiscard]] const CatalogSource* SourceFor(std::string_view pluginId) const;
@@ -46,6 +48,10 @@ public:
     // 两类清单同处一目录 / 坏清单 / 重复 Id / 重复 sourceId → Err（D50）。入参绝对化后存为 Directory()。
     Result<void> Refresh(const std::filesystem::path& pluginDirectory);
 
+    // 只读 inProcess 包；Location 非空、无 NUL、本批字节唯一，不作路径归一或大小写折叠。
+    // 成功才整体替换自持快照，置已导入，Directory/Warnings 清空；空批成功，失败保留旧借用。
+    Result<void> RefreshResources(std::span<const PackageResource> resources);
+
     // 纯数据分析（T5，spec §4.1）：与 Solve 共用同一套参与判定、依赖闭包、冲突检查、拓扑排序、
     // 配置合并与归因算法；不装载库、不调用入口、不依赖静态绑定。结果全自持、可安全 move。
     // 首扫前调用 → Err（D63）；确定性、错误/跳过区分与 Notes 去重键契约不变。
@@ -53,16 +59,16 @@ public:
 
     // 可执行计划（T5，spec §4.2）：Analyze 之后按来源表物化，静态来源取 bindings 的入口。
     // 单参形态保留、委派空绑定集合；Plan 里余下唯一借用 = Ordered[i].Id 的快照窗
-    // （D61，窗 = 到下一次 Refresh）；Expected 自 T9 起为拥有值形、逐条目深拷（D84），必有值。
+    // （D61，窗 = 到下一次成功的目录/资源导入）；Expected 为拥有值形、逐条目深拷（D84），必有值。
     Result<SolveOutcome> Solve(const LoadRequest& request) const;
     Result<SolveOutcome> Solve(const LoadRequest& request, std::span<const InProcessBinding> bindings) const;
 
 private:
-    std::filesystem::path SnapshotDirectory;    // 首次 Refresh 后为绝对路径
+    std::filesystem::path SnapshotDirectory;    // 目录导入后为绝对路径，资源导入后为空
     std::vector<ManifestEntry> SnapshotEntries; // Id 字典序（Find 二分与 D53 同源）
-    std::vector<CatalogSource> SnapshotSources; // 一级目录名序
+    std::vector<CatalogSource> SnapshotSources; // 目录名序或资源 Location 字节序
     std::vector<CatalogWarning> SnapshotWarnings;
-    bool HasScanned = false; // 首次成功 Refresh 后置位（D63），T5 的 Solve 前置读它
+    bool HasScanned = false; // 首次成功目录/资源导入后置位（D63）
 };
 
 // 单文件清单解析（spec §4 全执法线；unknown 字段拒 + D64 硬闸）。subdirectoryName

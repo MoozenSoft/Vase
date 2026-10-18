@@ -602,6 +602,8 @@ Result<std::vector<std::string>> ParseElfNeededFile(std::span<const std::uint8_t
     return Names::Ok(std::move(names));
 }
 
+// 静态移动端的格式与导入拒绝桥由 ImageInspectStatic 唯一定义；纯字节解析器仍共用。
+#ifndef VASE_LINKED_IN_ONLY
 ImageFormat PlatformImageFormat()
 {
 #ifdef _WIN32
@@ -627,6 +629,7 @@ Result<std::vector<std::string>> ParseImportedLibraryNames(std::span<const std::
     }
     return Result<std::vector<std::string>>::Err(Error{"unreachable image format"});
 }
+#endif
 
 std::string FirstUnresolvableImport(std::span<const std::uint8_t> fileBytes, ImageFormat format)
 {
