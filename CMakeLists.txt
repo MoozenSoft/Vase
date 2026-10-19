@@ -303,7 +303,28 @@ add_subdirectory(Source/Pod)
 add_subdirectory(Source/Host)
 add_subdirectory(Source/Catalog)
 
+# Optional product integration.  Keep Vase-only builds unchanged when the path is empty.
+set(VASE_DEMO_SOURCE_DIR "" CACHE PATH "Optional path to the external VaseDemo source tree")
+function(vase_add_optional_demo)
+    if("${VASE_DEMO_SOURCE_DIR}" STREQUAL "")
+        return()
+    endif()
+    if(NOT IS_DIRECTORY "${VASE_DEMO_SOURCE_DIR}"
+       OR NOT EXISTS "${VASE_DEMO_SOURCE_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "VASE_DEMO_SOURCE_DIR must point to a directory with CMakeLists.txt: '${VASE_DEMO_SOURCE_DIR}'")
+    endif()
+    get_filename_component(vase_demo_real_dir "${VASE_DEMO_SOURCE_DIR}" REALPATH)
+    if(vase_demo_real_dir STREQUAL CMAKE_SOURCE_DIR)
+        message(FATAL_ERROR "VASE_DEMO_SOURCE_DIR must be an external project, not the Vase root")
+    endif()
+    if(NOT TARGET VaseDemoContracts)
+        add_subdirectory("${vase_demo_real_dir}" "${CMAKE_BINARY_DIR}/VaseDemo")
+    endif()
+endfunction()
+
 if(NOT VASE_BUILD_PROFILE STREQUAL "desktop")
+    vase_add_optional_demo()
     add_subdirectory(Samples/Mobile)
     return()
 endif()
@@ -329,5 +350,8 @@ add_subdirectory(Samples/VasePlugins)
 add_subdirectory(Tools/VaseConsole)
 # VaseCli（M5）：必须在 Tests 之前——VaseTests 要链它的 VaseCliCore（同 VaseHost 的既有范式）。
 add_subdirectory(Tools/VaseCli)
+
+# Desktop consumers need VaseCliCore in scope before adding the optional product.
+vase_add_optional_demo()
 
 add_subdirectory(Tests)
