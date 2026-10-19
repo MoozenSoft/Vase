@@ -1,6 +1,6 @@
 #!/bin/bash
 # 干净树两线全量（macOS x64）。在 macOS 开发机上本地跑。
-set -u
+set -euo pipefail
 
 # pkg-config 是 macOS 独有的环境前提：缺它 vcpkg 的 gtest port 会无条件倒在
 # vcpkg_fixup_pkgconfig，症状是「什么都编不出来」而不是一条清楚的缺依赖。
@@ -17,8 +17,14 @@ cd "$SCRIPT_DIR/.." || exit 1
 run() {
     echo ""
     echo "########## RUN: $* ##########"
-    "$@"
-    echo "########## RC=$? : $* ##########"
+    local rc=0
+    if "$@"; then
+        rc=0
+    else
+        rc=$?
+    fi
+    echo "########## RC=$rc : $* ##########"
+    return "$rc"
 }
 
 for p in macos-x64-clang-debug macos-x64-clang-release; do
