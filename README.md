@@ -84,6 +84,20 @@ Codex 项目配置与启动方法见 [docs/codex-setup.md](docs/codex-setup.md)�
 
 ## 构建与验收
 
+### 可选外部项目
+
+Vase 默认独立构建。需要集成 VaseDemo、VaseExample 等独立 CMake 项目时，使用
+`VASE_EXTERNAL_PROJECT_SOURCE_DIR` 指定**一个项目的源码根目录**：
+
+```powershell
+cmake --preset win-x64-clang-debug -DVASE_EXTERNAL_PROJECT_SOURCE_DIR=D:/Git/VaseDemo
+```
+
+该参数是 `CACHE PATH`，不搜索目录、不依赖外部项目名称，也不同时加载多个项目。
+空值仅构建 Vase；非空路径必须包含 `CMakeLists.txt`，且不能指向 Vase 自身。
+切换外部项目时使用新的构建树，避免复用原项目的 CMake 缓存与产物。
+旧参数 `VASE_DEMO_SOURCE_DIR` 已被替换，验证脚本也统一使用新名称。
+
 ### Windows
 
 ```bash

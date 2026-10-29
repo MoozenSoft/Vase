@@ -303,28 +303,31 @@ add_subdirectory(Source/Pod)
 add_subdirectory(Source/Host)
 add_subdirectory(Source/Catalog)
 
-# Optional product integration.  Keep Vase-only builds unchanged when the path is empty.
-set(VASE_DEMO_SOURCE_DIR "" CACHE PATH "Optional path to the external VaseDemo source tree")
-function(vase_add_optional_demo)
-    if("${VASE_DEMO_SOURCE_DIR}" STREQUAL "")
+# Optional single external CMake project. An empty path keeps Vase-only builds unchanged.
+set(VASE_EXTERNAL_PROJECT_SOURCE_DIR "" CACHE PATH "Optional source root of one external CMake project")
+if(NOT "${VASE_DEMO_SOURCE_DIR}" STREQUAL "" AND "${VASE_EXTERNAL_PROJECT_SOURCE_DIR}" STREQUAL "")
+    message(FATAL_ERROR
+        "VASE_DEMO_SOURCE_DIR has been replaced by VASE_EXTERNAL_PROJECT_SOURCE_DIR; configure with the new option")
+endif()
+
+function(vase_add_optional_external_project)
+    if("${VASE_EXTERNAL_PROJECT_SOURCE_DIR}" STREQUAL "")
         return()
     endif()
-    if(NOT IS_DIRECTORY "${VASE_DEMO_SOURCE_DIR}"
-       OR NOT EXISTS "${VASE_DEMO_SOURCE_DIR}/CMakeLists.txt")
+    if(NOT IS_DIRECTORY "${VASE_EXTERNAL_PROJECT_SOURCE_DIR}"
+       OR NOT EXISTS "${VASE_EXTERNAL_PROJECT_SOURCE_DIR}/CMakeLists.txt")
         message(FATAL_ERROR
-            "VASE_DEMO_SOURCE_DIR must point to a directory with CMakeLists.txt: '${VASE_DEMO_SOURCE_DIR}'")
+            "VASE_EXTERNAL_PROJECT_SOURCE_DIR must point to a directory with CMakeLists.txt: '${VASE_EXTERNAL_PROJECT_SOURCE_DIR}'")
     endif()
-    get_filename_component(vase_demo_real_dir "${VASE_DEMO_SOURCE_DIR}" REALPATH)
-    if(vase_demo_real_dir STREQUAL CMAKE_SOURCE_DIR)
-        message(FATAL_ERROR "VASE_DEMO_SOURCE_DIR must be an external project, not the Vase root")
+    get_filename_component(vase_external_project_real_dir "${VASE_EXTERNAL_PROJECT_SOURCE_DIR}" REALPATH)
+    if(vase_external_project_real_dir STREQUAL CMAKE_SOURCE_DIR)
+        message(FATAL_ERROR "VASE_EXTERNAL_PROJECT_SOURCE_DIR must be an external project, not the Vase root")
     endif()
-    if(NOT TARGET VaseDemoContracts)
-        add_subdirectory("${vase_demo_real_dir}" "${CMAKE_BINARY_DIR}/VaseDemo")
-    endif()
+    add_subdirectory("${vase_external_project_real_dir}" "${CMAKE_BINARY_DIR}/VaseExternalProject")
 endfunction()
 
 if(NOT VASE_BUILD_PROFILE STREQUAL "desktop")
-    vase_add_optional_demo()
+    vase_add_optional_external_project()
     add_subdirectory(Samples/Mobile)
     return()
 endif()
@@ -352,6 +355,6 @@ add_subdirectory(Tools/VaseConsole)
 add_subdirectory(Tools/VaseCli)
 
 # Desktop consumers need VaseCliCore in scope before adding the optional product.
-vase_add_optional_demo()
+vase_add_optional_external_project()
 
 add_subdirectory(Tests)
